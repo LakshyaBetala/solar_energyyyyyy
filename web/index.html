@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Solara</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Saira+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<template id="markSvg">
+  <svg viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" aria-hidden="true">
+    <path d="M15 2.5v2.8M7.6 5.6l2 2M22.4 5.6l-2 2"/>
+    <circle cx="15" cy="11.4" r="3" fill="currentColor" stroke="none"/>
+    <path d="M3.5 26.8h23M8.4 26.8 11 18.6h8l2.6 8.2M11.9 22.7h6.2" stroke-linejoin="round"/>
+  </svg>
+</template>
+
+<!-- ------------------------------ sign in ------------------------------ -->
+<div class="gate" id="gate">
+  <div class="gatecard">
+    <div class="mark" id="gateMark"></div>
+    <h1>Solara</h1>
+    <p>Solar back office &mdash; portal automation, document intake and subsidy tracking.</p>
+    <div class="gateerr" id="gateErr" hidden></div>
+    <form id="loginForm">
+      <div class="field"><label for="u">Username</label>
+        <input type="text" id="u" autocomplete="username" value="r.deshmukh"></div>
+      <div class="field"><label for="p">Password</label>
+        <input type="password" id="p" autocomplete="current-password" value="demo"></div>
+      <button class="btn pri" type="submit" style="width:100%;justify-content:center">Sign in</button>
+    </form>
+    <div class="whoami">
+      <div class="lab" style="padding:0 2px 2px">Demo accounts &mdash; password <b>demo</b></div>
+      <button data-as="r.deshmukh"><b>r.deshmukh</b><span>Supervisor &middot; the only role that may approve a filing</span></button>
+      <button data-as="s.kale"><b>s.kale</b><span>Operator &middot; runs the agent, enters OTP and CAPTCHA</span></button>
+      <button data-as="a.more"><b>a.more</b><span>Viewer &middot; read only</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ------------------------------ app ------------------------------ -->
+<div class="shell" id="shell" hidden>
+  <nav class="rail" aria-label="Sections">
+    <div class="brand"><div class="mark" id="railMark"></div>
+      <div class="bt"><b>Solara</b><span>Solar back office</span></div></div>
+
+    <div class="railcap">Operations</div>
+    <button class="navitem" data-view="pipeline"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.2 4h11.6M2.2 8h7.8M2.2 12h4.6"/></svg></span><span class="lbl">Pipeline</span><span class="tag" id="tagPipe">8</span></button>
+    <button class="navitem" data-view="run"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.6" width="12" height="10.8" rx="1.2"/><path d="M6.6 6.1 10.2 8l-3.6 1.9z" fill="currentColor" stroke="none"/></svg></span><span class="lbl">Agent Runs</span><span class="tag" id="tagRun">idle</span></button>
+    <button class="navitem" data-view="docs"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M3.6 1.8h5.6l3.2 3.2v9.2H3.6z"/><path d="M9.2 1.8V5h3.2M5.8 9h4.4M5.8 11.4h2.8" stroke-linecap="round"/></svg></span><span class="lbl">Document Intake</span><span class="tag hot" id="tagDocs">0</span></button>
+    <button class="navitem" data-view="numbers"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="1.8" width="8" height="12.4" rx="1.2"/><path d="M6.4 5.2h3.2M6.4 8h3.2M6.4 10.8h1.6" stroke-linecap="round"/></svg></span><span class="lbl">Number Pool</span><span class="tag" id="tagNum">9</span></button>
+    <button class="navitem" data-view="calls"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.4 7.2v1.6M5.2 4.8v6.4M8 2.4v11.2M10.8 5.6v4.8M13.6 7.4v1.2"/></svg></span><span class="lbl">AI Calling</span><span class="tag" id="tagCalls">3</span></button>
+
+    <div class="railcap">Governance</div>
+    <button class="navitem" data-view="audit"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.6 3.2h10.8M2.6 6.6h10.8M2.6 10h4.8"/><path d="M9.2 11.6 10.9 13.4l3.1-3.4" stroke-width="1.6"/></svg></span><span class="lbl">Audit Trail</span><span class="tag" id="tagAudit">0</span></button>
+    <button class="navitem" data-view="reports"><span class="ic"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.4 13.4h11.2"/><path d="M5 13.4V8.2M8 13.4V4.2M11 13.4V9.6"/></svg></span><span class="lbl">Reports</span></button>
+
+    <div class="railfoot">
+      <div class="tenant">
+        <div class="nda">Client workspace</div>
+        <div class="who">Solar EPC &middot; Maharashtra</div>
+        <div class="meta">Name withheld under NDA</div>
+      </div>
+      <div class="hint" style="padding:0 2px">Portal automation runs against a local sandbox. No
+        government system is contacted.</div>
+    </div>
+  </nav>
+
+  <div class="main">
+    <header class="topbar">
+      <div style="min-width:0">
+        <div class="crumb" id="crumb">Pipeline</div>
+        <div class="csub" id="crumbsub"></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="chip" id="workerChip"><span class="dot on"></span>Agent worker <b>online</b></span>
+      <span class="chip" id="llmChip" title="Model-assisted extraction"></span>
+      <span class="chip">Signed in <b id="whoName"></b> &middot; <span id="whoRole"></span></span>
+      <div class="seg" role="group" aria-label="Theme">
+        <button data-theme-set="light" aria-pressed="false">Light</button>
+        <button data-theme-set="dark" aria-pressed="false">Dark</button>
+      </div>
+      <button class="btn sm" id="signout">Sign out</button>
+    </header>
+    <main class="work" id="work"></main>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="mtitle">
+  <div class="modal">
+    <div class="mh"><h2 id="mtitle"></h2><p id="msub"></p></div>
+    <div class="mb" id="mbody"></div>
+    <div class="mf" id="mfoot"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden><span class="dot on"></span><span id="toastmsg"></span></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

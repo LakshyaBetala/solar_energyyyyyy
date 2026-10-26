@@ -1,0 +1,28 @@
+# Runtime data: SQLite database, generated documents, screenshots, exports, logs.
+# All of it is recreated on first start.
+data/
+
+# Secrets. Never commit a real key; .env.example is the template.
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Internal working documents, not part of the deliverable
+PITCH.md
+solara-ops.html
+
+# Local agent tooling config
+.claude/
