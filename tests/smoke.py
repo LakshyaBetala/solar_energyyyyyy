@@ -260,6 +260,23 @@ async def main():
 
         # ================= controls: pause and abandon =================
         print("\n  -- run controls")
+        # Abandon arriving just before a checkpoint opens: deterministic, no timing involved
+        from app.agent.runner import Runner, HoldRejected
+        probe = Runner(-1, db.one("SELECT * FROM customers WHERE id='SS-2045'"),
+                       {"username": "probe", "role": "operator"}, "rooftop_registration", 3)
+        probe.stop({"username": "probe", "role": "operator"})
+        try:
+            await asyncio.wait_for(probe.hold("otp", "probe", {}), timeout=3)
+            outcome = "opened"
+        except HoldRejected:
+            outcome = "refused"
+        except asyncio.TimeoutError:
+            outcome = "hung"
+        check("a checkpoint refuses to open after Abandon (no hang)", outcome == "refused", outcome)
+        for t in ("run_steps", "run_events", "holds"):
+            db.ex(f"DELETE FROM {t} WHERE run_id=-1")
+        db.ex("DELETE FROM audit WHERE actor='probe'")
+
         await c.post("/api/demo/reset")
         await login(c, "s.kale")
         r = await c.post("/api/runs", json={"customer_id": "SS-2045", "headless": True, "speed": 1})

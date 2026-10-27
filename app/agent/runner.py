@@ -221,6 +221,9 @@ class Runner:
 
     # ---------- human checkpoints ----------
     async def hold(self, kind, label, context, min_role="operator"):
+        # An Abandon that lands just before a checkpoint opens finds nothing to release, so the
+        # checkpoint itself must refuse to open. No await between here and `await fut`, so no race.
+        await self.gate()
         hid = db.ex("""INSERT INTO holds(run_id,kind,status,context,created_at)
                        VALUES(?,?,'waiting',?,?)""",
                     (self.id, kind, json.dumps(context, ensure_ascii=False), db.now()))
