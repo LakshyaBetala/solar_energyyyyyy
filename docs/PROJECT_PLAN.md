@@ -254,20 +254,19 @@ first KPI, the rest per milestone.
 | Included | |
 |---|---|
 | Hosting | server in India, domain, SSL |
-| AI | all document reading, up to 300 applications a month |
+| AI | all document reading (bills, Aadhaar, passbooks, serial-number photos) |
 | Backups | daily, encrypted, kept 30 days |
 | E-sign | unlimited signing links |
 | Portal updates | when a portal changes, fixed within 1–2 working days |
 | Bug fixes and security updates | yes |
 | Support | WhatsApp, Mon–Sat 10 am–7 pm; urgent within 2 hours |
-| Small changes | up to 4 hours a month (a field, a wording or template change, a report column) |
+| Small changes | up to 10 hours a month (a field, a wording or template change, a report column) |
 
 | Not included | |
 |---|---|
-| New features or portals | change requests at **₹4,500 per day**, quoted before starting |
+| Change requests | anything that does not match the requirements in this plan (new features, portals, documents) is charged separately, quoted and agreed before we start |
 | Aadhaar eSign provider fees | only if MSEDCL insists on formal Aadhaar eSign |
 | AI calling, virtual numbers | not offered to this client; they declined virtual numbers |
-| Above 300 applications a month | discussed first, never charged without their OK |
 
 Monthly in advance. 30 days' notice to stop, and their data is handed over in full.
 
