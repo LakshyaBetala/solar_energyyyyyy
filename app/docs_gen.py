@@ -6,7 +6,7 @@ data/documents, so extraction later parses a real file rather than a hard-coded 
 """
 import asyncio, json
 from playwright.async_api import async_playwright
-from . import db
+from . import db, vault
 from .config import DOCS
 
 BILL_CSS = """
@@ -67,7 +67,7 @@ def aadhaar_html(c):
 <h2>Holder details</h2>
 <table>
 <tr><td>Name</td><td>{c['aadhaar_name']}</td></tr>
-<tr><td>Identity Number</td><td>XXXX XXXX {c['consumer_no'][-4:]}</td></tr>
+<tr><td>Identity Number</td><td>XXXX XXXX {(c['consumer_no'] or c['id'].replace('SS-', '7'))[-4:]}</td></tr>
 <tr><td>Date Of Birth</td><td>14-03-1979</td></tr>
 <tr><td>Address</td><td>{c['address']}</td></tr>
 <tr><td>PIN Code</td><td>{c['pin']}</td></tr>
@@ -88,6 +88,22 @@ def passbook_html(c):
 <tr><td>Account Type</td><td>SAVINGS</td></tr>
 </table>
 <div class="ft">Masked sandbox passbook page generated for the Solara demo environment.</div>"""
+
+
+def ownership_html(c):
+    return f"""<!doctype html><meta charset="utf-8"><style>{BILL_CSS}</style>
+<div class="hd"><div><b>PROPERTY TAX RECEIPT</b><span>Municipal corporation &middot; sandbox document</span></div>
+<div style="text-align:right"><b style="font-size:12px">2026-27</b><span>Receipt 88{c['id'][-4:]}31</span></div></div>
+<h2>Owner and property</h2>
+<table>
+<tr><td>Owner Name</td><td>{c['aadhaar_name']}</td></tr>
+<tr><td>Property ID</td><td>NMC/W3/{c['id'][-4:]}/0071</td></tr>
+<tr><td>Property Address</td><td>{c['address'].upper()}</td></tr>
+<tr><td>Property PIN</td><td>{c['pin']}</td></tr>
+<tr><td>Use</td><td>RESIDENTIAL</td></tr>
+<tr><td>Tax Paid</td><td>INR 6,840.00</td></tr>
+</table>
+<div class="ft">Illustrative ownership proof generated for the Solara demo environment.</div>"""
 
 
 def roof_html(c):
@@ -116,34 +132,34 @@ async def generate(customer_ids=None):
         b = await p.chromium.launch()
         page = await b.new_page(viewport={"width": 820, "height": 1100})
         for c in cust:
-            pc = db.one("SELECT * FROM portal_consumers WHERE consumer_no=?", (c["consumer_no"],))
-            if not pc:
-                continue
+            pc = db.one("SELECT * FROM portal_consumers WHERE consumer_no=?", (c["consumer_no"],))                 if c["consumer_no"] else None
             out = DOCS / c["id"]
             out.mkdir(parents=True, exist_ok=True)
-            jobs = [("bill", "bill_sep2026.pdf", bill_html(c, pc)),
-                    ("aadhaar", "identity_extract.pdf", aadhaar_html(c)),
-                    ("passbook", "bank_passbook.pdf", passbook_html(c))]
+            # a new-connection applicant has no bill yet; ownership proof stands in for it
+            jobs = ([("bill", "bill_sep2026.pdf", bill_html(c, pc))] if pc else
+                    [("ownership", "property_tax_receipt.pdf", ownership_html(c))])
+            jobs += [("aadhaar", "identity_extract.pdf", aadhaar_html(c)),
+                     ("passbook", "bank_passbook.pdf", passbook_html(c))]
             for kind, fname, html in jobs:
                 await page.set_content(html)
+                blob = await page.pdf(format="A4", margin={"top": "0", "bottom": "0",
+                                                           "left": "0", "right": "0"})
                 path = out / fname
-                await page.pdf(path=str(path), format="A4",
-                               margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
-                _record(c["id"], kind, fname, path)
+                _record(c["id"], kind, fname, path, vault.write(path, blob))
                 made.append(str(path))
             await page.set_content(roof_html(c))
             path = out / "roof_photos.png"
-            await page.screenshot(path=str(path), full_page=True)
-            _record(c["id"], "roof", "roof_photos.png", path)
+            _record(c["id"], "roof", "roof_photos.png", path,
+                    vault.write(path, await page.screenshot(full_page=True)))
             made.append(str(path))
         await b.close()
     return made
 
 
-def _record(cid, kind, fname, path):
+def _record(cid, kind, fname, path, size):
     db.ex("DELETE FROM documents WHERE customer_id=? AND kind=?", (cid, kind))
     db.ex("""INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at)
-             VALUES(?,?,?,?,?,?)""", (cid, kind, fname, str(path), path.stat().st_size, db.now()))
+             VALUES(?,?,?,?,?,?)""", (cid, kind, fname, str(path), size, db.now()))
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from . import db
-from .config import DOCS
+from .config import DATA
 
 router = APIRouter(prefix="/portal")
 
@@ -72,28 +72,30 @@ UPLOAD_FIELDS = [("docBill", "Latest electricity bill"),
                  ("docRoof", "Roof photographs")]
 
 
-def shell(title, inner, step=None):
+def shell(title, inner, step=None, steps=STEPS, brand="Rooftop Solar Portal",
+          sub="National programme &middot; sandbox",
+          nav=("Home", "Apply", "Track status", "Vendors", "Help"), mark="&#9728;"):
     bar = ""
     if step is not None:
         bar = '<div class="steps">' + " &rsaquo; ".join(
-            (f"<b>{s}</b>" if i == step else s) for i, s in enumerate(STEPS)) + "</div>"
+            (f"<b>{s}</b>" if i == step else s) for i, s in enumerate(steps)) + "</div>"
+    links = "".join(f"<span>{n}</span>" for n in nav)
     return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
 <style>{CSS}</style></head><body>
-<div class="sandbox">Demo sandbox &mdash; this is not a government service</div>
-<div class="phead"><div class="pm">&#9728;</div><div><div class="pt">Rooftop Solar Portal</div>
-<div class="ps">National programme &middot; sandbox</div></div></div>
-<div class="pnav"><span>Home</span><span>Apply</span><span>Track status</span><span>Vendors</span>
-<span>Help</span></div>
+<div class="sandbox">Demo sandbox &mdash; this is not a government or utility service</div>
+<div class="phead"><div class="pm">{mark}</div><div><div class="pt">{brand}</div>
+<div class="ps">{sub}</div></div></div>
+<div class="pnav">{links}</div>
 <div class="pbody">{bar}{inner}</div></body></html>""")
 
 
-def sid_of(request: Request):
-    return request.cookies.get("psid")
+def sid_of(request: Request, cookie="psid"):
+    return request.cookies.get(cookie)
 
 
-def sess(request: Request):
-    s = sid_of(request)
+def sess(request: Request, cookie="psid"):
+    s = sid_of(request, cookie)
     return db.one("SELECT * FROM portal_sessions WHERE sid=?", (s,)) if s else None
 
 
@@ -330,7 +332,7 @@ async def docs_post(request: Request, docBill: UploadFile = File(None),
         return RedirectResponse("/portal/security", status_code=303)
     if missing:
         return docs_get(request, "All four documents are required. Missing: " + ", ".join(missing) + ".")
-    out = DOCS / "portal" / s["sid"]
+    out = DATA / "portal_uploads" / s["sid"]
     out.mkdir(parents=True, exist_ok=True)
     saved = {}
     for k, f in files.items():

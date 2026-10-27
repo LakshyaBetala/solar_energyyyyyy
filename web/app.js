@@ -8,7 +8,7 @@ const ROLES = { viewer: 0, operator: 1, supervisor: 2 };
 const STAGES = [
   ['lead', 'Lead captured', 'idle'], ['docs', 'Documents pending', 'warn'],
   ['register', 'Portal registration', 'info'], ['feasible', 'DISCOM feasibility', 'info'],
-  ['netmeter', 'Net metering', 'info'], ['install', 'Installation', 'live'],
+  ['install', 'Installation', 'live'], ['netmeter', 'Net metering', 'info'],
   ['claim', 'Subsidy claim filed', 'live'], ['disbursed', 'Subsidy disbursed', 'ok']
 ];
 const stage = k => STAGES.find(s => s[0] === k) || STAGES[0];
@@ -27,7 +27,8 @@ const S = {
   view: 'pipeline', me: null, customers: [], numbers: [], calls: [], audit: [], llm: {},
   runs: [], activeRun: null, callSel: 0, showEn: true, docCid: 'SS-2045', extract: null,
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
-  headless: true, es: null, lastFrame: null, t0: null
+  headless: true, es: null, lastFrame: null, t0: null,
+  runCid: 'SS-2045', runWf: null, runKw: null, workflows: [], followups: []
 };
 
 const can = lvl => S.me && ROLES[S.me.role] >= ROLES[lvl];
@@ -79,6 +80,8 @@ async function boot() {
   const b = await api('/bootstrap');
   S.me = b.user; S.customers = b.customers; S.numbers = b.numbers; S.calls = b.calls;
   S.audit = b.audit; S.llm = b.llm; S.runs = b.runs; S.activeRun = b.active_run;
+  S.workflows = b.workflows || [];
+  S.followups = await api('/followups').catch(() => []);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
   $('#llmChip').innerHTML = S.llm.enabled
@@ -129,7 +132,6 @@ function render() {
 VIEWS.pipeline = () => {
   const c = S.customers;
   const filed = c.filter(x => x.application_no).length;
-  const waiting = c.filter(x => x.stage === 'docs' || x.blocked_note).length;
   const value = c.reduce((a, x) => a + (x.subsidy || 0), 0);
   const counts = STAGES.map(s => [s[1], c.filter(x => x.stage === s[0]).length]);
   const mx = Math.max(1, ...counts.map(x => x[1]));
@@ -137,11 +139,11 @@ VIEWS.pipeline = () => {
   return `<div class="grid" style="gap:14px">
   <div class="kpis">
     <div class="kpi"><div class="k">Applications live</div><div class="v num">${c.length}</div>
-      <div class="d">${filed} filed on the portal</div></div>
+      <div class="d">${filed} filed &middot; ${c.filter(x => x.discom_ref).length} with the DISCOM</div></div>
     <div class="kpi"><div class="k">Agent runs completed</div><div class="v num">${done}</div>
       <div class="d">${S.runs.length} started in this environment</div></div>
-    <div class="kpi"><div class="k">Awaiting a person</div><div class="v num">${waiting}</div>
-      <div class="d">documents or OTP blocked</div></div>
+    <div class="kpi"><div class="k">Needs attention</div><div class="v num">${S.followups.length}</div>
+      <div class="d">${S.followups.filter(f => f.sev === 'bad').length} urgent</div></div>
     <div class="kpi"><div class="k">Subsidy in flight</div><div class="v">&#8377;${(value / 1000).toFixed(0)}<span>k</span></div>
       <div class="d">across ${c.filter(x => x.subsidy > 0).length} households</div></div>
   </div>
@@ -150,17 +152,12 @@ VIEWS.pipeline = () => {
     <div class="card"><div class="ch"><h3>Stage distribution</h3></div>
       <div class="cb" style="display:grid;gap:2px">${counts.map(([n, v]) =>
     `<div class="stagebar"><div class="nm">${n}</div><div class="tk"><i style="width:${v / mx * 100}%"></i></div><div class="ct">${v}</div></div>`).join('')}</div></div>
-    <div class="card"><div class="ch"><h3>How to drive this</h3></div>
-      <div class="cb" style="display:grid;gap:9px">
-        <div class="hint">Press <b style="color:var(--fg)">Run agent</b> on a row with no application
-          number. A real Chromium session opens the sandbox portal, fills it from that customer's
-          parsed documents and stops four times for a person: OTP, CAPTCHA, a field correction it
-          catches itself, and supervisor approval.</div>
-        <div class="row">
-          <button class="btn pri sm" data-view="run">Open the agent run</button>
-          <button class="btn sm" data-view="docs">See what it reads first</button>
-        </div>
-      </div></div>
+    <div class="card"><div class="ch"><h3>Needs attention</h3><span class="spacer"></span>
+      <span class="hint">derived from live data, worst first</span></div>
+      <div class="cb fus">${S.followups.length ? S.followups.map(f => `
+        <div class="fu ${f.sev}"><span class="pill ${f.sev === 'bad' ? 'bad' : f.sev === 'warn' ? 'warn' : 'info'} mono">${esc(f.cid)}</span>
+          <div style="min-width:0"><div>${esc(f.title)}</div><div class="sub">${esc(f.action)}</div></div></div>`).join('')
+    : '<div class="hint">Nothing needs a person right now.</div>'}</div></div>
   </div>
 
   <div class="card raise"><div class="ch"><h3>Application pipeline</h3><span class="spacer"></span>
@@ -169,27 +166,36 @@ VIEWS.pipeline = () => {
       <thead><tr><th>Ref</th><th>Customer</th><th>Consumer no.</th><th>Capacity</th><th>Stage</th>
         <th>Docs</th><th>Assigned number</th><th>Updated</th><th></th></tr></thead>
       <tbody>${c.map(x => { const s = stage(x.stage); return `<tr${x.blocked_note ? ' data-sev="warn"' : ''}>
-        <td class="mono" style="color:var(--fg-dim)">${x.id}</td>
+        <td class="mono" style="color:var(--fg-dim);white-space:nowrap">${x.id}</td>
         <td><div class="who2">${esc(x.name)}</div><div class="sub">${esc(x.place)} &middot; ${esc(x.category)}</div></td>
-        <td class="mono">${x.consumer_no}</td><td class="mono">${x.kw}&nbsp;kW</td>
-        <td><span class="pill ${s[2]}">${s[1]}</span>${x.blocked_note ? `<div class="sub" style="color:var(--warn);margin-top:3px">&#9888; ${esc(x.blocked_note)}</div>` : ''}</td>
+        <td class="mono">${x.consumer_no || '<span class="sub">no connection</span>'}</td><td class="mono">${x.kw}&nbsp;kW</td>
+        <td><span class="pill ${s[2]}">${s[1]}</span>${x.blocked_note ? `<div class="sub" style="color:${x.discom_ref ? 'var(--info)' : 'var(--warn)'};margin-top:3px">${x.discom_ref ? '&#9432;' : '&#9888;'} ${esc(x.blocked_note)}</div>` : ''}</td>
         <td class="mono">${x.docs}${x.flagged ? ` <span class="pill warn">${x.flagged} flagged</span>` : ''}</td>
-        <td class="mono" style="font-size:11px">${esc(x.number || '—')}</td>
+        <td class="mono" style="font-size:11px;white-space:nowrap">${esc(x.number || '—')}</td>
         <td class="sub">${esc(x.last_activity)}</td>
         <td>${x.application_no
       ? `<span class="mono sub">${esc(x.application_no)}</span>`
-      : `<button class="btn sm pri" data-run="${x.id}" ${can('operator') ? '' : 'disabled title="Operator role required"'}>Run agent</button>`}</td>
+      : x.workflow
+        ? `<button class="btn sm pri" data-run="${x.id}" ${can('operator') ? '' : 'disabled title="Operator role required"'}>Run agent</button>
+           <div class="sub" style="margin-top:3px">${esc(wfLabel(x.workflow))}</div>`
+        : `<span class="sub">handled by staff</span>`}</td>
       </tr>`; }).join('')}</tbody></table></div></div></div>`;
 };
 
 /* ------------------------------ run view ------------------------------ */
 function runView() {
   return `<div class="runwrap">
-  <div class="card pane-steps"><div class="ch"><h3>Run plan</h3><span class="spacer"></span>
+  <div class="card pane-steps"><div class="ch"><h3 id="planTitle">Run plan</h3><span class="spacer"></span>
     <span class="pill idle mono" id="runclock">00:00</span></div>
     <div class="cb" style="padding:10px 11px;border-bottom:1px solid var(--line-soft)">
       <div class="lab">Application</div>
       <select id="runcid" style="width:100%;margin-top:5px"></select>
+      <div class="lab" style="margin-top:10px">Workflow</div>
+      <select id="runwf" style="width:100%;margin-top:5px"></select>
+      <div class="row" style="margin-top:7px;gap:8px">
+        <label class="lab" for="runkw" style="margin:0">Load</label>
+        <input type="text" id="runkw" inputmode="decimal" style="width:70px;text-align:right">
+        <span class="sub">kW &middot; plant size, or the load being requested</span></div>
       <div class="hint" id="runmeta" style="margin-top:7px"></div>
     </div>
     <div class="steps" id="steps"></div>
@@ -222,9 +228,10 @@ function runView() {
           <div class="idlebox">
             <div class="lab">Browser idle</div>
             <div class="t">Press &ldquo;Start run&rdquo; and a real Chromium session takes it from here</div>
-            <div class="hint">It opens the sandbox portal, fills every field from this customer's
-              parsed documents, attaches the four generated files and submits. The frames below are
-              screenshots of that actual browser, streamed live.</div>
+            <div class="hint">It opens the sandbox portal for the chosen workflow, fills every
+              field from this customer's parsed documents, attaches their files and submits. The
+              frames below are screenshots of that actual browser, streamed live. It stops wherever
+              a person is required:</div>
             <ol>
               <li><b>OTP</b> — the portal texts a code to the number dedicated to this registration;
                 a person reads it out of the inbox.</li>
@@ -248,22 +255,35 @@ function runView() {
   </div></div>`;
 }
 
+const wfLabel = id => (S.workflows.find(w => w.id === id) || {}).label || id;
+
 function runHead() {
   const sel = $('#runcid');
   sel.innerHTML = S.customers.map(c =>
-    `<option value="${c.id}" ${c.id === S.docCid ? 'selected' : ''}>${c.id} · ${esc(c.name)} · ${c.kw} kW${c.application_no ? ' (filed)' : ''}</option>`).join('');
-  const c = S.customers.find(x => x.id === sel.value) || S.customers[0];
-  $('#runmeta').innerHTML = `<span class="mono">${c.consumer_no}</span> · ${esc(c.place)} ·
-    ${esc(c.category)}<br>Workflow <b>new rooftop registration</b> · number
-    <span class="mono">${esc(c.number || 'unassigned')}</span>`;
-  $('#bstart').disabled = !can('operator') || ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
+    `<option value="${c.id}" ${c.id === S.runCid ? 'selected' : ''}>${c.id} · ${esc(c.name)} · ${c.kw} kW${c.application_no ? ' (filed)' : ''}</option>`).join('');
+  const c = S.customers.find(x => x.id === S.runCid) || S.customers[0];
+  S.runCid = c.id;
+  if (S.runWf === null) S.runWf = c.workflow || '';
+  if (S.runKw === null) S.runKw = c.kw;
+  $('#runwf').innerHTML = (S.runWf ? '' : '<option value="">No workflow applies</option>') +
+    S.workflows.map(w => `<option value="${w.id}" ${w.id === S.runWf ? 'selected' : ''}>${esc(w.label)}</option>`).join('');
+  $('#runkw').value = S.runKw;
+  $('#runmeta').innerHTML = `<span class="mono">${c.consumer_no || 'no connection yet'}</span> · ${esc(c.place)} ·
+    ${esc(c.category)} · number <span class="mono">${esc(c.number || 'unassigned')}</span>
+    ${c.blocked_note ? `<div style="margin-top:5px;color:var(--warn)">${esc(c.blocked_note)}</div>` : ''}`;
+  $('#bstart').disabled = !can('operator') || !S.runWf || ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#headful').disabled = !can('operator');
+}
+function pickRunCustomer(cid) {
+  const c = S.customers.find(x => x.id === cid);
+  S.runCid = cid; S.runWf = (c && c.workflow) || ''; S.runKw = c ? c.kw : null;
+  runHead();
 }
 
 const BULLET = { done: '&#10003;', fail: '!', hold: '&#9208;', active: '&#9679;', skipped: '–' };
 function paintSteps() {
   const el = $('#steps'); if (!el) return;
-  if (!S.steps.length) { el.innerHTML = '<div class="hint" style="padding:12px 9px">The 14-step plan appears here when a run starts.</div>'; return; }
+  if (!S.steps.length) { el.innerHTML = '<div class="hint" style="padding:12px 9px">The step plan for the chosen workflow appears here when a run starts.</div>'; return; }
   el.innerHTML = S.steps.map((s, i) => `<div class="step" data-s="${s.status}">
     <div class="bul">${BULLET[s.status] || i + 1}</div><div class="st">${esc(s.label)}</div>
     <div class="tm">${s.ms ? (s.ms / 1000).toFixed(1) + 's' : ''}</div>
@@ -294,7 +314,7 @@ function paintRunState() {
   $('#bpause').disabled = !live || !can('operator');
   $('#bpause').textContent = S.runStatus === 'paused' ? 'Resume' : 'Pause';
   $('#bstop').disabled = !live || !can('operator');
-  $('#bstart').disabled = !can('operator') || live;
+  $('#bstart').disabled = !can('operator') || live || !S.runWf;
   $('#bstart').textContent = S.runStatus === 'done' ? 'Run again' : 'Start run';
   $('#runpdf').disabled = !S.activeRun;
   $('#livetag').textContent = live ? 'live' : 'sandbox';
@@ -316,7 +336,7 @@ function handle(ev) {
   switch (ev.type) {
     case 'state':
       S.runStatus = ev.status; paintRunState(); break;
-    case 'plan': S.steps = ev.steps; paintSteps(); break;
+    case 'plan': S.steps = ev.steps; $('#planTitle').textContent = ev.label || 'Run plan'; paintSteps(); break;
     case 'step': {
       const s = S.steps.find(x => x.key === ev.key);
       if (s) Object.assign(s, ev); else S.steps.push({ ...ev });
@@ -334,18 +354,21 @@ function handle(ev) {
     case 'hold_resolved': S.hold = null; closeModal(); $('#holdSlot').innerHTML = ''; break;
     case 'done':
       S.runStatus = 'done'; paintRunState();
-      toast(`Filed ${ev.application_no} in ${ev.seconds}s`);
+      toast(`${ev.workflow || 'Run'}: filed ${ev.application_no} in ${ev.seconds}s`);
       refreshAfterRun(); break;
     case 'failed':
-      S.runStatus = 'failed'; paintRunState();
-      toast('Run stopped: ' + ev.reason + '. Nothing was submitted.', true);
+      S.runStatus = ev.status || 'failed'; paintRunState();
+      toast((S.runStatus === 'stopped' ? 'Run stopped, ' : 'Run failed: ') + ev.reason +
+        '. Nothing was submitted.', S.runStatus !== 'stopped');
       refreshAfterRun(); break;
   }
 }
 async function refreshAfterRun() {
   const b = await api('/bootstrap');
   S.customers = b.customers; S.numbers = b.numbers; S.audit = b.audit; S.runs = b.runs;
-  if (S.view === 'run') { runHead(); paintRunState(); } else render();
+  S.followups = await api('/followups').catch(() => S.followups);
+  // the customer's next step may have changed (a filed load enhancement leads to rooftop)
+  if (S.view === 'run') { pickRunCustomer(S.runCid); paintRunState(); } else render();
   counters();
 }
 function tick() {
@@ -364,7 +387,8 @@ function openHold(h) {
 
   if (h.kind === 'otp') {
     modal('OTP checkpoint', 'The portal is waiting for a one-time password. The run is held.',
-      banner('', `Held at step ${esc(c.step)}. Nothing is submitted while this is open.`) +
+      (c.error ? banner('bad', `<b>The portal rejected the last code.</b> ${esc(c.error)}`)
+        : banner('', `Held at step ${esc(c.step)}. Nothing is submitted while this is open.`)) +
       `<div class="inbox"><div class="ih"><span class="dot on"></span><b class="mono">${esc(c.msisdn)}</b>
         <span class="spacer"></span><span>dedicated number for this registration</span></div>
         ${(c.inbox || []).map(m => `<div class="sms"><div class="sf">${esc(m.sender)} &middot; ${esc((m.ts || '').slice(11))}</div>
@@ -384,7 +408,8 @@ function openHold(h) {
 
   if (h.kind === 'captcha') {
     modal('CAPTCHA checkpoint', 'A security challenge appeared. The agent screenshots it and asks.',
-      banner('', `Held at step ${esc(c.step)}.`) +
+      (c.error ? banner('bad', `<b>The portal refused the last code.</b> ${esc(c.error)}`)
+        : banner('', `Held at step ${esc(c.step)}.`)) +
       `<div class="capbox"><img src="${c.image}" alt="CAPTCHA challenge from the portal">
         <input type="text" id="capin" placeholder="Type the code" style="width:180px;text-align:center;font-family:var(--font-mono);letter-spacing:.16em;text-transform:uppercase"></div>
       <div class="hint" style="text-align:center">${esc(c.hint)}</div>`,
@@ -417,17 +442,18 @@ function openHold(h) {
 
   if (h.kind === 'approve') {
     const rows = c.summary || {};
-    modal('Approval required', 'No application is filed without a person approving it.',
+    const sup = can('supervisor');
+    modal('Approval required', `${c.workflow || 'Filing'} — no application is filed without a person approving it.`,
       `<dl class="kv" style="margin-bottom:13px">${Object.entries(rows).map(([k, v]) =>
         `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
-      <div class="warnbox ${can('supervisor') ? '' : 'bad'}"><span>&#9432;</span><div>
-        ${can('supervisor')
+      <div class="warnbox ${sup ? '' : 'bad'}"><span>&#9432;</span><div>
+        ${sup
           ? 'Approving records your username, the exact field values and a screenshot in the audit trail.'
-          : `<b>Your role cannot approve.</b> You are signed in as ${esc(S.me.role)}. Sign out and sign in as <b>r.deshmukh</b> to continue — the server rejects it either way, which is the point of the gate.`}
+          : `You are signed in as <b>${esc(S.me.role)}</b>. Press the button anyway: the server will refuse it and write the refused attempt to the audit trail. Sign in as <b>r.deshmukh</b> to approve.`}
       </div></div>`,
       `<button class="btn danger" data-act="reject">Reject</button><span class="spacer"></span>
-       <button class="btn pri" id="appgo"${can('supervisor') ? '' : ' disabled'}>Approve and submit</button>`);
-    if (can('supervisor')) $('#appgo').onclick = () => send(h, 'approve', {});
+       <button class="btn pri" id="appgo">${sup ? 'Approve and submit' : 'Try to approve as ' + esc(S.me.role)}</button>`);
+    $('#appgo').onclick = () => send(h, 'approve', {});
   }
 
   $('#holdSlot').innerHTML = `<div class="row"><span class="pill warn">held</span>
@@ -624,8 +650,8 @@ VIEWS.reports = () => {
       <div class="d">of ${r.runs_total} started${r.runs_failed ? ` · ${r.runs_failed} stopped` : ''}</div></div>
     <div class="kpi"><div class="k">Average run</div><div class="v num">${r.avg_seconds ? r.avg_seconds : '—'}<span>s</span></div>
       <div class="d">including every human pause</div></div>
-    <div class="kpi"><div class="k">Applications on portal</div><div class="v num">${r.applications}</div>
-      <div class="d">rows in the portal's own table</div></div>
+    <div class="kpi"><div class="k">Filed on portals</div><div class="v num">${r.applications + (r.service_requests || 0)}</div>
+      <div class="d">${r.applications} rooftop &middot; ${r.service_requests || 0} DISCOM</div></div>
     <div class="kpi"><div class="k">Fields extracted</div><div class="v num">${r.extractions}</div>
       <div class="d">${r.flagged} flagged for review</div></div>
     <div class="kpi"><div class="k">Retries</div><div class="v num">${r.retries}</div>
@@ -640,6 +666,7 @@ VIEWS.reports = () => {
         files without it.</div></div></div>
     <div class="card"><div class="ch"><h3>Exports</h3></div><div class="cb" style="display:grid;gap:9px">
       <button class="btn" id="xlsx">Pipeline, numbers, runs and audit (.xlsx)</button>
+      <button class="btn" id="backup"${can('supervisor') ? '' : ' disabled'}>Create a backup (.zip, documents stay encrypted)</button>
       <button class="btn danger" id="resetdemo"${can('supervisor') ? '' : ' disabled'}>Reset the demo environment</button>
       ${S.runs.filter(x => x.status === 'done' || x.status === 'failed').slice(0, 6).map(x =>
       `<button class="btn" data-pdf="${x.id}">Run ${x.id} report — ${esc(x.customer_id)} (.pdf)</button>`).join('')}
@@ -648,9 +675,10 @@ VIEWS.reports = () => {
     </div></div>
   </div>
   <div class="card"><div class="ch"><h3>Runs</h3></div><div class="tscroll"><table>
-    <thead><tr><th>Run</th><th>Customer</th><th>Status</th><th>Started</th><th>Application no.</th>
+    <thead><tr><th>Run</th><th>Customer</th><th>Workflow</th><th>Status</th><th>Started</th><th>Reference</th>
       <th>Retries</th><th></th></tr></thead>
     <tbody>${S.runs.map(x => `<tr><td class="mono">${x.id}</td><td class="mono">${esc(x.customer_id)}</td>
+      <td class="sub">${esc(wfLabel(x.workflow))}</td>
       <td><span class="pill ${x.status === 'done' ? 'ok' : x.status === 'running' ? 'live' : 'bad'}">${esc(x.status)}</span></td>
       <td class="sub mono">${esc((x.started_at || '').replace('T', ' ').slice(5))}</td>
       <td class="mono">${esc(x.application_no || '—')}</td><td class="mono">${x.retries}</td>
@@ -679,9 +707,10 @@ document.addEventListener('click', async e => {
   /* run */
   if (t.id === 'bstart') {
     try {
-      const cid = $('#runcid').value;
       S.runStatus = 'starting'; paintRunState();
-      const r = await api('/runs', { method: 'POST', body: { customer_id: cid, speed: S.speed, headless: !$('#headful').checked } });
+      const r = await api('/runs', { method: 'POST', body: {
+        customer_id: S.runCid, workflow: $('#runwf').value, target_kw: $('#runkw').value,
+        speed: S.speed, headless: !$('#headful').checked } });
       attachRun(r.run_id); toast('Run ' + r.run_id + ' started');
     } catch (err) { S.runStatus = 'idle'; paintRunState(); toast(err.message, true); }
     return;
@@ -722,14 +751,23 @@ document.addEventListener('click', async e => {
   }
   if (t.id === 'xlsx') { window.open('/api/exports/pipeline.xlsx', '_blank'); return; }
   if (t.dataset.run) {
-    S.view = 'run'; render(); $('#runcid').value = t.dataset.run; runHead();
+    S.view = 'run'; render(); pickRunCustomer(t.dataset.run);
     $('#bstart').click(); return;
   }
 
+  if (t.id === 'backup') {
+    try {
+      const r = await api('/backup', { method: 'POST' });
+      toast(`Backup written: ${r.file} (${Math.round(r.bytes / 1024)} KB)`);
+      window.open('/api/backups/' + encodeURIComponent(r.file), '_blank');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   if (t.id === 'resetdemo') {
     try {
       await api('/demo/reset', { method: 'POST' });
       S.steps = []; S.events = []; S.shots = []; S.activeRun = null; S.runStatus = 'idle';
+      S.runWf = null; S.runKw = null;
       if (S.es) { S.es.close(); S.es = null; }
       $('#log').innerHTML = ''; $('#frame').hidden = true; $('#stageIdle').hidden = false;
       await refreshAfterRun(); S.reports = await api('/reports'); render();
@@ -775,12 +813,14 @@ document.addEventListener('click', async e => {
 
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
-  if (e.target.id === 'runcid') runHead();
+  if (e.target.id === 'runcid') pickRunCustomer(e.target.value);
+  if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
+  if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
 });
 $('#loginForm').addEventListener('submit', e => { e.preventDefault(); login($('#u').value, $('#p').value); });
-$('#scrim').addEventListener('click', e => { if (e.target === $('#scrim') && !S.hold) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !S.hold) closeModal(); });
+$('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 async function uploadBill(file) {
   const fd = new FormData(); fd.append('file', file);

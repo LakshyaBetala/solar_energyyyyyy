@@ -1,10 +1,11 @@
 """Real file exports: an Excel workbook via openpyxl and a PDF via Playwright."""
-import json
+import base64, html, json
+from pathlib import Path
 from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from playwright.async_api import async_playwright
-from . import db
+from . import db, vault
 from .config import EXPORTS
 
 HEAD = Font(bold=True, color="FFFFFF", size=10)
@@ -44,11 +45,13 @@ def pipeline_xlsx():
            [20, 14, 14, 15, 12])
 
     ws3 = wb.create_sheet("Runs")
-    _sheet(ws3, ["Run", "Customer", "Status", "Started", "Finished", "Application no.", "Retries"],
-           [[r["id"], r["customer_id"], r["status"], (r["started_at"] or "").replace("T", " "),
+    _sheet(ws3, ["Run", "Customer", "Workflow", "Status", "Started", "Finished", "Reference",
+                 "Retries"],
+           [[r["id"], r["customer_id"], r["workflow"], r["status"],
+             (r["started_at"] or "").replace("T", " "),
              (r["finished_at"] or "").replace("T", " "), r["application_no"] or "-", r["retries"]]
             for r in db.q("SELECT * FROM runs ORDER BY id DESC")],
-           [7, 14, 11, 20, 20, 22, 9])
+           [7, 14, 26, 11, 20, 20, 22, 9])
 
     ws4 = wb.create_sheet("Audit")
     _sheet(ws4, ["Timestamp", "Actor", "Role", "Action", "Target", "Detail"],
@@ -69,16 +72,20 @@ def _run_report_html(run_id):
     shots = db.q("SELECT * FROM screenshots WHERE run_id=? ORDER BY id", (run_id,))
     holds = db.q("SELECT * FROM holds WHERE run_id=? ORDER BY id", (run_id,))
     rows = "".join(
-        f"<tr><td>{s['idx'] + 1}</td><td>{s['label']}</td><td class=s-{s['status']}>{s['status']}</td>"
-        f"<td>{s['note'] or ''}</td><td class=n>{s['ms'] / 1000:.1f}s</td></tr>" for s in steps)
+        f"<tr><td>{s['idx'] + 1}</td><td>{html.escape(s['label'])}</td>"
+        f"<td class=s-{s['status']}>{s['status']}</td><td>{html.escape(s['note'] or '')}</td><td class=n>{s['ms'] / 1000:.1f}s</td></tr>" for s in steps)
     hrows = "".join(
         f"<tr><td>{h['kind']}</td><td>{h['status']}</td><td>{h['resolved_by'] or '-'}</td>"
         f"<td>{h['resolution'] or '-'}</td><td class=n>{(h['resolved_at'] or '')[11:]}</td></tr>"
         for h in holds)
-    log = "".join(f"<div class=le><span>{e['ts']}</span>{e['message']}</div>" for e in events)
+    log = "".join(f"<div class=le><span>{e['ts']}</span>{html.escape(e['message'])}</div>"
+                  for e in events)
+    # screenshots are encrypted on disk, so they are decrypted and embedded inline
     imgs = "".join(
-        f"<figure><img src='file:///{s['path'].replace(chr(92), '/')}'>"
-        f"<figcaption>{s['label']} &middot; {s['ts'][11:]}</figcaption></figure>" for s in shots)
+        f"<figure><img src='data:image/png;base64,"
+        f"{base64.b64encode(vault.read(Path(s['path']))).decode()}'>"
+        f"<figcaption>{html.escape(s['label'])} &middot; {s['ts'][11:]}</figcaption></figure>"
+        for s in shots if Path(s["path"]).exists())
     return f"""<!doctype html><meta charset="utf-8"><style>
 body{{font:11px/1.5 Arial,sans-serif;color:#1B2128;margin:0;padding:26px 30px}}
 h1{{font-size:19px;margin:0;color:#123A6B}}
@@ -105,7 +112,7 @@ figcaption{{font-size:9px;color:#5E6B78;padding-top:3px}}
 &middot; sandbox portal</div>
 <div class="kv">
 <div><b>Customer</b>{c['name']} ({c['id']})</div>
-<div><b>Consumer number</b>{c['consumer_no']}</div>
+<div><b>Consumer number</b>{c['consumer_no'] or 'not yet allotted'}</div>
 <div><b>Capacity</b>{c['kw']:g} kW</div>
 <div><b>Workflow</b>{r['workflow']}</div>
 <div><b>Status</b>{r['status']}</div>

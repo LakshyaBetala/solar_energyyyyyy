@@ -20,8 +20,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Internal working documents, not part of the deliverable
-PITCH.md
+# Internal working documents: pricing, costing, bid, meeting notes. Never published.
+internal/
 solara-ops.html
 
 # Local agent tooling config

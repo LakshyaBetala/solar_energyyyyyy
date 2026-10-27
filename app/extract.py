@@ -8,10 +8,10 @@ If an LLM key is configured the same text is also sent to the model and its stru
 answer is merged in, with the model's own fields marked as such. Without a key the
 deterministic path runs alone and the product still works.
 """
-import re, os, json, difflib, asyncio
+import re, os, io, json, difflib, asyncio
 from pathlib import Path
 from pypdf import PdfReader
-from . import db
+from . import db, vault
 from .config import ROOT
 
 ENV_FILE = ROOT / ".env"
@@ -42,7 +42,8 @@ def llm_status():
 
 def pdf_text(path):
     try:
-        return "\n".join((p.extract_text() or "") for p in PdfReader(str(path)).pages)
+        reader = PdfReader(io.BytesIO(vault.read(Path(path))))
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
     except Exception as e:
         return f"__unreadable__ {e}"
 
@@ -69,6 +70,12 @@ PASSBOOK_LABELS = {
     "ifsc": (r"IFSC\s*Code\s*([A-Z]{4}0[A-Z0-9]{6})", 99),
 }
 
+OWNERSHIP_LABELS = {
+    "owner_name": (r"Owner\s*Name\s*([A-Za-z][A-Za-z .'\-]{3,60})", 97),
+    "property_address": (r"Property\s*Address\s+([A-Z0-9][A-Z0-9 ,.\-/]{10,90})", 95),
+    "property_pin": (r"Property\s*PIN\s*([0-9]{6})", 98),
+}
+
 PRETTY = {
     "consumer_no": "Consumer number", "bill_name": "Consumer name (bill)",
     "tariff": "Tariff category", "sanctioned_load": "Sanctioned load (kW)",
@@ -78,6 +85,8 @@ PRETTY = {
     "aadhaar_name": "Name on identity document", "aadhaar_masked": "Identity number (masked)",
     "account_holder": "Bank account holder", "account_no": "Bank account (masked)",
     "ifsc": "IFSC code", "roof_area": "Roof area (photo estimate)",
+    "owner_name": "Property owner", "property_address": "Property address",
+    "property_pin": "Property PIN code",
 }
 
 
@@ -117,10 +126,11 @@ async def run(customer_id, use_llm=True):
     if not c:
         raise ValueError(f"unknown customer {customer_id}")
     docs = {d["kind"]: d for d in db.q("SELECT * FROM documents WHERE customer_id=?", (customer_id,))}
-    if "bill" not in docs:
-        raise ValueError("no bill on file for this customer; generate documents first")
+    if not docs.keys() & {"bill", "aadhaar"}:
+        raise ValueError("no documents on file for this customer; generate or upload them first")
 
-    bill_text = pdf_text(docs["bill"]["path"])
+    # A new-connection applicant has no electricity bill yet, so the bill is optional.
+    bill_text = pdf_text(docs["bill"]["path"]) if "bill" in docs else ""
     fields = {k: {"value": v, "confidence": conf, "source": "bill", "status": "ok", "note": ""}
               for k, (v, conf) in grab(bill_text, LABELS).items()}
 
@@ -132,6 +142,18 @@ async def run(customer_id, use_llm=True):
         for k, (v, conf) in grab(pdf_text(docs["passbook"]["path"]), PASSBOOK_LABELS).items():
             fields[k] = {"value": v, "confidence": conf, "source": "passbook", "status": "ok",
                          "note": ""}
+    if "ownership" in docs:
+        for k, (v, conf) in grab(pdf_text(docs["ownership"]["path"]), OWNERSHIP_LABELS).items():
+            fields[k] = {"value": v, "confidence": conf, "source": "ownership proof",
+                         "status": "ok", "note": ""}
+        if "property_address" in fields:
+            # the PIN sits in its own field; drop it if the text layer ran it onto the address
+            fields["property_address"]["value"] = re.sub(
+                r"\s*\b\d{6}$", "", fields["property_address"]["value"])
+        on, an = fields.get("owner_name", {}).get("value"), fields.get("aadhaar_name", {}).get("value")
+        if on and an and not norm_cmp(on, an):
+            fields["owner_name"]["status"] = "review"
+            fields["owner_name"]["note"] = f"Identity document reads “{an}”."
     if "roof" in docs:
         fields["roof_area"] = {"value": "41 sq.m, south-west facing", "confidence": 81,
                                "source": "roof photo", "status": "ok",
@@ -164,7 +186,7 @@ async def run(customer_id, use_llm=True):
     # ---- optional model pass ----
     model_note = None
     st = llm_status()
-    if use_llm and st["enabled"]:
+    if use_llm and st["enabled"] and bill_text:
         try:
             got = await llm_fields(bill_text, st)
             for k, v in (got or {}).items():
@@ -181,7 +203,8 @@ async def run(customer_id, use_llm=True):
             model_note = f"model pass skipped: {type(e).__name__}: {e}"
 
     db.ex("DELETE FROM extractions WHERE customer_id=?", (customer_id,))
-    order = list(LABELS) + list(AADHAAR_LABELS) + list(PASSBOOK_LABELS) + ["roof_area"]
+    order = (list(LABELS) + list(AADHAAR_LABELS) + list(PASSBOOK_LABELS) +
+             list(OWNERSHIP_LABELS) + ["roof_area"])
     rows = []
     for k in order:
         if k not in fields:
@@ -196,7 +219,8 @@ async def run(customer_id, use_llm=True):
              f"{len(rows)} fields, {sum(1 for r in rows if r['status'] == 'review')} flagged" +
              (f", {model_note}" if model_note else ""))
     return {"customer_id": customer_id, "fields": rows, "model": model_note,
-            "llm": st, "chars_parsed": len(bill_text),
+            "llm": st, "chars_parsed": len(bill_text) or sum(
+                len(pdf_text(d["path"])) for k, d in docs.items() if k != "roof"),
             "documents": [{"kind": k, "filename": d["filename"], "bytes": d["bytes"]}
                           for k, d in docs.items()]}
 
@@ -250,6 +274,9 @@ def filing_values(customer_id):
         "bank": f"{g('Bank account (masked)')} / {g('IFSC code')}",
         "load": g("Sanctioned load (kW)"),
         "roof_area": "41",
+        "owner_name": g("Property owner"),
+        "owner_address": g("Property address"),
+        "owner_pin": g("Property PIN code"),
         "flagged": [r["field"] for r in saved(customer_id) if r["status"] == "review"],
     }
 

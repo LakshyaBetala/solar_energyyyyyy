@@ -1,4 +1,4 @@
-import sqlite3, hashlib, threading, json
+import sqlite3, hashlib, hmac, os, threading, json
 from datetime import datetime, timedelta
 from .config import DB_PATH
 
@@ -14,7 +14,16 @@ CREATE TABLE IF NOT EXISTS users(
 CREATE TABLE IF NOT EXISTS customers(
   id TEXT PRIMARY KEY, name TEXT, aadhaar_name TEXT, place TEXT, consumer_no TEXT,
   kw REAL, category TEXT, stage TEXT, application_no TEXT, subsidy INTEGER,
-  last_activity TEXT, blocked_note TEXT, pin TEXT, address TEXT, bank TEXT);
+  last_activity TEXT, blocked_note TEXT, pin TEXT, address TEXT, bank TEXT,
+  workflow TEXT, discom_ref TEXT);
+
+CREATE TABLE IF NOT EXISTS sessions(
+  token TEXT PRIMARY KEY, username TEXT, created_at TEXT);
+
+-- DISCOM-side service requests: new connection, load enhancement, load reduction
+CREATE TABLE IF NOT EXISTS portal_requests(
+  request_no TEXT PRIMARY KEY, kind TEXT, consumer_no TEXT, applicant TEXT,
+  current_load REAL, requested_load REAL, submitted_at TEXT, payload TEXT);
 
 CREATE TABLE IF NOT EXISTS numbers(
   id INTEGER PRIMARY KEY, msisdn TEXT UNIQUE, customer_id TEXT, assigned_at TEXT,
@@ -83,6 +92,10 @@ def conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            have = {r[1] for r in _conn.execute("PRAGMA table_info(customers)")}
+            for col in ("workflow", "discom_ref"):
+                if col not in have:
+                    _conn.execute(f"ALTER TABLE customers ADD COLUMN {col} TEXT")
             _conn.commit()
         return _conn
 
@@ -112,8 +125,17 @@ def hhmmss():
     return datetime.now().strftime("%H:%M:%S")
 
 
-def pwhash(p):
-    return hashlib.sha256(("solara$" + p).encode()).hexdigest()
+def pwhash(p, salt=None):
+    salt = salt or os.urandom(16)
+    h = hashlib.scrypt(p.encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
+    return f"scrypt${salt.hex()}${h.hex()}"
+
+
+def pwcheck(p, stored):
+    if not stored or not stored.startswith("scrypt$"):
+        return False
+    _, salt, _ = stored.split("$")
+    return hmac.compare_digest(pwhash(p, bytes.fromhex(salt)), stored)
 
 
 def audit(actor, role, action, target="", detail=""):
@@ -124,16 +146,25 @@ def audit(actor, role, action, target="", detail=""):
 
 
 CUSTOMERS = [
-    # id, crm name, aadhaar name, place, consumer_no, kW, category, stage, app_no, subsidy, last, blocked, pin, address, bank
-    ("SS-2041", "Mangesh Kulkarni", "Mangesh Anil Kulkarni", "Kothrud, Pune", "170024518893", 3, "Residential", "disbursed", "PMSG/MH/2026/118842", 78000, "4 Oct", None, "411038", "Flat 7, Shivtirth Nagar, Kothrud, Pune", "XXXXXX3310 / MAHB0000221"),
-    ("SS-2042", "Asha Deshpande", "Asha Vinayak Deshpande", "Nashik Road, Nashik", "170031277450", 5, "Residential", "install", "PMSG/MH/2026/121907", 78000, "22 Oct", None, "422101", "Plot 61, Jatra Hotel Road, Nashik Road", "XXXXXX8841 / SBIN0004012"),
-    ("SS-2043", "Royal Classic CHS Ltd.", "Royal Classic Co-op Housing Society Ltd.", "Baner, Pune", "170029903114", 40, "Housing society", "feasible", "PMSG/MH/2026/122416", 0, "23 Oct", None, "411045", "Survey 112, Baner Road, Pune", "XXXXXX5520 / HDFC0000412"),
-    ("SS-2044", "Irfan Shaikh", "Irfan Yusuf Shaikh", "Satpur MIDC, Nashik", "170044120867", 25, "Commercial", "docs", None, 0, "25 Oct", "GST certificate and sanctioned load proof not received", "422007", "W-18 Satpur MIDC, Nashik", "XXXXXX1174 / ICIC0000765"),
-    ("SS-2045", "Vaishali Pawar", "Vaishali Dattatray Pawar", "Panchavati, Nashik", "170038865021", 3, "Residential", "docs", None, 78000, "26 Oct", None, "422003", "Plot 14, Ganga Nagar, Panchavati, Nashik", "XXXXXX7792 / MAHB0000412"),
-    ("SS-2046", "Gurudatta Agro Industries", "Gurudatta Agro Industries Pvt Ltd", "Sinnar, Nashik", "170051340226", 100, "Industrial", "netmeter", "PMSG/MH/2026/119533", 0, "21 Oct", None, "422103", "Gat 204, Sinnar MIDC, Nashik", "XXXXXX2298 / AXIS0000118"),
-    ("SS-2047", "Prakash Jadhav", "Prakash Namdev Jadhav", "Hadapsar, Pune", "170027714309", 2, "Residential", "register", None, 60000, "26 Oct", "OTP not received; assigned number expires in 3 days", "411028", "Lane 4, Sasanenagar, Hadapsar, Pune", "XXXXXX6603 / BKID0000901"),
-    ("SS-2048", "Sheetal Rane", "Sheetal Mahesh Rane", "Gangapur Road, Nashik", "170036002985", 4, "Residential", "claim", "PMSG/MH/2026/120771", 78000, "24 Oct", None, "422013", "Row House 3, Gangapur Road, Nashik", "XXXXXX4417 / MAHB0000733"),
+    # id, crm name, aadhaar name, place, consumer_no, kW, category, stage, ref, subsidy, last, blocked, pin, address, bank, workflow
+    ("SS-2041", "Mangesh Kulkarni", "Mangesh Anil Kulkarni", "Kothrud, Pune", "170024518893", 3, "Residential", "disbursed", "PMSG/MH/2026/118842", 78000, "4 Oct", None, "411038", "Flat 7, Shivtirth Nagar, Kothrud, Pune", "XXXXXX3310 / MAHB0000221", "rooftop_registration"),
+    ("SS-2042", "Asha Deshpande", "Asha Vinayak Deshpande", "Nashik Road, Nashik", "170031277450", 5, "Residential", "install", "PMSG/MH/2026/121907", 78000, "22 Oct", None, "422101", "Plot 61, Jatra Hotel Road, Nashik Road", "XXXXXX8841 / SBIN0004012", "rooftop_registration"),
+    ("SS-2043", "Royal Classic CHS Ltd.", "Royal Classic Co-op Housing Society Ltd.", "Baner, Pune", "170029903114", 40, "Housing society", "feasible", "PMSG/MH/2026/122416", 0, "23 Oct", None, "411045", "Survey 112, Baner Road, Pune", "XXXXXX5520 / HDFC0000412", "rooftop_registration"),
+    ("SS-2044", "Irfan Shaikh", "Irfan Yusuf Shaikh", "Satpur MIDC, Nashik", "170044120867", 25, "Commercial", "docs", None, 0, "25 Oct", "Commercial connection, not covered by PM Surya Ghar. Net-metering application only; GST certificate pending", "422007", "W-18 Satpur MIDC, Nashik", "XXXXXX1174 / ICIC0000765", None),
+    ("SS-2045", "Vaishali Pawar", "Vaishali Dattatray Pawar", "Panchavati, Nashik", "170038865021", 3, "Residential", "docs", None, 78000, "26 Oct", None, "422003", "Plot 14, Ganga Nagar, Panchavati, Nashik", "XXXXXX7792 / MAHB0000412", "rooftop_registration"),
+    ("SS-2046", "Gurudatta Agro Industries", "Gurudatta Agro Industries Pvt Ltd", "Sinnar, Nashik", "170051340226", 100, "Industrial", "netmeter", "NM/MH/2026/04417", 0, "21 Oct", None, "422103", "Gat 204, Sinnar MIDC, Nashik", "XXXXXX2298 / AXIS0000118", None),
+    ("SS-2047", "Prakash Jadhav", "Prakash Namdev Jadhav", "Hadapsar, Pune", "170027714309", 2, "Residential", "register", None, 60000, "26 Oct", "OTP not received; assigned number expires in 3 days", "411028", "Lane 4, Sasanenagar, Hadapsar, Pune", "XXXXXX6603 / BKID0000901", "rooftop_registration"),
+    ("SS-2048", "Sheetal Rane", "Sheetal Mahesh Rane", "Gangapur Road, Nashik", "170036002985", 4, "Residential", "claim", "PMSG/MH/2026/120771", 78000, "24 Oct", None, "422013", "Row House 3, Gangapur Road, Nashik", "XXXXXX4417 / MAHB0000733", "rooftop_registration"),
+    ("SS-2049", "Rahul Shinde", "Rahul Sanjay Shinde", "Pimple Saudagar, Pune", "170041190358", 5, "Residential", "lead", None, 78000, "26 Oct", "Sanctioned load 3 kW is below the 5 kW plant. Load enhancement must be filed with the DISCOM first", "411027", "Flat 902, Roseland Residency, Pimple Saudagar, Pune", "XXXXXX5031 / SBIN0011245", "load_enhancement"),
+    ("SS-2050", "Sunita Patil", "Sunita Ramesh Patil", "Makhmalabad, Nashik", None, 5, "Residential", "lead", None, 0, "27 Oct", "New bungalow with no supply connection. A new LT connection must be applied for before any solar paperwork", "422003", "Plot 7, Shivkrupa Colony, Makhmalabad Road, Nashik", "XXXXXX2210 / BKID0000417", "new_connection"),
 ]
+
+WORKFLOWS = {
+    "rooftop_registration": "New rooftop registration",
+    "load_enhancement": "Sanctioned load enhancement",
+    "load_reduction": "Sanctioned load reduction",
+    "new_connection": "New LT connection",
+}
 
 # billed_name is the DISCOM record: uppercase, initials instead of the full middle name
 PORTAL_CONSUMERS = [
@@ -145,6 +176,7 @@ PORTAL_CONSUMERS = [
     ("170051340226", "GURUDATTA AGRO INDUSTRIES PVT LTD", "GAT 204 SINNAR MIDC NASHIK", "422103", 100.0, "LT-V IND", "9028144519", 14200, "MSEDCL/9005120"),
     ("170027714309", "PRAKASH N JADHAV", "LANE 4 SASANENAGAR HADAPSAR PUNE", "411028", 2.0, "LT-I RES", "9028144526", 194, "MSEDCL/9005880"),
     ("170036002985", "SHEETAL M RANE", "ROW HOUSE 3 GANGAPUR ROAD NASHIK", "422013", 4.0, "LT-I RES", "9028144524", 356, "MSEDCL/9006404"),
+    ("170041190358", "RAHUL S SHINDE", "FLAT 902 ROSELAND RESIDENCY PIMPLE SAUDAGAR PUNE", "411027", 3.0, "LT-I RES", "9028144535", 410, "MSEDCL/9007712"),
 ]
 
 NUMBERS = [
@@ -157,6 +189,8 @@ NUMBERS = [
     ("+91 90281 44529", "SS-2044", 71, 2, "active"),
     ("+91 90281 44531", "SS-2045", 87, 1, "active"),
     ("+91 90281 44534", None, 90, 0, "free"),
+    ("+91 90281 44535", "SS-2049", 89, 0, "active"),
+    ("+91 90281 44537", "SS-2050", 90, 0, "active"),
 ]
 
 CALLS = [
@@ -203,8 +237,8 @@ def seed():
 
     for c in CUSTOMERS:
         ex("""INSERT INTO customers(id,name,aadhaar_name,place,consumer_no,kw,category,stage,
-              application_no,subsidy,last_activity,blocked_note,pin,address,bank)
-              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", c)
+              application_no,subsidy,last_activity,blocked_note,pin,address,bank,workflow)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", c)
 
     for pc in PORTAL_CONSUMERS:
         ex("""INSERT INTO portal_consumers(consumer_no,billed_name,address,pin,sanctioned_load,

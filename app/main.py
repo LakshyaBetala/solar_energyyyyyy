@@ -3,16 +3,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
-                               RedirectResponse)
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import db, extract, exports, docs_gen, portal, reset as resetmod
+from . import db, extract, exports, docs_gen, portal, discom, vault, backup, reset as resetmod
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
-
-SESSIONS: dict[str, str] = {}  # token -> username
+app.include_router(discom.router)
 
 
 @app.on_event("startup")
@@ -41,9 +40,14 @@ async def startup():
 
 
 # ------------------------------- auth -------------------------------
+def session_user(request: Request):
+    tok = request.cookies.get("solara") or ""
+    row = db.one("SELECT username FROM sessions WHERE token=?", (tok,)) if tok else None
+    return row["username"] if row else None
+
+
 def current(request: Request):
-    tok = request.cookies.get("solara")
-    u = SESSIONS.get(tok or "")
+    u = session_user(request)
     if not u:
         raise HTTPException(401, "sign in first")
     row = db.one("SELECT username,name,role FROM users WHERE username=?", (u,))
@@ -63,10 +67,11 @@ def need(role):
 @app.post("/api/login")
 def login(body: dict = Body(...)):
     row = db.one("SELECT * FROM users WHERE username=?", (body.get("username", "").strip(),))
-    if not row or row["pw"] != db.pwhash(body.get("password", "")):
+    if not row or not db.pwcheck(body.get("password", ""), row["pw"]):
         raise HTTPException(401, "wrong username or password")
-    tok = secrets.token_hex(16)
-    SESSIONS[tok] = row["username"]
+    tok = secrets.token_urlsafe(32)
+    db.ex("INSERT INTO sessions(token,username,created_at) VALUES(?,?,?)",
+          (tok, row["username"], db.now()))
     db.audit(row["username"], row["role"], "Signed in")
     r = JSONResponse({"username": row["username"], "name": row["name"], "role": row["role"]})
     r.set_cookie("solara", tok, httponly=True, samesite="lax", max_age=60 * 60 * 12)
@@ -75,7 +80,7 @@ def login(body: dict = Body(...)):
 
 @app.post("/api/logout")
 def logout(request: Request):
-    SESSIONS.pop(request.cookies.get("solara", ""), None)
+    db.ex("DELETE FROM sessions WHERE token=?", (request.cookies.get("solara", ""),))
     r = JSONResponse({"ok": True})
     r.delete_cookie("solara")
     return r
@@ -84,14 +89,15 @@ def logout(request: Request):
 @app.get("/api/me")
 def me(request: Request):
     """Session probe. Not being signed in is an answer, not an error, so this stays 200."""
-    u = SESSIONS.get(request.cookies.get("solara") or "")
+    u = session_user(request)
     return {"user": db.one("SELECT username,name,role FROM users WHERE username=?", (u,)) if u else None}
 
 
 # ------------------------------- reads -------------------------------
 def days_left(iso):
     try:
-        return max(0, (datetime.fromisoformat(iso) - datetime.now()).days)
+        left = (datetime.fromisoformat(iso) - datetime.now()).total_seconds()
+        return max(0, int(-(-left // 86400)))
     except Exception:
         return 0
 
@@ -110,6 +116,7 @@ def bootstrap(user=Depends(current)):
         "active_run": active.id if active else None,
         "runs": db.q("SELECT * FROM runs ORDER BY id DESC LIMIT 20"),
         "portal_url": PORTAL_URL,
+        "workflows": [{"id": k, "label": v["label"]} for k, v in runner.WORKFLOWS.items()],
     }
 
 
@@ -120,8 +127,9 @@ def customers(user=Depends(current)):
         n = db.one("SELECT msisdn FROM numbers WHERE customer_id=?", (c["id"],))
         c["number"] = n["msisdn"] if n else None
         c["docs"] = db.one("SELECT COUNT(*) k FROM documents WHERE customer_id=?", (c["id"],))["k"]
-        c["flagged"] = db.one("SELECT COUNT(*) k FROM extractions WHERE customer_id=? AND "
-                              "status='review'", (c["id"],))["k"]
+        c["flagged"] = 0 if c["application_no"] else db.one(
+            "SELECT COUNT(*) k FROM extractions WHERE customer_id=? AND status='review'",
+            (c["id"],))["k"]
     return out
 
 
@@ -168,6 +176,9 @@ def reports(user=Depends(current)):
         "avg_seconds": round(sum(secs) / len(secs), 1) if secs else None,
         "holds": {h["kind"]: h["k"] for h in holds},
         "applications": db.one("SELECT COUNT(*) k FROM portal_applications")["k"],
+        "service_requests": db.one("SELECT COUNT(*) k FROM portal_requests")["k"],
+        "by_workflow": {r["workflow"]: r["k"] for r in db.q(
+            "SELECT workflow, COUNT(*) k FROM runs WHERE status='done' GROUP BY workflow")},
         "stages": {s["stage"]: s["k"] for s in
                    db.q("SELECT stage, COUNT(*) k FROM customers GROUP BY stage")},
         "documents": db.one("SELECT COUNT(*) k FROM documents")["k"],
@@ -200,15 +211,15 @@ async def upload_doc(customer_id: str, kind: str = "bill", file: UploadFile = Fi
         raise HTTPException(404, "unknown customer")
     out = DOCS / customer_id
     out.mkdir(parents=True, exist_ok=True)
-    p = out / file.filename
-    p.write_bytes(await file.read())
+    name = Path(file.filename or "upload.pdf").name
+    p = out / name
+    size = vault.write(p, await file.read())
     db.ex("DELETE FROM documents WHERE customer_id=? AND kind=?", (customer_id, kind))
     db.ex("""INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at)
-             VALUES(?,?,?,?,?,?)""",
-          (customer_id, kind, file.filename, str(p), p.stat().st_size, db.now()))
+             VALUES(?,?,?,?,?,?)""", (customer_id, kind, name, str(p), size, db.now()))
     db.audit(user["username"], user["role"], "Uploaded document", customer_id,
-             f"{kind}: {file.filename} ({p.stat().st_size // 1024} KB)")
-    return {"ok": True, "kind": kind, "filename": file.filename, "bytes": p.stat().st_size}
+             f"{kind}: {name} ({size // 1024} KB, encrypted at rest)")
+    return {"ok": True, "kind": kind, "filename": name, "bytes": size}
 
 
 @app.post("/api/documents/regenerate")
@@ -276,7 +287,8 @@ async def start_run(body: dict = Body(...), user=Depends(need("operator"))):
     try:
         r = await runner.start(body["customer_id"], user,
                                headless=bool(body.get("headless", HEADLESS_DEFAULT)),
-                               speed=float(body.get("speed", 1)))
+                               speed=float(body.get("speed", 1)),
+                               workflow=body.get("workflow"), target_kw=body.get("target_kw"))
     except Exception as e:
         raise HTTPException(400, str(e))
     return {"run_id": r.id, "status": r.status}
@@ -397,20 +409,76 @@ async def runpdf(rid: int, user=Depends(current)):
     return FileResponse(p, filename=p.name, media_type="application/pdf")
 
 
+MEDIA = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+         ".jpeg": "image/jpeg"}
+
+
 @app.get("/files/shots/{name}")
-def shot(name: str):
+def shot(name: str, user=Depends(current)):
     p = SHOTS / Path(name).name
     if not p.exists():
         raise HTTPException(404)
-    return FileResponse(p)
+    return Response(vault.read(p), media_type="image/png", headers={"Cache-Control": "private"})
 
 
 @app.get("/files/docs/{cid}/{name}")
-def doc(cid: str, name: str):
+def doc(cid: str, name: str, user=Depends(current)):
     p = DOCS / Path(cid).name / Path(name).name
     if not p.exists():
         raise HTTPException(404)
-    return FileResponse(p)
+    db.audit(user["username"], user["role"], "Viewed document", Path(cid).name, p.name)
+    disposition = 'inline; filename="' + p.name + '"'
+    return Response(vault.read(p), media_type=MEDIA.get(p.suffix.lower(), "application/octet-stream"),
+                    headers={"Cache-Control": "private", "Content-Disposition": disposition})
+
+
+# ------------------------------- follow-ups -------------------------------
+@app.get("/api/followups")
+def followups(user=Depends(current)):
+    """Everything that needs a person, worst first. Derived from live data, so it is always
+    current and never needs to be maintained by hand."""
+    out = []
+    for n in numbers():
+        if n["customer_id"] and n["days_left"] <= 14:
+            out.append({"sev": "bad" if n["days_left"] <= 7 else "warn", "cid": n["customer_id"],
+                        "title": f"Number {n['msisdn']} expires in {n['days_left']} days",
+                        "action": "Renew before the subsidy cycle closes, or release it"})
+    for c in db.q("SELECT * FROM customers WHERE blocked_note IS NOT NULL ORDER BY id"):
+        out.append({"sev": "info" if c["discom_ref"] else "warn", "cid": c["id"],
+                    "title": c["blocked_note"],
+                    "action": "Awaiting the DISCOM" if c["discom_ref"] else
+                              (runner.WORKFLOWS[c["workflow"]]["label"] if c["workflow"]
+                               else "Handled by staff")})
+    for r in db.q("""SELECT e.customer_id, COUNT(*) k FROM extractions e
+                     JOIN customers c ON c.id = e.customer_id
+                     WHERE e.status='review' AND c.application_no IS NULL AND c.workflow IS NOT NULL
+                     GROUP BY e.customer_id"""):
+        out.append({"sev": "warn", "cid": r["customer_id"],
+                    "title": f"{r['k']} extracted field{'s' if r['k'] > 1 else ''} need review",
+                    "action": "Open Document Intake"})
+    for r in db.q("""SELECT * FROM runs WHERE status IN ('failed','stopped')
+                     ORDER BY id DESC LIMIT 3"""):
+        out.append({"sev": "info", "cid": r["customer_id"],
+                    "title": f"Run {r['id']} {r['status']}; nothing was submitted",
+                    "action": "Review the run report"})
+    order = {"bad": 0, "warn": 1, "info": 2}
+    return sorted(out, key=lambda f: order[f["sev"]])
+
+
+# ------------------------------- backups -------------------------------
+@app.post("/api/backup")
+def make_backup(user=Depends(need("supervisor"))):
+    p = backup.create()
+    db.audit(user["username"], user["role"], "Created backup", "", p.name)
+    return {"ok": True, "file": p.name, "bytes": p.stat().st_size}
+
+
+@app.get("/api/backups/{name}")
+def get_backup(name: str, user=Depends(need("supervisor"))):
+    p = backup.BACKUPS / Path(name).name
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, filename=p.name, media_type="application/zip")
 
 
 @app.post("/api/demo/reset")
