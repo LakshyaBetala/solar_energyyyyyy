@@ -279,7 +279,7 @@ app/
   reset.py         returns the demo to its opening state
 web/               console — plain HTML, CSS and JavaScript, no build step
 tests/
-  smoke.py         55 checks through the HTTP API, asserting on the database and the disk
+  smoke.py         56 checks through the HTTP API, asserting on the database and the disk
   ui.py            37 checks driving the console in a real browser
 docs/              OPERATIONS.md and the screenshots used here
 data/              database, encrypted documents and screenshots, exports, backups (created at runtime)
@@ -314,7 +314,7 @@ Ports and timings live in `app/config.py`.
 Start the server, then in a second terminal:
 
 ```bash
-python tests/smoke.py     # 55 checks: access control, encryption, extraction, refusal guards,
+python tests/smoke.py     # 56 checks: access control, encryption, extraction, refusal guards,
                           # rooftop runs (including a mistyped OTP and a real portal rejection),
                           # all three DISCOM workflows, follow-ups, exports, backups, pause, abandon
 python tests/ui.py        # 37 checks: every view, runs started from the pipeline, a refused
