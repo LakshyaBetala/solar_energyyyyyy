@@ -86,7 +86,7 @@ img{max-width:100%}
 .gateerr{color:var(--bad);font-size:12px;margin-bottom:10px}
 
 /* ---------- shell ---------- */
-.shell{display:grid;grid-template-columns:234px minmax(0,1fr);height:100%}
+.shell{display:grid;grid-template-columns:234px minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100%}
 .rail{display:flex;flex-direction:column;gap:2px;background:var(--bg-deep);
   border-right:1px solid var(--line-soft);padding:14px 12px;overflow-y:auto;min-width:0}
 .brand{display:flex;align-items:center;gap:10px;padding:4px 6px 16px}

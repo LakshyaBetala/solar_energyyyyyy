@@ -49,15 +49,24 @@ async def sign_in(pg, who):
     await pg.wait_for_timeout(500)
 
 
-async def drive(pg, on_approve=None):
+async def drive(pg, on_approve=None, resend_once=False):
     """Answer each dialog as it appears until the run ends. Returns (dialogs, final state)."""
     seen = []
     for _ in range(180):
         await pg.wait_for_timeout(600)
         if await pg.locator("#scrim:not([hidden])").count():
             title = (await pg.locator("#mtitle").inner_text()).strip().lower()
-            if title.startswith("otp"):
+            if title.startswith("otp") and resend_once:
+                resend_once = False
+                seen.append("resend")
+                await pg.locator('[data-act="resend"]').click()
+            elif title.startswith("otp"):
                 seen.append("otp")
+                if "resend" in seen:
+                    body = await pg.locator("#mbody").inner_text()
+                    check("after Resend OTP the dialog shows the new code on top",
+                          "new code was sent" in body.lower() and
+                          await pg.locator("#mbody .sms").count() >= 2, body[:80])
                 code = re.search(r"\b(\d{6})\b", await pg.locator("#mbody").inner_text()).group(1)
                 for i, d in enumerate(code):
                     await pg.fill(f"#o{i}", d)
@@ -168,10 +177,10 @@ async def main():
                   toast)
             await sign_in(pg, "r.deshmukh")
 
-        seen, state = await drive(pg, on_approve=refused_then_supervisor)
+        seen, state = await drive(pg, on_approve=refused_then_supervisor, resend_once=True)
         check("rooftop run completed in the UI", state == "Completed", state)
-        check("checkpoints appeared as dialogs: OTP, CAPTCHA, correction, approval",
-              seen[:4] == ["otp", "captcha", "fix", "approve"], str(seen))
+        check("checkpoints appeared as dialogs: OTP (resent), OTP, CAPTCHA, correction, approval",
+              seen[:5] == ["resend", "otp", "captcha", "fix", "approve"], str(seen))
         src = await pg.locator("#frame").get_attribute("src")
         check("live frames reached the browser pane", bool(src) and src.startswith("data:image/jpeg"))
         check("evidence thumbnails rendered", await pg.locator(".shot").count() >= 5)

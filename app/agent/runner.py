@@ -55,7 +55,7 @@ ROOFTOP_CATEGORIES = ("Residential", "Housing society")
 
 SEL = {
     "state": "#state", "discom": "#discom", "consumer": "#consumerNo", "mobile": "#mobile",
-    "send_otp": "#btnSendOtp", "otp": "#otp", "verify": "#btnVerify",
+    "send_otp": "#btnSendOtp", "otp": "#otp", "verify": "#btnVerify", "resend": "#btnResend",
     "name": "#applicantName", "category": "#category", "mobile2": "#mobile2",
     "address": "#address", "pin": "#pin", "bank": "#bank", "load": "#load",
     "capacity": "#capacity", "roof": "#roofArea", "module": "#moduleType", "vendor": "#vendor",
@@ -68,7 +68,7 @@ DOC_INPUTS = {"bill": "#docBill", "aadhaar": "#docAadhaar", "passbook": "#docPas
               "roof": "#docRoof"}
 DSEL = {
     "consumer": "#dConsumer", "mobile": "#dMobile", "send_otp": "#dSendOtp",
-    "otp": "#dOtp", "verify": "#dVerify", "type": "#reqType", "load": "#reqLoad",
+    "otp": "#dOtp", "verify": "#dVerify", "resend": "#dResend", "type": "#reqType", "load": "#reqLoad",
     "phase": "#phase", "purpose": "#purpose", "reason": "#reason", "app_name": "#appName",
     "app_address": "#appAddress", "app_pin": "#appPin", "next": "#btnReqNext",
     "upload": "#dBtnUpload", "declaration": "#dDecl", "submit": "#dSubmit",
@@ -327,23 +327,31 @@ class Runner:
             pass
         return None, None
 
-    async def otp_checkpoint(self, field, verify):
+    async def otp_checkpoint(self, field, verify, resend):
         """Hold for a person to read the OTP. A wrong code is re-asked, as the portal allows,
-        rather than abandoning the run; the portal's own lockout ends it after three."""
+        rather than abandoning the run; the portal's own lockout ends it after three. A code that
+        never arrived can be resent without using up an attempt; the portal caps resends."""
         self.step("otp", "hold")
         await self.snap("otp", "OTP checkpoint", "hold")
         num = db.one("SELECT * FROM numbers WHERE customer_id=?", (self.c["id"],))
-        last_err = None
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        last_err, notice, attempt, resends = None, None, 1, 0
+        while attempt <= MAX_ATTEMPTS:
             inbox = db.q("SELECT sender,body,ts FROM sms WHERE msisdn=? ORDER BY id DESC LIMIT 4",
                           (num["msisdn"] if num else "",))
             res = await self.hold(
                 "otp", "OTP checkpoint" if attempt == 1 else f"OTP rejected, attempt {attempt} of 3",
                 {"msisdn": num["msisdn"] if num else "unassigned", "customer": self.c["name"],
-                 "step": self.where("otp"), "inbox": inbox, "error": last_err,
-                 "attempt": attempt,
+                 "step": self.where("otp"), "inbox": inbox, "error": last_err, "notice": notice,
+                 "attempt": attempt, "resends_left": MAX_ATTEMPTS - resends,
                  "hint": "The portal sent a 6-digit code to the number dedicated to this "
                          "registration. The agent does not read it for you and never stores it."})
+            if res["resolution"] == "resend":
+                await self.press(resend, f"click Resend OTP (requested by {res['by']})")
+                resends += 1
+                last_err, _ = await self.page_error()
+                notice = None if last_err else "A new code was sent. The earlier code no longer works."
+                self.log("err" if last_err else "good", last_err or "portal sent a new OTP")
+                continue
             await self.type_into(field, str(res["payload"].get("code", "")).strip())
             self.log("head", f"operator {res['by']} supplied the OTP (value not stored)")
             await self.press(verify, "click Verify")
@@ -352,13 +360,15 @@ class Runner:
                 if num:
                     db.ex("UPDATE numbers SET otp_count=otp_count+1 WHERE id=?", (num["id"],))
                 self.log("good", "mobile verified")
-                self.step("otp", "done", f"{res['by']}, {attempt} attempt{'s' if attempt > 1 else ''}")
+                self.step("otp", "done", f"{res['by']}, {attempt} attempt{'s' if attempt > 1 else ''}"
+                          + (f", {resends} resend{'s' if resends > 1 else ''}" if resends else ""))
                 return
             await self.snap("otp", f"OTP rejected, attempt {attempt}", "fail")
             self.log("err", f"portal rejected the OTP: {err}")
-            last_err = err
+            last_err, notice = err, None
             if "Start again" in err:
                 break
+            attempt += 1
         self.step("otp", "fail", "locked after 3 attempts")
         raise RuntimeError("the portal locked the session after three wrong OTPs")
 
@@ -424,7 +434,7 @@ class Runner:
         self.log("good", "portal accepted the consumer number and requested an OTP")
         self.step("consumer", "done")
 
-        await self.otp_checkpoint(SEL["otp"], SEL["verify"])
+        await self.otp_checkpoint(SEL["otp"], SEL["verify"], SEL["resend"])
         await self.fill_form(v, first_pass=True)
         await self.attach(docs)
         await self.security()
@@ -637,7 +647,7 @@ class Runner:
             raise RuntimeError(f"portal refused the sign-in: {err}")
         self.step("login", "done")
 
-        await self.otp_checkpoint(DSEL["otp"], DSEL["verify"])
+        await self.otp_checkpoint(DSEL["otp"], DSEL["verify"], DSEL["resend"])
 
         self.step("request", "active")
         kind = {"load_enhancement": "Load enhancement", "load_reduction": "Load reduction",

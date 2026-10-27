@@ -388,6 +388,7 @@ function openHold(h) {
   if (h.kind === 'otp') {
     modal('OTP checkpoint', 'The portal is waiting for a one-time password. The run is held.',
       (c.error ? banner('bad', `<b>The portal rejected the last code.</b> ${esc(c.error)}`)
+        : c.notice ? banner('', `<b>${esc(c.notice)}</b> It is at the top of the messages below.`)
         : banner('', `Held at step ${esc(c.step)}. Nothing is submitted while this is open.`)) +
       `<div class="inbox"><div class="ih"><span class="dot on"></span><b class="mono">${esc(c.msisdn)}</b>
         <span class="spacer"></span><span>dedicated number for this registration</span></div>
@@ -396,7 +397,9 @@ function openHold(h) {
       </div>
       <div class="otpin">${[0, 1, 2, 3, 4, 5].map(i => `<input id="o${i}" inputmode="numeric" maxlength="1" aria-label="digit ${i + 1}">`).join('')}</div>
       <div class="hint" style="text-align:center">${esc(c.hint)}</div>`,
-      `<button class="btn" data-act="escalate">Escalate</button><span class="spacer"></span>
+      `<button class="btn" data-act="escalate">Escalate</button>
+       <button class="btn" data-act="resend"${c.resends_left === 0 ? ' disabled title="The portal allows 3 resends"' : gate('operator')}>Resend OTP</button>
+       <span class="spacer"></span>
        <button class="btn go" id="otpgo"${gate('operator')}>Verify and resume</button>`);
     $$('.otpin input').forEach((inp, i) => inp.addEventListener('input', () => {
       inp.value = inp.value.replace(/\D/g, '');
@@ -528,8 +531,8 @@ VIEWS.numbers = () => {
       <div class="d">counted by the server</div></div>
     <div class="kpi"><div class="k">Expiring in 14 days</div><div class="v num">${n.filter(x => x.days_left <= 14).length}</div>
       <div class="d">reminder fires at day 7</div></div>
-    <div class="kpi"><div class="k">Monthly cost</div><div class="v">&#8377;${n.length * 149}</div>
-      <div class="d">&#8377;149 per number · 90-day retention</div></div>
+    <div class="kpi"><div class="k">Monthly cost</div><div class="v">&#8377;${n.length * 165}</div>
+      <div class="d">&#8776;&#8377;165 per number (voice+SMS pack) · 90-day retention</div></div>
   </div>
   <div class="card raise"><div class="ch"><h3>Dedicated number pool</h3><span class="spacer"></span>
     <span class="hint">One number per registration, held exclusively for 90 days.</span></div>
@@ -611,7 +614,7 @@ VIEWS.audit = () => `<div class="grid" style="gap:14px">
   <div class="card"><div class="ch"><h3>Append-only audit trail</h3><span class="spacer"></span>
     <span class="pill idle mono">${S.audit.length} entries</span>
     <button class="btn sm" id="xlsx">Download Excel</button></div>
-    <div class="audit" style="max-height:58vh;overflow-y:auto">${S.audit.map(a => `
+    <div class="audit">${S.audit.map(a => `
       <div class="ar"><span style="color:var(--fg-faint)">${esc(a.ts.replace('T', ' ').slice(5))}</span>
         <b>${esc(a.actor)}</b><span>${esc(a.action)}${a.target ? ' · ' + esc(a.target) : ''}
         ${a.detail ? `<span style="color:var(--fg-faint)"> — ${esc(a.detail)}</span>` : ''}</span></div>`).join('')}</div></div>
@@ -699,8 +702,8 @@ document.addEventListener('click', async e => {
   }
   if (t.id === 'signout') { await api('/logout', { method: 'POST' }); S.me = null; showGate(); return; }
   if (t.hasAttribute('data-close')) return closeModal();
-  if (t.dataset.act === 'escalate' || t.dataset.act === 'reject') {
-    if (S.hold) send(S.hold, t.dataset.act === 'reject' ? 'reject' : 'escalate', {});
+  if (t.dataset.act === 'escalate' || t.dataset.act === 'reject' || t.dataset.act === 'resend') {
+    if (S.hold) send(S.hold, t.dataset.act, {});
     return;
   }
 

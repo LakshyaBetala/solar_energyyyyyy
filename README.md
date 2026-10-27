@@ -140,6 +140,18 @@ Password for all three is `demo`.
 Roles are checked by the API on every call. An operator *can* press Approve; the server refuses
 it, and the refused attempt is written to the audit trail.
 
+### Pages and who can do what
+
+| Page | What it shows | Viewer | Operator | Supervisor |
+|---|---|---|---|---|
+| **Pipeline** | every application by stage, the Needs attention list, Excel export | view, export | + start the agent on a row | same as operator |
+| **Agent Runs** | step plan, live browser, log, screenshots, PDF report | watch, download report | + start, pause, abandon; answer OTP (or resend it), CAPTCHA and corrections | + **approve the final submission** |
+| **Document Intake** | the customer's documents and every extracted field, with confidence | view | + run extraction, upload a document | same as operator |
+| **Number Pool** | dedicated numbers, 90-day retention, inbox | view | + test, assign, release a number | same as operator |
+| **AI Calling** | sample call transcripts in Marathi, Hindi and English | view | view | view |
+| **Audit Trail** | every action, attributed, including refused attempts | view, export | view, export | view, export |
+| **Reports** | run statistics, exports, per-run PDF reports | view, download | view, download | + create a backup, reset the demo |
+
 ---
 
 ## Guided walkthrough
@@ -173,7 +185,7 @@ frames of it; tick **Show real window** to watch the browser itself.
 
 | Checkpoint | What happens |
 |---|---|
-| **OTP** | The portal issues a code to the number dedicated to this application. A mistyped code is re-asked, as the portal allows; three wrong codes and the portal locks the session. |
+| **OTP** | The portal issues a code to the number dedicated to this application. A mistyped code is re-asked, as the portal allows; three wrong codes and the portal locks the session. If the code never arrives, **Resend OTP** makes the agent click the portal's own resend link: a new code is texted, the old one stops working, and no attempt is used up. The portal allows three resends. |
 | **CAPTCHA** | The agent screenshots the challenge and asks a person. It never tries to solve it. |
 | **Correction** | Pre-flight check against the portal's own review page. Take the recommended option and it re-files. Choose *submit anyway* and the portal's own validator rejects it with `VAL-0712`, screenshotted, and the run recovers. |
 | **Approval** | Supervisor only, enforced by the server. |
@@ -189,7 +201,7 @@ feasibility and the audit trail records who approved.
 
 Try SS-2049 on rooftop registration first: Solara refuses, because the 5 kW plant exceeds the
 3 kW sanctioned load. Its next step is a **load enhancement**, which runs on the DISCOM portal
-with an OTP and an approval, and comes back with a request number. SS-2050 has no connection at
+with an OTP (resend works here too) and an approval, and comes back with a request number. SS-2050 has no connection at
 all, so its workflow is a **new connection**, filed from the identity document and ownership proof.
 
 <p align="center">
@@ -237,7 +249,7 @@ boot and their checkpoints cancelled; nothing is submitted.
 | `POST` | `/api/extract/{customer_id}` | operator; parses the documents on disk |
 | `POST` | `/api/runs` | operator; `{customer_id, workflow?, target_kw?}` |
 | `GET` | `/api/runs/{id}/stream` | SSE: plan, steps, log, frames, checkpoints |
-| `POST` | `/api/runs/{id}/holds/{hold_id}` | resolves a checkpoint; role-checked per kind |
+| `POST` | `/api/runs/{id}/holds/{hold_id}` | resolves a checkpoint, role-checked per kind: `{resolution: ok \| resend \| escalate \| reject \| approve, payload?}` |
 | `POST` | `/api/runs/{id}/pause` · `/resume` · `/stop` | operator |
 | `GET` | `/api/exports/pipeline.xlsx` | workbook |
 | `GET` | `/api/exports/run/{id}.pdf` | run report with screenshots |
@@ -279,8 +291,8 @@ app/
   reset.py         returns the demo to its opening state
 web/               console — plain HTML, CSS and JavaScript, no build step
 tests/
-  smoke.py         56 checks through the HTTP API, asserting on the database and the disk
-  ui.py            37 checks driving the console in a real browser
+  smoke.py         61 checks through the HTTP API, asserting on the database and the disk
+  ui.py            38 checks driving the console in a real browser
 docs/              OPERATIONS.md and the screenshots used here
 data/              database, encrypted documents and screenshots, exports, backups (created at runtime)
 ```
@@ -314,11 +326,13 @@ Ports and timings live in `app/config.py`.
 Start the server, then in a second terminal:
 
 ```bash
-python tests/smoke.py     # 56 checks: access control, encryption, extraction, refusal guards,
-                          # rooftop runs (including a mistyped OTP and a real portal rejection),
-                          # all three DISCOM workflows, follow-ups, exports, backups, pause, abandon
-python tests/ui.py        # 37 checks: every view, runs started from the pipeline, a refused
-                          # approval, a DISCOM run, dismissable checkpoints, light theme, phone width
+python tests/smoke.py     # 61 checks: access control, encryption, extraction, refusal guards,
+                          # rooftop runs (an OTP resend, the stale code refused, a real portal
+                          # rejection), the resend cap, all three DISCOM workflows, follow-ups,
+                          # exports, backups, pause, abandon
+python tests/ui.py        # 38 checks: every view, runs started from the pipeline, Resend OTP from
+                          # the dialog, a refused approval, a DISCOM run, dismissable checkpoints,
+                          # light theme, phone width
 ```
 
 Both reset the demo before and after, and assert on what actually landed: the application number
@@ -369,7 +383,8 @@ Real:
 
 - Playwright drives Chromium against web applications served over HTTP.
 - Extraction decrypts and parses the documents on disk; nothing is hard-coded.
-- Both portals validate server-side: unknown consumers, wrong OTPs with lockout, wrong CAPTCHAs,
+- Both portals validate server-side: unknown consumers, wrong OTPs with lockout, OTP resends with a
+  cap (the old code dies on resend), wrong CAPTCHAs,
   capacity above sanctioned load, enhancements that do not increase load, missing documents, name
   mismatches, duplicates.
 - Checkpoints genuinely block the agent until resolved with a sufficient role.

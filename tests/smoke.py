@@ -33,9 +33,14 @@ async def act(c, rid, ev, plan):
     if kind == "otp":
         code = db.one("SELECT code FROM sms WHERE msisdn=? AND code IS NOT NULL ORDER BY id DESC",
                       (ev["context"]["msisdn"],))["code"]
-        if plan.pop("wrong_otp", False):
-            code = f"{(int(code) + 1) % 1000000:06d}"  # a typo on stage
-        body = {"resolution": "ok", "payload": {"code": code}}
+        if plan.pop("resend_otp", False):
+            plan["stale_code"] = code
+            body = {"resolution": "resend", "payload": {}}
+        else:
+            if plan.pop("wrong_otp", False):
+                # the code from before a resend, which the portal must now refuse; else a typo
+                code = plan.pop("stale_code", None) or f"{(int(code) + 1) % 1000000:06d}"
+            body = {"resolution": "ok", "payload": {"code": code}}
     elif kind == "captcha":
         code = db.one("SELECT captcha FROM portal_sessions ORDER BY rowid DESC")["captcha"]
         body = {"resolution": "ok", "payload": {"code": code}}
@@ -147,15 +152,21 @@ async def main():
                   end["reason"][:90])
 
         # ================= rooftop: wrong OTP, then the full path =================
-        print("\n  -- rooftop registration, with a mistyped OTP")
+        print("\n  -- rooftop registration: resend the OTP, then type the old code")
+        sms_before = db.one("SELECT COUNT(*) n FROM sms WHERE sender='VM-NRSOLR'")["n"]
         rid, holds, end = await run(c, {"customer_id": "SS-2045"},
-                                    {"wrong_otp": True, "operator_tries_approve": True})
-        check("run completed despite a mistyped OTP", end and end["type"] == "done",
+                                    {"resend_otp": True, "wrong_otp": True,
+                                     "operator_tries_approve": True})
+        check("run completed after a resend and a stale code", end and end["type"] == "done",
               (end or {}).get("reason", ""))
-        check("checkpoints: OTP, OTP again, CAPTCHA, correction, approval",
-              kinds(holds) == ["otp", "otp", "captcha", "fix", "approve"], str(kinds(holds)))
-        check("second OTP prompt carried the portal's own error",
-              "Incorrect OTP" in (holds[1]["context"].get("error") or ""))
+        check("checkpoints: OTP, OTP after resend, OTP after rejection, CAPTCHA, correction, approval",
+              kinds(holds) == ["otp", "otp", "otp", "captcha", "fix", "approve"], str(kinds(holds)))
+        check("Resend OTP made the portal text a second code",
+              db.one("SELECT COUNT(*) n FROM sms WHERE sender='VM-NRSOLR'")["n"] - sms_before == 2)
+        check("the prompt after a resend says a new code was sent",
+              "new code" in (holds[1]["context"].get("notice") or ""))
+        check("the code from before the resend is refused by the portal",
+              "Incorrect OTP" in (holds[2]["context"].get("error") or ""))
         if end and end["type"] == "done":
             app_no = end["application_no"]
             check("application number read off the portal page", app_no.startswith("PMSG/MH/"),
@@ -164,8 +175,8 @@ async def main():
             check("portal stored the bill spelling of the name",
                   row and row["applicant_name"] == "VAISHALI D PAWAR")
             steps = {s["key"]: s for s in db.q("SELECT * FROM run_steps WHERE run_id=?", (rid,))}
-            check("OTP step records two attempts", "2 attempts" in steps["otp"]["note"],
-                  steps["otp"]["note"])
+            check("OTP step records two attempts and the resend",
+                  "2 attempts, 1 resend" in steps["otp"]["note"], steps["otp"]["note"])
             check("correction step keeps the operator's decision",
                   steps["fix"]["status"] == "done" and "s.kale" in steps["fix"]["note"])
             check("validation step records it passed only after a correction",
@@ -199,13 +210,27 @@ async def main():
         check("the rejection carried the portal's error code VAL-0712",
               bool(rej) and rej[0]["context"].get("code") == "VAL-0712")
 
+        # ================= portal: the resend cap =================
+        print("\n  -- portal: resend works three times, then stops")
+        pc = db.one("SELECT consumer_no, msisdn FROM portal_consumers ORDER BY rowid LIMIT 1")
+        async with httpx.AsyncClient(base_url=BASE, timeout=30, follow_redirects=True) as pp:
+            await pp.post("/portal/verify", data={"state": "Maharashtra", "discom": "MSEDCL",
+                                                  "consumer_no": pc["consumer_no"],
+                                                  "mobile": pc["msisdn"]})
+            pages = [(await pp.post("/portal/otp/resend")).text for _ in range(4)]
+        check("three resends each confirm a new code",
+              all("new code has been sent" in t for t in pages[:3]))
+        check("the fourth resend is refused", "Resend limit reached" in pages[3])
+
         # ================= DISCOM: the three service requests =================
         print("\n  -- DISCOM: load enhancement, load reduction, new connection")
-        rid, holds, end = await run(c, {"customer_id": "SS-2049"})
+        rid, holds, end = await run(c, {"customer_id": "SS-2049"}, {"resend_otp": True})
         check("load enhancement filed", end and end["type"] == "done",
               (end or {}).get("application_no") or (end or {}).get("reason", ""))
-        check("load enhancement checkpoints: OTP, approval", kinds(holds) == ["otp", "approve"],
-              str(kinds(holds)))
+        check("load enhancement checkpoints: OTP, OTP after resend, approval",
+              kinds(holds) == ["otp", "otp", "approve"], str(kinds(holds)))
+        check("DISCOM resend texted a second DISCOM code",
+              db.one("SELECT COUNT(*) n FROM sms WHERE sender='VM-DISCOM'")["n"] >= 2)
         req = db.one("SELECT * FROM portal_requests WHERE kind='load_enhancement'")
         check("DISCOM stored 3 kW → 5 kW", req and req["current_load"] == 3.0 and
               req["requested_load"] == 5.0)

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from . import db
 from .config import DATA
-from .portal import shell as _shell, sess as _sess, set_sess
+from .portal import shell as _shell, sess as _sess, set_sess, send_otp, resend
 
 router = APIRouter(prefix="/discom")
 COOKIE = "dsid"
@@ -80,34 +80,43 @@ def login_post(consumer_no: str = Form(""), mobile: str = Form("")):
         if pc["msisdn"] != mobile:
             return login_get("This mobile is not the one registered against the consumer number.")
     sid = secrets.token_hex(12)
-    otp = f"{random.randint(0, 999999):06d}"
-    set_sess(sid, consumer_no=consumer_no or None, stage="otp", otp=otp, otp_tries=0,
-             data={"portal": "discom", "mobile": mobile})
-    num = db.one("SELECT msisdn FROM numbers WHERE REPLACE(REPLACE(msisdn,' ',''),'+91','')=?",
-                 (mobile,))
-    db.ex("INSERT INTO sms(msisdn,sender,body,code,ts) VALUES(?,?,?,?,?)",
-          (num["msisdn"] if num else "+91 " + mobile, "VM-DISCOM",
-           f"{otp} is your OTP for the DISCOM self-service portal. Valid for 10 minutes.",
-           otp, db.now()))
+    set_sess(sid, consumer_no=consumer_no or None, stage="otp", otp=send_otp(mobile, *SMS),
+             otp_tries=0, data={"portal": "discom", "mobile": mobile})
     r = RedirectResponse("/discom/otp", status_code=303)
     r.set_cookie(COOKIE, sid, httponly=True, samesite="lax")
     return r
 
 
+SMS = ("VM-DISCOM", "{otp} is your OTP for the DISCOM self-service portal. Valid for 10 minutes.")
+
+
 @router.get("/otp", response_class=HTMLResponse)
-def otp_get(request: Request, error: str = ""):
+def otp_get(request: Request, error: str = "", sent: int = 0):
     s = sess(request)
     if not s:
         return RedirectResponse("/discom/login")
     mob = data_of(s).get("mobile", "")
-    return shell("Mobile OTP", banner(error) + f"""
+    note = ('<div class="pbanner ok" id="dResendNote">A new code has been sent. The earlier code '
+            'no longer works.</div>') if sent and not error else ""
+    return shell("Mobile OTP", banner(error) + note + f"""
 <div class="pcard"><h4>Enter the one-time password</h4>
 <div class="pd">Sent to the mobile ending {mob[-4:]}. Valid for 10 minutes.</div>
 <form method="post" action="/discom/otp" class="otpwrap">
 <label for="dOtp">One-time password</label>
 <input type="text" id="dOtp" name="otp" maxlength="6" autocomplete="off" inputmode="numeric">
 <div style="margin-top:14px"><button type="submit" id="dVerify">Verify</button></div></form>
+<form method="post" action="/discom/otp/resend" style="margin-top:10px">
+<button type="submit" id="dResend" class="link">Didn't get the code? Resend OTP</button></form>
 <div class="pnote">Attempts used: {s['otp_tries']} of 3.</div></div>""", 1)
+
+
+@router.post("/otp/resend")
+def otp_resend(request: Request):
+    s = sess(request)
+    if not s or s["stage"] != "otp":
+        return RedirectResponse("/discom/login", status_code=303)
+    err = resend(s, data_of(s).get("mobile", ""), *SMS)
+    return otp_get(request, err) if err else RedirectResponse("/discom/otp?sent=1", status_code=303)
 
 
 @router.post("/otp")

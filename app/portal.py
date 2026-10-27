@@ -44,6 +44,7 @@ button:hover{background:#0E2E55}
 .pbanner{border-radius:6px;padding:10px 12px;font-size:11.5px;margin-bottom:14px;max-width:640px;
 display:flex;gap:9px;align-items:flex-start}
 .err{background:#FDECEA;border:1px solid #F3B5AF;color:#8E231B}
+button.link{background:none;border:none;color:#123A6B;padding:0;font-weight:500;text-decoration:underline}
 .ok{background:#E8F7EE;border:1px solid #A9DDBE;color:#146332}
 table{width:100%;border-collapse:collapse;font-size:12px}
 td{padding:6px 8px;border-bottom:1px solid #E6EBF1}
@@ -168,27 +169,47 @@ def verify_post(request: Request, state: str = Form(""), discom: str = Form(""),
         return verify_get(request, "The mobile number does not match the one registered against this "
                                    "consumer number.")
     sid = secrets.token_hex(12)
-    otp = f"{random.randint(0, 999999):06d}"
-    set_sess(sid, consumer_no=consumer_no, stage="otp", otp=otp, otp_tries=0,
+    set_sess(sid, consumer_no=consumer_no, stage="otp", otp=send_otp(mobile.strip()), otp_tries=0,
              data={"state": state, "discom": discom, "mobile": mobile})
-    msisdn = db.one("SELECT msisdn FROM numbers WHERE REPLACE(REPLACE(msisdn,' ',''),'+91','')=?",
-                    (mobile.strip(),))
-    db.ex("INSERT INTO sms(msisdn,sender,body,code,ts) VALUES(?,?,?,?,?)",
-          (msisdn["msisdn"] if msisdn else "+91 " + mobile, "VM-NRSOLR",
-           f"OTP for rooftop solar registration is {otp}. Valid for 10 minutes. Do not share it.",
-           otp, db.now()))
     r = RedirectResponse("/portal/otp", status_code=303)
     r.set_cookie("psid", sid, httponly=True, samesite="lax")
     return r
 
 
+MAX_RESENDS = 3
+
+
+def send_otp(mobile, sender="VM-NRSOLR",
+             text="OTP for rooftop solar registration is {otp}. Valid for 10 minutes. Do not share it."):
+    """Text a fresh code to the mobile's dedicated number and return it."""
+    otp = f"{random.randint(0, 999999):06d}"
+    num = db.one("SELECT msisdn FROM numbers WHERE REPLACE(REPLACE(msisdn,' ',''),'+91','')=?",
+                 (mobile,))
+    db.ex("INSERT INTO sms(msisdn,sender,body,code,ts) VALUES(?,?,?,?,?)",
+          (num["msisdn"] if num else "+91 " + mobile, sender, text.format(otp=otp), otp, db.now()))
+    return otp
+
+
+def resend(s, mobile, sender=None, text=None):
+    """Replace the session's code with a new one; the old code stops working. Returns an error or None."""
+    sent = json.loads(s["data"] or "{}").get("resends", 0)
+    if sent >= MAX_RESENDS:
+        return f"Resend limit reached ({MAX_RESENDS}). Use the latest code."
+    kw = {k: v for k, v in (("sender", sender), ("text", text)) if v}
+    set_sess(s["sid"], otp=send_otp(mobile, **kw), data={"resends": sent + 1})
+    return None
+
+
 @router.get("/otp", response_class=HTMLResponse)
-def otp_get(request: Request, error: str = ""):
+def otp_get(request: Request, error: str = "", sent: int = 0):
     s = sess(request)
     if not s:
         return RedirectResponse("/portal/verify")
     mob = json.loads(s["data"] or "{}").get("mobile", "")
     banner = f'<div class="pbanner err" id="valError"><b>&#9888;</b><div>{error}</div></div>' if error else ""
+    if sent and not error:
+        banner = ('<div class="pbanner ok" id="resendNote">A new code has been sent. '
+                  'The earlier code no longer works.</div>')
     return shell("Mobile verification", banner + f"""
 <div class="pcard"><h4>Enter the one-time password</h4>
 <div class="pd">A 6-digit code was sent to the mobile number ending {mob[-4:] if mob else '____'}.
@@ -197,7 +218,18 @@ It is valid for 10 minutes.</div>
 <label for="otp">One-time password</label>
 <input type="text" id="otp" name="otp" maxlength="6" autocomplete="off" inputmode="numeric">
 <div style="margin-top:14px"><button type="submit" id="btnVerify">Verify</button></div></form>
+<form method="post" action="/portal/otp/resend" style="margin-top:10px">
+<button type="submit" id="btnResend" class="link">Didn't get the code? Resend OTP</button></form>
 <div class="pnote">Attempts used: {s['otp_tries']} of 3.</div></div>""", 1)
+
+
+@router.post("/otp/resend")
+def otp_resend(request: Request):
+    s = sess(request)
+    if not s or s["stage"] != "otp":
+        return RedirectResponse("/portal/verify", status_code=303)
+    err = resend(s, json.loads(s["data"] or "{}").get("mobile", "").strip())
+    return otp_get(request, err) if err else RedirectResponse("/portal/otp?sent=1", status_code=303)
 
 
 @router.post("/otp")
