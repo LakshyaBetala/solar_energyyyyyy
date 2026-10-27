@@ -379,6 +379,7 @@ class Runner:
                                                  accept_downloads=False)
             self.page = await ctx.new_page()
             pump = asyncio.create_task(self.frame_pump())
+            await self.gate()  # honour an Abandon pressed while the browser was still launching
             self.log("good", f"chromium session ready (headless={self.headless}), "
                              f"isolated profile for {self.c['id']}")
             self.step("boot", "done", "isolated context")

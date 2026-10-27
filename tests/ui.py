@@ -18,6 +18,16 @@ PASS, FAIL = [], []
 LIVE = ("Starting", "Running", "Held for a person", "Paused")
 
 
+async def settled(pg, timeout_s=40):
+    """Wait for the run console to reach a final state rather than sleeping a fixed time."""
+    for _ in range(timeout_s * 4):
+        state = (await pg.locator("#runstate").inner_text()).strip()
+        if state not in LIVE:
+            return state
+        await pg.wait_for_timeout(250)
+    return state
+
+
 def check(name, ok, detail=""):
     (PASS if ok else FAIL).append(name)
     print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"  — {detail}" if detail else ""))
@@ -134,9 +144,8 @@ async def main():
               started == "SS-2047", started)
         await pg.keyboard.press("Escape")
         await pg.locator("#bstop").click()
-        await pg.wait_for_timeout(2500)
-        check("Abandon stops the run",
-              (await pg.locator("#runstate").inner_text()).strip() == "Stopped")
+        state = await settled(pg)
+        check("Abandon stops the run", state == "Stopped", state)
 
         # ---- full rooftop run as the operator, with a refused approval ----
         await sign_in(pg, "s.kale")
@@ -207,7 +216,7 @@ async def main():
               await pg.locator("#scrim[hidden]").count() == 1 and
               await pg.locator("#reopen").count() == 1)
         await pg.locator("#bstop").click()
-        await pg.wait_for_timeout(2500)
+        await settled(pg)
 
         # ---- theme + phone width ----
         await pg.locator('[data-theme-set="light"]').click()
