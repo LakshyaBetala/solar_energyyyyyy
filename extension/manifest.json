@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Solara co-pilot",
+  "version": "1.0.0",
+  "description": "Attaches Solara's documents and shows the customer's details on government portals, inside your own browser. You press every Submit.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:8900/*", "http://localhost:8900/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "content_scripts": [{
+    "matches": [
+      "https://rts.mahadiscom.in/RoofTopSolarVendor/*",
+      "https://pmsuryaghar.gov.in/*",
+      "https://solardcrportal.nise.res.in/*",
+      "http://127.0.0.1:8900/msedcl/*"
+    ],
+    "js": ["panel.js"],
+    "run_at": "document_idle"
+  }]
+}

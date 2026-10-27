@@ -14,8 +14,15 @@ from .config import SHOTS, EXPORTS
 
 def reset(wipe_files=True):
     for t in ("runs", "run_steps", "run_events", "holds", "screenshots",
-              "portal_applications", "portal_requests", "portal_sessions", "sms"):
+              "portal_applications", "portal_requests", "portal_sessions", "sms",
+              "closeout", "sign_requests", "approvals", "msedcl_uploads"):
         db.ex(f"DELETE FROM {t}")
+    # the company signature is one-time setup and survives a reset; customers' do not
+    db.ex("DELETE FROM signatures WHERE role='consumer'")
+    db.ex("DELETE FROM documents WHERE kind LIKE 'co_%'")
+    db.seed_closeout()
+    from . import closeout
+    closeout.demo_assets()
     for c in db.CUSTOMERS:
         # seed tuple: 7 stage, 8 reference, 10 last activity, 11 blocked note, 15 workflow
         db.ex("""UPDATE customers SET stage=?,application_no=?,last_activity=?,blocked_note=?,

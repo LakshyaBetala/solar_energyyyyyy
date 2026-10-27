@@ -24,3 +24,13 @@ FRAME_INTERVAL = 0.45
 FRAME_QUALITY = 55
 
 ROLES = {"viewer": 0, "operator": 1, "supervisor": 2}
+
+MAX_UPLOAD_KB = 300  # MSEDCL rooftop portal: PDF only, 300 KB per file
+
+
+def vendor():
+    """The installer named on generated documents, from .env (read late: .env loads after
+    this module). The public repo never carries a client's identity."""
+    import os
+    return {"name": os.environ.get("SOLARA_VENDOR_NAME", "Demo Solar Solutions Pvt Ltd"),
+            "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory")}

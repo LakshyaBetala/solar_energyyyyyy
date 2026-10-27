@@ -34,6 +34,8 @@ the live page, documents are encrypted at rest, and role checks are enforced by 
 - [Limitations](#limitations)
 
 Operations — users, backups, restore, keys — are in **[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
+The Phase 1 plan — feasibility, the five phases with KPIs, client pricing, and the 5-minute pre- and
+post-installation targets — is in **[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)**.
 
 ---
 
@@ -45,8 +47,19 @@ Operations — users, backups, restore, keys — are in **[docs/OPERATIONS.md](d
 | Sanctioned load enhancement | DISCOM self-service | OTP, approval |
 | Sanctioned load reduction | DISCOM self-service | OTP, approval |
 | New LT connection | DISCOM self-service | OTP, approval |
+| Post-installation close-out | MSEDCL rooftop vendor portal (six documents) | customer e-sign, operator presses Upload |
 
 Around the workflows:
+
+- **Close-out.** Installation details entered once become the agreement, Work Completion Report,
+  Annexure-I, DCR declaration, net-metering agreement, datasheet and geotagged site photo, each a
+  PDF under MSEDCL's 300 KB limit. Serial numbers are checked for count and repeats, earth
+  resistance against the 5 ohm rule, the photo for GPS.
+- **Customer e-sign with consent.** The customer draws their signature once on their own phone,
+  after confirming their bill and reading each document. It is placed only on documents they
+  ticked, and only on the exact version they saw: change a document and it goes back to them.
+- **Co-pilot browser extension.** On the portal page the operator has open, it recognises the
+  customer and attaches all six files with one click. It never presses Upload or Submit.
 
 - **Document intake.** Reads bills, identity extracts, passbooks and ownership proofs, scores each
   field, cross-checks documents against each other, and flags disagreements instead of guessing.
@@ -214,6 +227,26 @@ The Excel workbook covers pipeline, numbers, runs and audit. The PDF run report 
 every checkpoint and who resolved it, with the run's screenshots embedded. Supervisors can create a
 backup from here.
 
+### 6. Close-out and e-sign
+
+Open **Close-out**. Each installed customer has one button for the next thing to do, and five
+steps: details, photo and datasheet, customer signed, documents made, on MSEDCL.
+
+1. The first time, a supervisor draws the **company signature** once.
+2. **Send to the customer for signature** gives a link and a ready WhatsApp message to the
+   customer's number. At the site, open it on your phone and hand it over.
+3. The customer enters the last 4 digits of their consumer number, reads each document, ticks the
+   ones they approve, draws their signature and consents. Next time they only tap Approve.
+4. **Generate the MSEDCL documents** makes all seven PDFs; the sizes are shown, all under 300 KB.
+5. **Open MSEDCL and upload**: log in yourself, open the customer, press **Attach** in the Solara
+   panel, check the six rows, press the portal's own Upload. Solara marks the customer as done.
+
+Change anything a signed document prints (try the inverter serial) and that document drops back to
+"Changed, re-approve"; the old signature is never placed on the new version.
+
+Connect the extension once: **Close-out → Connect co-pilot**, then `chrome://extensions` →
+Developer mode → Load unpacked → the `extension/` folder → Options → paste the address and key.
+
 ---
 
 ## How it works
@@ -254,6 +287,12 @@ boot and their checkpoints cancelled; nothing is submitted.
 | `GET` | `/api/exports/pipeline.xlsx` | workbook |
 | `GET` | `/api/exports/run/{id}.pdf` | run report with screenshots |
 | `POST` | `/api/backup` | supervisor |
+| `GET` · `PUT` | `/api/closeout/{customer_id}` | close-out record, checks, document states; `PUT` operator |
+| `POST` | `/api/closeout/{customer_id}/sign` | operator; returns the signing link and WhatsApp message |
+| `POST` | `/api/closeout/{customer_id}/build` | operator; generates every document that is ready |
+| `POST` | `/api/signature/vendor` | supervisor; the company signature |
+| `GET` · `POST` | `/sign/{token}` | the customer's page: bill check, read, approve, sign |
+| `GET` | `/api/copilot/lookup` | extension, `X-Solara-Key`; the customer on the open portal page |
 
 Full reference at `/api/docs` while the server is running.
 
@@ -282,6 +321,9 @@ app/
   agent/runner.py  the automation: workflows, checkpoints, retries, evidence, refusal guards
   portal.py        sandbox rooftop-solar portal, a real server-side web app
   discom.py        sandbox DISCOM self-service portal: new connection, load change
+  closeout.py      close-out record, checks, document templates, consent-bound signing, 300 KB fit
+  esign.py         the customer's signing page
+  msedcl.py        sandbox MSEDCL rooftop vendor portal: list and six-document upload
   extract.py       document parsing, cross-document rules, optional model pass
   vault.py         encryption at rest
   docs_gen.py      generates the sample bills, identity extracts, passbooks, ownership proofs
@@ -290,9 +332,11 @@ app/
   db.py            schema and seed data
   reset.py         returns the demo to its opening state
 web/               console — plain HTML, CSS and JavaScript, no build step
+extension/         the co-pilot Chrome extension (Manifest V3, no build step)
 tests/
   smoke.py         61 checks through the HTTP API, asserting on the database and the disk
   ui.py            38 checks driving the console in a real browser
+  closeout.py      59 checks: close-out, e-sign consent rules, 300 KB pack, the extension
 docs/              OPERATIONS.md and the screenshots used here
 data/              database, encrypted documents and screenshots, exports, backups (created at runtime)
 ```
@@ -317,6 +361,14 @@ With a key, extraction also sends the bill text to the model and marks any field
 and the parser disagree. Without one, the deterministic parser runs alone and the header reads
 **Model off**, so it is always clear which path produced a value. `.env` is gitignored.
 
+The installer named on generated documents also comes from `.env`, so no client's name lives in
+the code:
+
+```ini
+SOLARA_VENDOR_NAME=Your Solar Company Pvt Ltd
+SOLARA_VENDOR_SIGNATORY=Name of the authorised signatory
+```
+
 Ports and timings live in `app/config.py`.
 
 ---
@@ -333,9 +385,13 @@ python tests/smoke.py     # 61 checks: access control, encryption, extraction, r
 python tests/ui.py        # 38 checks: every view, runs started from the pipeline, Resend OTP from
                           # the dialog, a refused approval, a DISCOM run, dismissable checkpoints,
                           # light theme, phone width
+python tests/closeout.py  # 59 checks: the close-out screen, GPS and serial checks, company and
+                          # customer signatures, wrong digits and lockout, consent bound to the
+                          # document's content, the pack under 300 KB, signing on a phone-sized
+                          # screen, and the extension attaching six files on the MSEDCL sandbox
 ```
 
-Both reset the demo before and after, and assert on what actually landed: the application number
+All three reset the demo before and after, and assert on what actually landed: the application number
 came off the portal page, the operator's approval was refused by the server, documents on disk are
 ciphertext, the backup holds no key, and no OTP value appears in any log.
 
@@ -351,6 +407,13 @@ Everything portal-specific is in two places:
 The step lists, checkpoints, retries, evidence capture, refusal guards and audit writes do not
 change. When a portal moves a field you edit one map, and the screenshot taken at the failure
 shows which entry.
+
+The live national portal refuses scripted browsers, and every login there needs a CAPTCHA and an
+OTP to the owner's phone. So on the live portals Solara works through the **co-pilot extension in
+the operator's own browser**: they log in, it attaches files and shows values, they press every
+Submit. Its portal list is `extension/manifest.json` → `content_scripts.matches`; the document
+names it matches are at the top of `extension/panel.js`. It never tries to get past a portal's
+security.
 
 ---
 
@@ -396,6 +459,10 @@ Not real, deliberately:
 - **AI calling** is recorded sample transcripts. Live voice needs a telephony provider.
 - **Numbers** are rows in a table. Real OTP delivery needs SIMs or a relay.
 - **Documents** are generated samples. Drop in a real PDF to parse a real one.
+- **Close-out templates** are rebuilt from the portal screens and standard formats, and print a
+  "draft format" footer until `TEMPLATE_DRAFT` in `app/closeout.py` is switched off. They must be
+  replaced with the installer's own wording before anything is filed.
+- **The MSEDCL portal** used in tests is a sandbox copy of the real upload page.
 
 ---
 
@@ -404,6 +471,9 @@ Not real, deliberately:
 - One run at a time per process, by design. Concurrency needs a worker queue.
 - SQLite in a single file. Multi-user needs PostgreSQL; the schema ports directly.
 - Extraction reads PDF text layers. Scans and photos need an OCR pass or the vision path.
+- The customer's drawn signature with its consent record is evidence of agreement. It is not an
+  "electronic signature" under section 3A of the IT Act; that needs Aadhaar eSign or a DSC. Confirm
+  with the DISCOM that it accepts e-signed documents; Aadhaar eSign can be added per document.
 - The vault key sits in `data/` beside the data. That protects copies and backups, not a
   compromised machine; production keeps it in Windows' protected storage.
 

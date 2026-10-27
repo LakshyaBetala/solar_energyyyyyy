@@ -409,6 +409,22 @@ input::placeholder{color:var(--fg-faint)}
   *{animation-duration:.01ms!important;transition-duration:.01ms!important}
 }
 
+/* ---------- close-out ---------- */
+.cowrap{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:12px;align-items:start}
+.colist{display:grid}
+.colist button{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line-soft);display:grid;gap:3px}
+.colist button[aria-current="true"]{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--teal)}
+.costeps{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.costeps div{border:1px solid var(--line-soft);border-radius:var(--r);padding:7px 9px;font-size:11.5px}
+.costeps div.done{border-color:var(--teal-line);color:var(--teal)}
+.cofields{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:2px 12px}
+.cofields .field{margin-bottom:8px}.cofields .wide{grid-column:1/-1}
+.cofields textarea,.cofields input[type=date]{background:var(--panel-2);border:1px solid var(--line);
+  border-radius:var(--r);padding:6px 10px;font:12px var(--font-mono,ui-monospace),monospace;color:inherit;width:100%}
+.cofields input,.cofields select{width:100%}
+canvas.pad{width:100%;height:170px;background:#fff;border:1px dashed var(--line);border-radius:var(--r);touch-action:none}
+@media (max-width:1000px){.cowrap{grid-template-columns:minmax(0,1fr)}.costeps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 /* ---------- follow-ups ---------- */
 .fus{display:grid;gap:6px;max-height:318px;overflow-y:auto;padding:10px}
 .fu{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;

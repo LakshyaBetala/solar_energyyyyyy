@@ -1,17 +1,20 @@
-import asyncio, json, secrets, random
+import asyncio, hashlib, json, secrets, random
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import db, extract, exports, docs_gen, portal, discom, vault, backup, reset as resetmod
+from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
+               msedcl, reset as resetmod)
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
 app.include_router(discom.router)
+app.include_router(esign.router)
+app.include_router(msedcl.router)
 
 
 @app.on_event("startup")
@@ -35,6 +38,9 @@ async def startup():
                 await extract.run(c["id"], use_llm=False)
             except Exception:
                 pass
+    if not db.q("SELECT 1 FROM closeout LIMIT 1"):
+        db.seed_closeout()
+    closeout.demo_assets()
     print(f"\n  Solara ready -> http://127.0.0.1:8900   (portal sandbox at {PORTAL_URL})")
     print("  sign in: r.deshmukh / s.kale / a.more   password: demo\n")
 
@@ -463,6 +469,206 @@ def followups(user=Depends(current)):
                     "action": "Review the run report"})
     order = {"bad": 0, "warn": 1, "info": 2}
     return sorted(out, key=lambda f: order[f["sev"]])
+
+
+# ------------------------------- close-out -------------------------------
+CLOSE_STAGES = ("install", "netmeter", "claim")  # installed, subsidy not yet paid
+
+
+def closeout_summary(cid):
+    c, d = closeout.data(cid)
+    st, made = closeout.status(cid), closeout.built(cid)
+    ms = [s for s in st if s["slot"]]
+    return {"id": cid, "name": c["name"], "kw": c["kw"], "stage": c["stage"],
+            "ready": sum(s["state"] == "ready" for s in ms), "total": len(ms),
+            "built": sum(s["key"] in made for s in ms),
+            "missing": sum(s["state"] in ("missing", "blocked") for s in st),
+            "waiting_customer": any(s["state"] in ("needs_approval", "changed") for s in st),
+            "link_open": bool(db.one("""SELECT 1 FROM sign_requests WHERE customer_id=? AND
+                                       status='sent' AND expires_at>?""", (cid, db.now()))),
+            "uploaded": bool(d.get("msedcl_uploaded")), "msedcl_app_id": d.get("msedcl_app_id")}
+
+
+def _cid(cid):
+    if not db.one("SELECT 1 FROM customers WHERE id=?", (cid,)):
+        raise HTTPException(404, "unknown customer")
+    return cid
+
+
+@app.get("/api/closeout")
+def closeout_list(user=Depends(current)):
+    rows = db.q(f"""SELECT id FROM customers WHERE stage IN ({",".join("?" * len(CLOSE_STAGES))})
+                    OR id IN (SELECT customer_id FROM closeout) ORDER BY id""", CLOSE_STAGES)
+    return [closeout_summary(r["id"]) for r in rows]
+
+
+@app.get("/api/closeout/{cid}")
+def closeout_get(cid: str, user=Depends(current)):
+    c, d = closeout.data(_cid(cid))
+    made = closeout.built(cid)
+    reqs = db.q("""SELECT token,status,created_at,signed_at,signer_name,docs,expires_at
+                   FROM sign_requests WHERE customer_id=? ORDER BY created_at DESC LIMIT 5""", (cid,))
+    for r in reqs:
+        r["docs"] = list(json.loads(r["docs"]))
+    return {"customer": c, "data": d,
+            "fields": [{"key": k, "label": lbl, "group": g} for k, lbl, g in closeout.FIELDS],
+            "checks": [{"sev": s, "text": t} for s, t in closeout.checks(cid, d)],
+            "docs": [{**s, "bytes": made.get(s["key"])} for s in closeout.status(cid)],
+            "capacity": closeout.capacity(d), "serial_count": len(closeout.serials(d)),
+            "consumer_signature": bool(closeout.signature("consumer", cid)),
+            "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs}
+
+
+@app.put("/api/closeout/{cid}")
+def closeout_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    closeout.save(_cid(cid), body, user["username"])
+    db.audit(user["username"], user["role"], "Updated close-out details", cid,
+             ", ".join(sorted(k for k in body if k in closeout.LABEL))[:200])
+    return closeout_get(cid, user)
+
+
+@app.post("/api/closeout/{cid}/photo")
+async def closeout_photo(cid: str, file: UploadFile = File(...), user=Depends(need("operator"))):
+    try:
+        lat, lng = closeout.save_photo(_cid(cid), await file.read(), user["username"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    except OSError:
+        raise HTTPException(400, "that file is not a photo")
+    db.audit(user["username"], user["role"], "Added site photo", cid, f"GPS {lat}, {lng}")
+    return {"ok": True, "lat": lat, "lng": lng}
+
+
+@app.get("/api/closeout/{cid}/photo.jpg")
+def closeout_photo_get(cid: str, user=Depends(current)):
+    p = DOCS / Path(cid).name / "site_photo.jpg"
+    if not p.exists():
+        raise HTTPException(404)
+    return Response(vault.read(p), media_type="image/jpeg", headers={"Cache-Control": "private"})
+
+
+@app.post("/api/closeout/{cid}/datasheet")
+async def closeout_datasheet(cid: str, file: UploadFile = File(...), user=Depends(need("operator"))):
+    try:
+        size = closeout.save_datasheet(_cid(cid), await file.read())
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    db.audit(user["username"], user["role"], "Added datasheet to the library", cid, f"{size // 1024} KB")
+    return {"ok": True, "bytes": size}
+
+
+@app.post("/api/closeout/{cid}/sign")
+def closeout_sign(cid: str, request: Request, body: dict = Body(default={}),
+                  user=Depends(need("operator"))):
+    try:
+        token, keys = esign.create(_cid(cid), body.get("docs"), user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url),
+            "docs": keys}
+
+
+@app.post("/api/closeout/{cid}/build")
+async def closeout_build(cid: str, user=Depends(need("operator"))):
+    return await closeout.build(_cid(cid), user)
+
+
+@app.get("/files/closeout/{cid}/{key}.pdf")
+def closeout_file(cid: str, key: str, user=Depends(current)):
+    if key not in closeout.SPEC or key not in closeout.built(_cid(cid)):
+        raise HTTPException(404, "not generated yet")
+    p = closeout.path_for(cid, key)
+    db.audit(user["username"], user["role"], "Viewed close-out document", cid, key)
+    return Response(vault.read(p), media_type="application/pdf",
+                    headers={"Cache-Control": "private", "Content-Disposition": f'inline; filename="{p.name}"'})
+
+
+@app.post("/api/signature/vendor")
+def vendor_signature(body: dict = Body(...), user=Depends(need("supervisor"))):
+    try:
+        png = closeout.png_from_data_url(body.get("image"))
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    name = (body.get("name") or "").strip() or user["name"]
+    closeout.save_signature("vendor", png, name)
+    for r in db.q("SELECT customer_id FROM closeout"):
+        closeout.invalidate(r["customer_id"])
+    db.audit(user["username"], user["role"], "Set the company signature", "", name)
+    return {"ok": True}
+
+
+# ------------------------------- co-pilot extension -------------------------------
+def copilot_user(request: Request):
+    key = request.headers.get("X-Solara-Key", "")
+    row = db.one("SELECT username FROM copilot_keys WHERE key_hash=?",
+                 (hashlib.sha256(key.encode()).hexdigest(),)) if key else None
+    if not row:
+        raise HTTPException(401, "co-pilot key not recognised; create a new one in Solara")
+    return db.one("SELECT username,name,role FROM users WHERE username=?", (row["username"],))
+
+
+@app.post("/api/copilot/key")
+def copilot_key(user=Depends(need("operator"))):
+    key = "sk_" + secrets.token_urlsafe(24)
+    db.ex("INSERT INTO copilot_keys(key_hash,username,created_at) VALUES(?,?,?)",
+          (hashlib.sha256(key.encode()).hexdigest(), user["username"], db.now()))
+    db.audit(user["username"], user["role"], "Created a co-pilot key")
+    return {"key": key}
+
+
+@app.get("/api/copilot/lookup")
+async def copilot_lookup(consumer_no: str = "", app_no: str = "", user=Depends(copilot_user)):
+    """Which customer is on the portal page the operator has open, and what Solara has for it."""
+    c = db.one("SELECT id FROM customers WHERE consumer_no=?", (consumer_no.strip(),)) if consumer_no else None
+    if not c and app_no:
+        c = db.one("SELECT id FROM customers WHERE application_no=?", (app_no.strip(),))
+        if not c:
+            c = next(({"id": r["customer_id"]} for r in db.q("SELECT customer_id, data FROM closeout")
+                      if json.loads(r["data"]).get("pmsg_app_no") == app_no.strip()), None)
+    if not c:
+        raise HTTPException(404, "this customer is not in Solara")
+    cid = c["id"]
+    st = closeout.status(cid)
+    if any(s["state"] == "ready" and s["key"] not in closeout.built(cid) for s in st):
+        await closeout.build(cid, user)
+    cust, d = closeout.data(cid)
+    made = closeout.built(cid)
+    fields = [("Consumer name", cust["aadhaar_name"]), ("Consumer number", cust["consumer_no"]),
+              ("Address", cust["address"]), ("PIN code", cust["pin"]),
+              ("Capacity (kWp)", closeout.capacity(d))]
+    fields += [(lbl, d.get(k)) for k, lbl, _ in closeout.FIELDS if d.get(k)]
+    return {"customer_id": cid, "name": cust["name"],
+            "files": [{"key": s["key"], "slot": s["slot"], "title": s["title"], "bytes": made[s["key"]]}
+                      for s in st if s["key"] in made],
+            "not_ready": [{"title": s["title"], "note": s["note"]} for s in st
+                          if s["slot"] and s["key"] not in made],
+            "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")]}
+
+
+@app.get("/api/copilot/file/{cid}/{key}")
+def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
+    if key not in closeout.SPEC or key not in closeout.built(_cid(cid)):
+        raise HTTPException(404, "not generated yet")
+    p = closeout.path_for(cid, key)
+    db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, key)
+    return Response(vault.read(p), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{cid}_{key}.pdf"'})
+
+
+@app.post("/api/copilot/report")
+def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
+    cid = _cid(body.get("customer_id", ""))
+    uploaded = set(body.get("uploaded") or [])
+    msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
+    if body.get("portal") == "msedcl" and msedcl_keys <= uploaded:
+        closeout.mark(cid, user["username"], msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
+        db.audit(user["username"], user["role"], "MSEDCL documents uploaded", cid,
+                 "all 6 show Verification Pending on the portal")
+    elif body.get("attached"):
+        db.audit(user["username"], user["role"], "Co-pilot attached files", cid,
+                 f"{body['attached']} file(s) on {body.get('portal')}; operator presses Upload")
+    return {"ok": True}
 
 
 # ------------------------------- backups -------------------------------

@@ -17,6 +17,7 @@ const TITLES = {
   pipeline: ['Pipeline', 'Every live application and the stage it is sitting at.'],
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
+  closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],
   audit: ['Audit Trail', 'Who did what, and when. Append-only, written by the server.'],
@@ -28,7 +29,8 @@ const S = {
   runs: [], activeRun: null, callSel: 0, showEn: true, docCid: 'SS-2045', extract: null,
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
   headless: true, es: null, lastFrame: null, t0: null,
-  runCid: 'SS-2045', runWf: null, runKw: null, workflows: [], followups: []
+  runCid: 'SS-2045', runWf: null, runKw: null, workflows: [], followups: [],
+  co: [], coCid: 'SS-2042', coData: null
 };
 
 const can = lvl => S.me && ROLES[S.me.role] >= ROLES[lvl];
@@ -82,6 +84,7 @@ async function boot() {
   S.audit = b.audit; S.llm = b.llm; S.runs = b.runs; S.activeRun = b.active_run;
   S.workflows = b.workflows || [];
   S.followups = await api('/followups').catch(() => []);
+  S.co = await api('/closeout').catch(() => []);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
   $('#llmChip').innerHTML = S.llm.enabled
@@ -107,6 +110,7 @@ function counters() {
   $('#tagDocs').textContent = flagged;
   $('#tagDocs').className = 'tag' + (flagged ? ' hot' : '');
   $('#tagAudit').textContent = S.audit.length;
+  $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -520,6 +524,168 @@ async function loadExtract(cid) {
   if (S.view === 'docs') render();
 }
 
+/* ------------------------------ close-out ------------------------------ */
+const CO_STATE = {
+  ready: ['ok', 'Ready'], missing: ['warn', 'Missing data'], blocked: ['bad', 'Blocked'],
+  needs_approval: ['info', 'Customer to sign'], changed: ['warn', 'Changed, re-approve'],
+  needs_vendor_sig: ['warn', 'Company signature']
+};
+const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
+const MSEDCL_URL = '/msedcl/'; // sandbox; the live build opens https://rts.mahadiscom.in/RoofTopSolarVendor/
+
+async function loadCo(cid) {
+  if (cid) S.coCid = cid;
+  [S.co, S.coData] = await Promise.all([api('/closeout'), api('/closeout/' + S.coCid)]);
+  if (S.view === 'closeout') render();
+}
+
+function coNext(g) { // the one thing to do next for this customer
+  const ms = g.docs.filter(d => d.slot);
+  if (!g.vendor_signature) return can('supervisor') ? ['vsig', 'Add the company signature (once)'] : ['', 'A supervisor adds the company signature once'];
+  if (g.checks.some(c => c.sev === 'bad') || g.docs.some(d => d.state === 'missing')) return ['fix', 'Complete the details below'];
+  if (g.docs.some(d => d.state === 'needs_approval' || d.state === 'changed')) return ['sign', 'Send to the customer for signature'];
+  if (ms.some(d => !d.bytes)) return ['build', 'Generate the MSEDCL documents'];
+  if (!g.data.msedcl_uploaded) return ['upload', 'Open MSEDCL and upload'];
+  return ['', 'Done. All six are on MSEDCL'];
+}
+
+VIEWS.closeout = () => {
+  const g = S.coData, list = S.co;
+  if (!g) return '<div class="card"><div class="cb hint">Loading…</div></div>';
+  const c = g.customer, d = g.data, ms = g.docs.filter(x => x.slot);
+  const has = k => g.docs.find(x => x.key === k).state !== 'missing';
+  const next = coNext(g);
+  const steps = [
+    ['Details', !g.checks.some(x => x.sev === 'bad') && g.docs.every(x => x.state !== 'missing' || ['site_photo', 'datasheet'].includes(x.key))],
+    ['Photo + datasheet', has('site_photo') && has('datasheet')],
+    ['Customer signed', g.consumer_signature && !g.docs.some(x => ['needs_approval', 'changed'].includes(x.state))],
+    ['Documents made', ms.every(x => x.bytes)], ['On MSEDCL', !!d.msedcl_uploaded]];
+  const groups = [...new Set(g.fields.map(f => f.group))];
+  const input = f => {
+    const v = esc(d[f.key] || ''), dis = can('operator') ? '' : ' disabled';
+    if (f.key === 'module_serials') return `<textarea data-f="${f.key}" rows="5"${dis}>${v}</textarea>`;
+    if (CO_SELECT[f.key]) return `<select data-f="${f.key}"${dis}><option value=""></option>${CO_SELECT[f.key].map(o => `<option${d[f.key] === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+    return `<input type="${f.key.endsWith('_date') ? 'date' : 'text'}" data-f="${f.key}" value="${v}"${dis}>`;
+  };
+  const pill = st => { const p = CO_STATE[st]; return `<span class="pill ${p[0]}">${p[1]}</span>`; };
+  return `<div class="grid" style="gap:14px">
+  <div class="kpis">
+    <div class="kpi"><div class="k">To close out</div><div class="v num">${list.filter(x => !x.uploaded).length}</div><div class="d">installed, not yet on MSEDCL</div></div>
+    <div class="kpi"><div class="k">With the customer</div><div class="v num">${list.filter(x => x.link_open).length}</div><div class="d">link sent, waiting for their e-sign</div></div>
+    <div class="kpi"><div class="k">Ready to upload</div><div class="v num">${list.filter(x => x.built === x.total && !x.uploaded).length}</div><div class="d">all six made, under 300 KB</div></div>
+    <div class="kpi"><div class="k">On MSEDCL</div><div class="v num">${list.filter(x => x.uploaded).length}</div><div class="d">uploaded through the co-pilot</div></div>
+  </div>
+  <div class="cowrap">
+    <div class="card"><div class="ch"><h3>Installed</h3><span class="spacer"></span>
+      <button class="btn sm" id="coKey"${can('operator') ? '' : ' disabled'}>Connect co-pilot</button></div>
+      <div class="colist">${list.map(x => `<button data-co="${x.id}" aria-current="${x.id === S.coCid}">
+        <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
+        <div>${x.uploaded ? '<span class="pill ok">On MSEDCL</span>' : x.built === x.total ? '<span class="pill live">Ready to upload</span>'
+        : x.missing ? `<span class="pill warn">${x.missing} to complete</span>` : x.link_open ? '<span class="pill info">With customer</span>'
+        : x.waiting_customer ? '<span class="pill info">Send for e-sign</span>' : `<span class="pill idle">${x.ready} of ${x.total} ready</span>`}
+        <span class="sub">${x.kw} kW</span></div></button>`).join('')}</div></div>
+
+    <div class="grid" style="gap:12px">
+      <div class="card raise"><div class="ch"><div><h3>${esc(c.aadhaar_name || c.name)}</h3>
+        <div class="sub mono">${c.id} · consumer ${esc(c.consumer_no || '—')} · ${g.capacity || '—'} kWp · MSEDCL ${esc(d.msedcl_app_id || '—')}</div></div>
+        <span class="spacer"></span>
+        <button class="btn ${next[0] ? 'go' : ''}" id="coNext" data-act="${next[0]}"${next[0] && (next[0] === 'vsig' || can('operator')) ? '' : ' disabled'}>${esc(next[1])}</button></div>
+        <div class="cb"><div class="costeps">${steps.map(([n, ok], i) => `<div class="${ok ? 'done' : ''}">${ok ? '&#10003;' : i + 1}. ${n}</div>`).join('')}</div>
+        ${g.checks.length ? `<div style="display:grid;gap:5px;margin-top:10px">${g.checks.map(x =>
+          `<div class="fu ${x.sev === 'bad' ? 'bad' : 'warn'}"><span class="pill ${x.sev === 'bad' ? 'bad' : 'warn'}">${x.sev === 'bad' ? 'fix' : 'check'}</span><div>${esc(x.text)}</div></div>`).join('')}</div>` : ''}
+        </div></div>
+
+      <div class="card"><div class="ch"><h3>Documents</h3><span class="spacer"></span>
+        <span class="hint">MSEDCL takes PDF only, 300 KB each</span></div><div class="tscroll"><table>
+        <thead><tr><th>#</th><th>Document</th><th>Signed by</th><th>State</th><th>Size</th><th></th></tr></thead>
+        <tbody>${g.docs.map(x => `<tr><td class="mono">${x.slot || 'PMSG'}</td><td>${esc(x.title)}${x.note ? `<div class="sub">${esc(x.note)}</div>` : ''}</td>
+          <td class="sub">${x.signers.join(' + ') || '—'}</td><td>${pill(x.state)}</td>
+          <td class="mono">${x.bytes ? `${Math.round(x.bytes / 1024)} KB` : '—'}</td>
+          <td>${x.bytes ? `<a class="btn sm" href="/files/closeout/${c.id}/${x.key}.pdf" target="_blank">View</a>` : ''}</td></tr>`).join('')}</tbody></table></div></div>
+
+      <div class="two">
+        <div class="card"><div class="ch"><h3>Customer signature</h3><span class="spacer"></span>
+          <button class="btn sm go" id="coSign"${can('operator') ? '' : ' disabled'}>Send for signature</button></div>
+          <div class="cb" style="display:grid;gap:7px">
+          <div class="hint">${g.consumer_signature ? 'Signed once. New or changed documents only need the customer to tap Approve.'
+            : 'The customer draws their signature once, on their own phone or yours at the site.'}</div>
+          ${g.requests.map(r => `<div class="row" style="justify-content:space-between"><span class="sub">${esc(r.created_at.replace('T', ' ').slice(5, 16))} · ${r.docs.length} doc(s)</span>
+            <span class="pill ${r.status === 'signed' ? 'ok' : r.status === 'locked' ? 'bad' : 'info'}">${r.status === 'signed' ? 'signed by ' + esc(r.signer_name) : esc(r.status)}</span></div>`).join('')}
+          </div></div>
+        <div class="card"><div class="ch"><h3>Site photo and datasheet</h3></div><div class="cb" style="display:grid;gap:9px">
+          ${d.lat ? `<img src="/api/closeout/${c.id}/photo.jpg?v=${encodeURIComponent(d.lat)}" alt="Installed system" style="width:100%;max-height:150px;object-fit:cover;border-radius:var(--r)">
+            <div class="sub mono">GPS ${esc(d.lat)}, ${esc(d.lng)}</div>` : '<div class="hint">No photo yet. It must carry the phone camera\'s GPS location.</div>'}
+          <label class="btn sm">${d.lat ? 'Replace photo' : 'Add photo'}<input type="file" id="coPhoto" accept="image/jpeg" hidden></label>
+          <div class="sub">Datasheet: ${has('datasheet') ? 'in the library, reused for every customer with this module and inverter'
+            : esc(g.docs.find(x => x.key === 'datasheet').note || 'needs the module and inverter make')}</div>
+          <label class="btn sm">Upload datasheet PDF<input type="file" id="coSheet" accept=".pdf" hidden></label>
+        </div></div>
+      </div>
+
+      <div class="card" id="coForm"><div class="ch"><h3>What was installed</h3><span class="spacer"></span>
+        <span class="hint">${g.serial_count} serial number${g.serial_count === 1 ? '' : 's'} entered</span>
+        <button class="btn sm pri" id="coSave"${can('operator') ? '' : ' disabled'}>Save</button></div>
+        <div class="cb">${groups.map(gr => `<div class="lab" style="margin:6px 0 8px">${esc(gr)}</div><div class="cofields">
+          ${g.fields.filter(f => f.group === gr).map(f => `<div class="field${f.key === 'module_serials' ? ' wide' : ''}"><label>${esc(f.label)}</label>${input(f)}</div>`).join('')}</div>`).join('')}</div></div>
+    </div>
+  </div></div>`;
+};
+
+function signPad(canvas) {
+  const ctx = canvas.getContext('2d'), k = devicePixelRatio || 1, r = canvas.getBoundingClientRect();
+  canvas.width = r.width * k; canvas.height = r.height * k; ctx.scale(k, k);
+  ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.strokeStyle = '#0A1A3A';
+  let last = null; const at = e => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  canvas.onpointerdown = e => { canvas.setPointerCapture(e.pointerId); last = at(e); };
+  canvas.onpointermove = e => { if (!last) return; const p = at(e); ctx.beginPath(); ctx.moveTo(...last); ctx.lineTo(...p); ctx.stroke(); last = p; };
+  canvas.onpointerup = canvas.onpointercancel = () => { last = null; };
+  return { clear: () => ctx.clearRect(0, 0, canvas.width, canvas.height), url: () => canvas.toDataURL('image/png') };
+}
+
+async function coUpload(kind, file) {
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const r = await fetch(`/api/closeout/${S.coCid}/${kind}`, { method: 'POST', body: fd });
+    const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+    toast(kind === 'photo' ? `Photo saved. GPS ${j.lat}, ${j.lng}` : `Datasheet saved at ${Math.round(j.bytes / 1024)} KB`);
+    await loadCo();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function coAct(act) {
+  if (act === 'fix') { $('#coForm').scrollIntoView({ behavior: 'smooth' }); return; }
+  if (act === 'upload') { window.open(MSEDCL_URL, '_blank'); toast('On the upload page, press "Attach" in the Solara panel, check, then Upload.'); return; }
+  if (act === 'vsig') {
+    modal('Company signature', 'Drawn once by the authorised signatory. It goes on the vendor line of every document.',
+      `<div class="field"><label for="vsName">Name of signatory</label><input type="text" id="vsName" value="${esc(S.me.name)}"></div>
+       <canvas class="pad" id="vsPad"></canvas>`,
+      '<button class="btn" data-close>Cancel</button><button class="btn" id="vsClear">Clear</button><button class="btn go" id="vsSave">Save signature</button>');
+    S.pad = signPad($('#vsPad')); return;
+  }
+  if (act === 'build') {
+    toast('Generating the documents…');
+    try {
+      const out = await api(`/closeout/${S.coCid}/build`, { method: 'POST' });
+      const made = out.filter(x => x.bytes);
+      toast(`${made.length} documents made, largest ${Math.round(Math.max(...made.map(x => x.bytes)) / 1024)} KB`);
+      await loadCo();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (act === 'sign') {
+    try {
+      const s = await api(`/closeout/${S.coCid}/sign`, { method: 'POST', body: {} });
+      modal('Send to the customer', `${s.docs.length} document(s). The link works for 7 days and only after the customer enters the last 4 digits of their consumer number.`,
+        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+         <div class="hint">At the site? Open it on your phone and hand it to the customer.</div>`,
+        `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
+         <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
+         ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}`);
+      await loadCo();
+    } catch (err) { toast(err.message, true); }
+  }
+}
+
 /* ------------------------------ numbers ------------------------------ */
 VIEWS.numbers = () => {
   const n = S.numbers;
@@ -694,7 +860,44 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') api('/reports').then(r => { S.reports = r; render(); }); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') api('/reports').then(r => { S.reports = r; render(); }); if (S.view === 'closeout') loadCo(); return; }
+
+  /* close-out */
+  if (t.dataset.co) { loadCo(t.dataset.co); return; }
+  if (t.id === 'coNext') { coAct(t.dataset.act); return; }
+  if (t.id === 'coSign') { coAct('sign'); return; }
+  if (t.id === 'coSave') {
+    const body = Object.fromEntries($$('[data-f]').map(i => [i.dataset.f, i.value]));
+    try { S.coData = await api('/closeout/' + S.coCid, { method: 'PUT', body }); S.co = await api('/closeout'); render(); toast('Saved'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'vsClear') { S.pad.clear(); return; }
+  if (t.id === 'vsSave') {
+    try {
+      await api('/signature/vendor', { method: 'POST', body: { name: $('#vsName').value, image: S.pad.url() } });
+      closeModal(); toast('Company signature saved'); await loadCo();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'signCopy') {
+    try { await navigator.clipboard.writeText($('#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
+    return;
+  }
+  if (t.id === 'coKey') {
+    try {
+      const k = await api('/copilot/key', { method: 'POST' });
+      modal('Connect the co-pilot', 'Do this once on the computer you use for the portals. The key is shown only now.',
+        `<div class="field"><label>Your key</label><input type="text" readonly value="${esc(k.key)}"></div>
+         <div class="field"><label>Solara address</label><input type="text" readonly value="${esc(location.origin)}"></div>
+         <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
+           <li>Open <span class="mono">chrome://extensions</span>, switch on Developer mode, press Load unpacked and pick the <span class="mono">extension</span> folder.</li>
+           <li>Open the co-pilot's Options, paste the address and the key, press Save.</li>
+           <li>Log in to a portal yourself. On a customer's page the Solara panel appears at the bottom right.</li></ol>`,
+        '<button class="btn" data-close>Done</button>');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   if (t.dataset.themeSet) {
     document.documentElement.setAttribute('data-theme', t.dataset.themeSet);
     try { localStorage.setItem('solara-theme', t.dataset.themeSet); } catch { }
@@ -820,6 +1023,8 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
+  if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);
+  if (e.target.id === 'coSheet' && e.target.files[0]) coUpload('datasheet', e.target.files[0]);
 });
 $('#loginForm').addEventListener('submit', e => { e.preventDefault(); login($('#u').value, $('#p').value); });
 $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(); });

@@ -82,6 +82,32 @@ CREATE TABLE IF NOT EXISTS portal_applications(
 CREATE TABLE IF NOT EXISTS portal_sessions(
   sid TEXT PRIMARY KEY, consumer_no TEXT, stage TEXT, otp TEXT, otp_tries INTEGER
   DEFAULT 0, captcha TEXT, data TEXT, created_at TEXT);
+
+-- Close-out: what was installed, and the documents generated from it
+CREATE TABLE IF NOT EXISTS closeout(
+  customer_id TEXT PRIMARY KEY, data TEXT, updated_at TEXT, updated_by TEXT);
+
+-- E-sign. A request is a link sent to the customer for a set of documents; docs maps each
+-- document to the hash of the exact content shown to them.
+CREATE TABLE IF NOT EXISTS sign_requests(
+  token TEXT PRIMARY KEY, customer_id TEXT, docs TEXT, created_by TEXT, created_at TEXT,
+  expires_at TEXT, status TEXT, attempts INTEGER DEFAULT 0, verify_secret TEXT,
+  signed_at TEXT, signer_name TEXT, ip TEXT, ua TEXT);
+-- role 'consumer' (per customer) or 'vendor' (customer_id NULL, the company's signatory)
+CREATE TABLE IF NOT EXISTS signatures(
+  id INTEGER PRIMARY KEY, customer_id TEXT, role TEXT, name TEXT, path TEXT,
+  created_at TEXT, request_token TEXT);
+-- A signature is only ever placed on a document whose current hash has an approval row
+CREATE TABLE IF NOT EXISTS approvals(
+  id INTEGER PRIMARY KEY, customer_id TEXT, doc_key TEXT, doc_hash TEXT,
+  request_token TEXT, ts TEXT);
+
+CREATE TABLE IF NOT EXISTS copilot_keys(
+  key_hash TEXT PRIMARY KEY, username TEXT, created_at TEXT);
+
+-- MSEDCL rooftop portal sandbox: files received per application and document slot
+CREATE TABLE IF NOT EXISTS msedcl_uploads(
+  application_id TEXT, slot INTEGER, filename TEXT, bytes INTEGER, ts TEXT);
 """
 
 
@@ -223,6 +249,33 @@ SEED_AUDIT = [
 ]
 
 
+# Post-installation details as the field team reports them. SS-2042 is complete and waiting
+# only on signatures; SS-2048 is half entered, the way most backlog files start.
+CLOSEOUT = {
+    "SS-2042": {"msedcl_app_id": "79435901", "install_date": "2026-10-21",
+                "agreement_date": "2026-10-02", "rts_cost": "285000", "invoice_no": "INV/26-27/0412",
+                "aadhaar_last4": "4471", "billing_unit": "4642 Nashik Road", "phase": "Single phase",
+                "module_make": "Premier Energies", "almm_model": "PE-M144-550", "module_wp": "550",
+                "module_count": "9",
+                "module_serials": "\n".join(f"PE55026A{n:06d}" for n in range(318410, 318419)),
+                "cell_maker": "Premier Energies", "cell_invoice": "PEL/26/88412", "warranty": "10 + 25",
+                "inverter_make": "Polycab PSIS-5K", "inverter_kw": "5", "inverter_serial": "PSIS5K26A01877",
+                "inverter_year": "2026", "meter_serial": "GM2611042", "earthing_count": "3",
+                "earth_ohm": "1.5", "lightning_arrester": "Yes", "protection_checks": "Yes",
+                "dcr_cert_no": "7201-5530-1188-2042"},
+    "SS-2048": {"msedcl_app_id": "79436117", "install_date": "2026-10-08",
+                "agreement_date": "2026-09-14", "rts_cost": "232000", "phase": "Single phase",
+                "module_make": "Premier Energies", "module_wp": "550", "module_count": "7",
+                "inverter_make": "Polycab PSIS-4K", "inverter_kw": "4"},
+}
+
+
+def seed_closeout():
+    for cid, d in CLOSEOUT.items():
+        ex("INSERT OR REPLACE INTO closeout(customer_id,data,updated_at,updated_by) VALUES(?,?,?,?)",
+           (cid, json.dumps(d), now(), "seed"))
+
+
 def seeded():
     return bool(one("SELECT 1 FROM users LIMIT 1"))
 
@@ -255,4 +308,5 @@ def seed():
 
     for actor, role, action, target, detail in SEED_AUDIT:
         audit(actor, role, action, target, detail)
+    seed_closeout()
     return True
