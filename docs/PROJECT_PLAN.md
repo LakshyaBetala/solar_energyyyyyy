@@ -21,6 +21,10 @@ is public; the named client copy lives in `internal/`, which git ignores.
   the files, **the owner presses every Submit**. We never try to get past a portal's security.
 - **Price to the client:** **₹1,35,000** build in five phases, each paid on a KPI, plus **₹6,000 a
   month** all-inclusive AMC (hosting, AI, backups, e-sign, portal updates, support).
+- **The five phases are the meeting's five modules**, and the milestones are the client's own words.
+  Phase 1 is "registration, vendor selection, accepted in vendor login, agreement uploaded"
+  (31:24, 22:39). Phase 2 is post-installation closed same day plus at least applying on Jan Samarth
+  (34:19, 36:12). Section 6 has the details.
 - **Already built and tested:** post-installation close-out. That covers customer e-sign (sign once,
   reused only with consent), all six MSEDCL documents under 300 KB, and the Chrome co-pilot attaching
   them on the MSEDCL page in one click. **59 checks pass.**
@@ -36,7 +40,7 @@ is public; the named client copy lives in `internal/`, which git ignores.
 | Probed the public login pages of all four portals | PM Surya Ghar blocks automated browsers (403); Jan Samarth runs Imperva bot protection; MSEDCL login is plain user ID + password |
 | Independent second review of the same material | agreed on the verdict; was stricter on consumer acceptances and Jan Samarth; both points adopted |
 | Proved the co-pilot mechanism on our sandbox | typed every field incl. dropdowns, attached files the server received, stopped at every Submit (6/6) |
-| **Built Phase 1** (close-out, e-sign, documents, co-pilot, sandbox MSEDCL portal) | `tests/closeout.py`: 59 checks pass; existing 61 + 38 still pass |
+| **Built ahead of schedule**: e-sign (Phase 1's agreement), the reports and six-file MSEDCL pack, the MSEDCL co-pilot (Phase 2), plus a sandbox MSEDCL portal | `tests/closeout.py`: 59 checks pass; existing 61 + 38 still pass |
 
 What the client said, for reference (recording timestamps):
 "It takes an hour for me to process one application" (25:45). "Currently I manage myself" (16:36).
@@ -56,7 +60,7 @@ registration + vendor selection + vendor acceptance (31:24). Jan Samarth must be
 | **PM Surya Ghar** | customer registration and application, vendor consent, agreement upload (JPG/PDF ≤ 2 MB), site feasibility report, 5-step installation, status | Vendor: email + password + maths CAPTCHA + OTP to owner's phone (15 min). Customer: mobile + OTP; one mobile per customer | **Co-pilot.** Blocks scripted browsers |
 | **NISE DCR** | B2C certificate: application no., customer, invoice, panel serials (typed or Excel) | own login, 45-min session | **Co-pilot.** Fails until the dealer transfers the panels |
 | **MSEDCL rooftop** | six documents per customer, **PDF only, 300 KB each**, all mandatory; list shows uploads pending up to 230 days | user ID + password, no CAPTCHA | **Easiest. Built.** |
-| **Jan Samarth** | loan: 9–10 steps, Aadhaar OTP, bank and branch | customer mobile + Aadhaar OTP; Imperva | **Customer does it.** We give a pre-filled sheet and track it |
+| **Jan Samarth** | loan: 9–10 steps, Aadhaar OTP, bank and branch; opens only after the feasibility report (35:07) | customer mobile + Aadhaar OTP; Imperva | **Co-pilot fills the basic details**; the customer enters their own Aadhaar OTP and picks bank and branch |
 
 ### 3.2 Who does what
 
@@ -117,7 +121,7 @@ registration + vendor selection + vendor acceptance (31:24). Jan Samarth must be
 | 5 | Agreement | Submit | generates it; sends the e-sign link; fills total cost; attaches the signed PDF | signs on phone |
 | 6 | Site feasibility report (after site visit) | checks, Submit | fills roof, shade, area, permissible kW, visitor, quotation, pre-install photo | — |
 | 7 | Customer accepts agreement | — | sends a 3-line how-to; shows "waiting for customer" | accepts on own phone |
-| 8 | Bank loan (if any) | — | pre-filled details sheet; tracks the loan | does Jan Samarth |
+| 8 | Bank loan on Jan Samarth (if any) | opens it with the customer | fills basic details and address; saves the in-principle approval PDF; tracks the loan | enters own Aadhaar OTP, picks bank and branch |
 | 9 | DISCOM feasibility | — | shows it on the dashboard | — |
 
 ### 4.2 Post-installation
@@ -180,67 +184,96 @@ transfer must also be done before the DCR certificate.
 
 ## 6. The five phases, KPIs and payments (client prices)
 
-Every phase is paid only when its KPI is met on the client's real customers.
+**Phase N is the meeting's Module N**, in the meeting's order. The milestones are the ones the client
+asked for, in their own words:
 
-### Start — ₹10,000 advance
-Agreement signed, WhatsApp group created, access sessions booked.
+| What the client said | When | Where it lands |
+|---|---|---|
+| "First show me consumer registration and selection of vendor, and through vendor login it should accept… I will pay you till that part" | 31:24 | **Phase 1 milestone** (first payment) |
+| "Getting the OTP, filling the form, submitting the application, selecting the vendor, uploading the vendor agreement" | 22:39 | **Phase 1 scope** |
+| "Gives me documents, it should get registered in five minutes" (later "5–10 minutes") | 34:06–34:37 | **Phase 1 KPI** |
+| "We need to first create these reports automated" (WCR, DCR declaration, net agreement for MSEDCL) | 17:56 | **Phase 2** |
+| "Once my installation is done, all the post-installation process should get completed in say five minutes… close on the same day" | 34:19–34:25 | **Phase 2 KPI** |
+| "At least applying to the Jan Samarth portal" kept in a milestone | 36:12 | **Phase 2 KPI** |
+| Sign once on the phone; reuse the signature on the reports instead of print, sign, scan | 44:21–45:43 | Phase 1 (agreement) and Phase 2 (reports) |
+| Everything on one dashboard | 33:31 | **Phase 3** |
 
-### Phase 1 — Close-out and e-sign · ₹27,000 · week 1 after templates arrive · **built**
-- **What will be done:** close-out screen; the client's templates for all six MSEDCL documents and
-  the agreement; customer e-sign (English + Marathi); company signature; Chrome co-pilot for MSEDCL;
-  hosting live.
-- **Process:** we swap in their templates, then a 1-hour session where the owner logs in to the
-  real MSEDCL portal and we confirm the co-pilot on the real page. Then three backlog customers go
-  through end to end.
-- **KPI:** 3 real backlog customers: all 6 documents generated (each ≤ 300 KB), customer e-signed,
-  uploaded on MSEDCL through the co-pilot, **≤ 15 minutes of owner time per customer**.
+Every phase ends in **one final milestone the client can see** and a **KPI they can check with a
+stopwatch and a count**. A phase is paid only when its KPI is met on their real customers.
 
-### Phase 2 — Customer record and document reading · ₹27,000 · week 2
-- **What will be done:** document intake (bill, Aadhaar, bank, photos) into one customer record;
-  field-team upload page (photos with GPS, serial labels); serial numbers read from photos.
-- **Process:** run on 10 recent customers' documents; every field compared with what was filed.
-- **KPI:** details captured in **≤ 5 minutes per customer**; **≥ 95% of fields correct**, and every
-  uncertain field flagged, never silently wrong.
+| Phase = module (meeting) | Final milestone the client sees | KPI (all must pass) | Time | Payment |
+|---|---|---|---|---|
+| **Start** | agreement signed, WhatsApp group, project manager named, sessions booked | — | — | ₹10,000 advance |
+| **1. Documents → registration and agreement** (Module 1: document processing, data reuse) | a new customer goes from documents to **registered on PM Surya Ghar → the client selected as vendor → accepted in the vendor login → vendor agreement uploaded**, all filled by Solara | 3 real new customers · documents to "accepted in vendor login" in **≤ 5 min of owner's time each** (waiting for the customer's OTP not counted) · agreement e-signed by the customer and uploaded through Solara · nothing typed by hand except OTPs, CAPTCHA and fields Solara flagged | week 1 | ₹27,000 (20%, as agreed) |
+| **2. Portal filing, reports, loan and tracking** (Module 2: portal automation, application tracking, Jan Samarth) | **all post-installation paperwork closed the same day**: DCR certificate, installation submitted, reports made and uploaded on MSEDCL; plus the feasibility report and the Jan Samarth application before installation | 3 real customers from "agreement uploaded" to "6 documents on MSEDCL" through Solara · **post-installation ≤ 5 min of owner's time each** (customer's e-sign not counted) · reports made automatically, **0 files rejected** for size or format · **Jan Samarth application submitted up to bank and branch for 2 loan customers**, basic details filled by Solara | weeks 2–3 | ₹35,000 |
+| **3. Dashboard** (Module 3) | **one screen shows where every customer stands and what to do today** | 10 live customers: stage on screen matches the portal **10 out of 10** · today's list shows every pending OTP call, e-sign and upload · monthly Excel in one click | week 4 | ₹20,000 |
+| **4. OTP, security and problem cases** (Module 4) | Solara **handles the common problems without filing anything twice or wrong** | live demo, **8 of 8 cases handled**: wrong OTP · OTP not received (resend) · portal session timeout · internet cut mid-form · file over 300 KB · repeated serial number · photo without GPS · dealer panels not yet transferred · plus separate staff logins and one backup restored | week 5 | ₹20,000 |
+| **5. Live testing and handover** (Module 5) | **the client's team runs Solara on real customers for 2 weeks** | 10 real customers order → MSEDCL through Solara · **0 wrong submissions** caused by Solara · **average ≤ 15 min of owner's time per application** (vs about 1 hour today) · staff trained | weeks 5–6 | ₹23,000 |
+| | | | **Total** | **₹1,35,000** (taxes extra, if applicable) |
 
-### Phase 3 — Pre-installation on PM Surya Ghar · ₹27,000 · week 3
-- **What will be done:** co-pilot for customer registration, application and vendor selection;
-  vendor consent; agreement upload; site feasibility report; OTP call list.
-- **Process:** a 1-hour session on PM Surya Ghar with a real new customer (customer side and vendor
-  side) to map the live pages, then three new customers.
-- **KPI:** 3 real new customers from registration to "agreement + feasibility report submitted",
-  **≤ 10 minutes of typing each** (OTP waiting excluded). This is the 5-minute pre target in section
-  5.1, with margin.
+### What each phase builds
 
-### Phase 4 — Installation, DCR, tracking and dashboard · ₹24,000 · week 4
-- **What will be done:** co-pilot for the 5 installation screens and the DCR certificate; status
-  tracking; full dashboard (pipeline, needs-attention, reports); loan helper and tracker.
-- **Process:** a session on the DCR portal; one installation's photos and serials; then three
-  installations.
-- **KPI:** 3 real installations submitted through the co-pilot; the dashboard stage **matches the
-  portal** for every live customer. This is the 5-minute post target in section 5.2.
+**Phase 1 — Documents → registration and agreement.** The client's own first milestone:
+1. The owner uploads the customer's documents. Solara reads the bill, Aadhaar, bank page and roof
+   photo into one record and flags mismatches, such as the bill name differing from the Aadhaar name.
+2. Solara prompts the OTP call to the customer.
+3. The co-pilot fills the PM Surya Ghar customer registration and application, and the client is
+   selected as vendor.
+4. In the vendor login, the owner approves the customer in Vendor Consent.
+5. Solara generates the vendor agreement. The customer e-signs it on their phone, and the co-pilot
+   uploads it with the installation cost.
 
-### Phase 5 — Hardening, security and live testing · ₹20,000 · weeks 5–6
-- **What will be done:** edge cases (timeouts, network drops, portal changes), staff logins and
-  roles, backups, audit, training, written guide.
-- **Process:** two weeks of supervised live use on real customers.
-- **KPI:** 2 weeks of live use with **no wrong submission** caused by Solara; owner and staff
-  trained; handover done.
+*Process:* a 1-hour live session on PM Surya Ghar with a real new customer (customer side and vendor
+side) to map the pages, then 3 customers. The e-sign used here is already built.
 
-| | Payment |
-|---|---|
-| Advance | ₹10,000 |
-| Phase 1 | ₹27,000 |
-| Phase 2 | ₹27,000 |
-| Phase 3 | ₹27,000 |
-| Phase 4 | ₹24,000 |
-| Phase 5 | ₹20,000 |
-| **Total** | **₹1,35,000** (taxes extra, if applicable) |
+**Phase 2 — Portal filing, reports, loan and tracking.** This phase covers:
+- Site feasibility report.
+- **Jan Samarth application** ("at least applying"). Solara fills the basic details and address. The
+  customer enters their own Aadhaar OTP and chooses the bank and branch. The in-principle approval
+  PDF is saved to the customer's file.
+- Field-team upload page: GPS photos, plus serial labels that Solara reads.
+- DCR certificate.
+- The 5 installation screens.
+- **Reports made automatically**, replacing the Excel macros: WCR, Annexure-I, DCR declaration and
+  net agreement, signed with the customer's saved signature only after they tap Approve. Plus the
+  datasheet and the GPS photo. All six are attached on MSEDCL in one click.
+- Every filed step recorded (application tracking).
 
-How the meeting's five modules map onto the phases: Module 1 (documents) is Phase 2. Module 2
-(portal automation and loan tracking) is Phases 1, 3 and 4. Module 3 (dashboard) runs through every
-phase and is finished in Phase 4. Modules 4 and 5 (security and testing) are Phase 5. The client asked
-for registration first. We lead with close-out because it is built, needs no customer OTP, and clears
-their backlog. If they insist, Phases 1 and 3 swap.
+*Already built ahead of schedule:* the reports, the six-file MSEDCL pack and the MSEDCL co-pilot.
+*Process:* their templates swapped in; live sessions on MSEDCL and DCR; one installation's photos;
+two customers who need a loan.
+
+**Phase 3 — Dashboard.** The screen shows:
+- Every customer and their stage across the four portals.
+- Today's list: OTP calls, pending e-signs, pending uploads, waiting-for-dealer.
+- Loan status.
+- Reports and Excel export.
+
+**Phase 4 — OTP, security and problem cases.** This phase covers:
+- The OTP call flow with resend.
+- Separate staff logins and roles, encrypted documents, masked Aadhaar, daily backups.
+- The eight problem cases listed in the KPI.
+
+Module 4 was pitched as "anti-bot". It now means **working inside the owner's own browser, so the
+portals have nothing to block**. It never means tricks to get around portal security, and we stop
+promising "you'll never get blocked".
+
+**Phase 5 — Live testing and handover.** Two weeks of supervised use on real customers, fixes as they
+come up, then training and a short written guide.
+
+### Meeting action items
+
+| Action (from the notes) | Owner | Status |
+|---|---|---|
+| Inspect the 4 portals, confirm security and permissions | Lakshya, Mouriyan | done (section 3) |
+| Feasibility study of the portal workflows | Lakshya, Mouriyan | done (section 3) |
+| Prototype the phone-based digital signature | Lakshya | done: built and tested (section 9) |
+| Include the Jan Samarth loan application in the milestones as a required part | Mouriyan | done: Phase 2 KPI |
+| Send modules and milestone breakdown to the client | Mouriyan | client copy in `internal/`, ready to send |
+| Share the contract with KPIs and payment terms | Mouriyan | to do, from the client copy |
+| Create the WhatsApp group | Mouriyan | to do |
+| Assign a project manager | Mouriyan | to do; name them in the contract |
+| Register on PM Surya Ghar with our own number and pick the client as vendor (agreed homework) | Lakshya, Mouriyan | to do; use a real connection of ours and stop after vendor selection |
 
 ---
 
@@ -277,7 +310,7 @@ Monthly in advance. 30 days' notice to stop, and their data is handed over in fu
 1. Solara web app, hosted in India, own address, logins for owner and staff.
 2. Dashboard: pipeline, needs-attention, document intake, close-out, loan tracker, audit, reports,
    Excel export.
-3. Chrome co-pilot for PM Surya Ghar, NISE DCR and MSEDCL.
+3. Chrome co-pilot for PM Surya Ghar, NISE DCR, MSEDCL and Jan Samarth.
 4. Customer e-sign with consent records (English + Marathi).
 5. Document generation from their templates: agreement + six MSEDCL documents.
 6. Field-team upload page (GPS photos, serial labels).
@@ -306,10 +339,11 @@ Monthly in advance. 30 days' notice to stop, and their data is handed over in fu
 | When | What |
 |---|---|
 | Now | signed agreement, ₹10,000 advance |
-| Phase 1 | Excel workbook with macros; Word templates; 3–5 past completed files (Aadhaar masked); MSEDCL's answer on e-sign; 1-hour MSEDCL session |
-| Phase 2 | documents for 10 recent customers; field team's WhatsApp numbers |
-| Phase 3 | 1-hour PM Surya Ghar session with a real new customer |
-| Phase 4 | DCR portal session; one installation's photos and serials |
+| Phase 1 | 1-hour PM Surya Ghar session with a real new customer (customer side and vendor side); documents of 3 new customers; their agreement template |
+| Phase 2 | Excel workbook with macros and Word templates (WCR, Annexure-I, DCR declaration, net agreement); 3–5 past completed files (Aadhaar masked); MSEDCL's answer on e-sign; sessions on MSEDCL and DCR; one installation's photos and serials; field team's numbers; 2 customers taking a loan |
+| Phase 3 | nothing new; it uses the customers already in Solara |
+| Phase 4 | 30 minutes to watch the eight problem cases |
+| Phase 5 | two weeks of normal work through Solara; staff free for training |
 | Throughout | Chrome on their computer; replies on WhatsApp within a working day |
 
 Recommend they add to their customer agreement: *"The customer authorises [installer] to file the
