@@ -287,6 +287,7 @@ installation step 1 and the DCR form are already in `tests/real_labels.py`.
 | B8 The client's report templates (WCR, Annexure-I, DCR declaration, net agreement, QC) from their Word/Excel files; switch off `TEMPLATE_DRAFT` when all are in | PDFs match the client's formats |
 | B9 Application tracking: each filed step stored with its time; statuses read when the owner opens a portal list | every step visible per customer |
 | B10 Timer for "post-installation": first field upload → six on MSEDCL | time shown per customer |
+| B10a Receipts: save each portal acknowledgement (application, agreement, installation, DCR, MSEDCL) to the customer's file | every filing has its receipt in Solara |
 
 ### K3 — Dashboard (week 4)
 
@@ -302,7 +303,8 @@ pending OTP call, e-sign and upload · monthly Excel in one click.
 |---|---|
 | B11 Pipeline built from real stages (registration → feasibility → agreement → installation → inspection → subsidy), one row per customer | every live customer on one screen |
 | B12 "Today" list: OTP calls due, e-signs pending, uploads pending, waiting for dealer, with a button per item that opens the right screen | owner works from the list alone |
-| B13 Monthly Excel export of the pipeline and the audit trail | one click |
+| B13 Monthly Excel and PDF export of the pipeline and the audit trail | one click |
+| B13a Per-customer controls promised in the terms: Start, Pause, Resume, Review, Approve, Retry (in the co-pilot model: start a step, hold it, carry on, show what will be filed, the owner's approval, re-fill after a failure) | each control works on a live customer |
 
 ### K4 — OTP, security and problem cases (week 5)
 
@@ -314,11 +316,15 @@ dealer panels not yet transferred — plus separate staff logins and one backup 
 |---|---|
 | A14 Co-pilot behaviour on wrong OTP, resend, session timeout (re-reads the page and carries on), internet cut (nothing filed twice: status checked before re-filling) | 4 cases shown live |
 | A15 Re-test every rule in `real_labels.py` against the real pages again (portals change) | green |
+| A15a Screenshot on failure: when a fill or upload fails, the co-pilot saves a screenshot of the page to the customer's file (`chrome.tabs.captureVisibleTab`), never with an OTP shown | a failed step has its screenshot |
+| A15b OTP steps on the list: when the co-pilot reaches an OTP field it adds "call the customer" to Today and carries on after | OTP calls appear on Today |
 
 | Intern B | Done when |
 |---|---|
 | B14 File over 300 KB, repeated serial, photo without GPS, dealer not transferred: each refused with a clear message (most exist; test each on real files) | 4 cases shown live |
 | B15 Staff logins with roles for each person; check a viewer cannot change anything; backup restored on demo day | done in the demo |
+| B15a Document-retention period the client can set (e.g. delete customer documents N months after subsidy); runs daily; logged | setting works, deletions in the audit |
+| B15b Testing and security documentation, and backup and recovery instructions (terms deliverables 10, 11) | documents handed over |
 
 ### K5 — Live testing and handover (weeks 5–6)
 
@@ -328,8 +334,10 @@ average ≤ 15 min of owner's time per application · staff trained, written gui
 | Intern A | Intern B |
 |---|---|
 | A16 Sit with the owner on each live customer; log time per customer and every field left over; fix within a day | B16 Log every flagged document and its cause; fix reading problems within a day |
-| A17 One-page owner guide for the co-pilot (with screenshots) | B17 One-page owner guide for Solara (Registration, Close-out, Today) and the backup routine |
+| A17 Installation guide and the co-pilot user manual (with screenshots) | B17 Administrator and user manual for Solara (Registration, Close-out, Today, users, backups) |
 | A18 Training session with the owner and staff (portal side) | B18 Training session (Solara side); hand over users, backup copy and key procedure |
+
+**Not in scope unless separately quoted:** MSEDCL new connection, load enhancement and load reduction; AI calling; dedicated or virtual numbers. Source-code handover and IP transfer to the client are still to be confirmed by Almmatix; do not promise either.
 
 **Together, every milestone:** both run `tests/run_all.py` before a client session; after it, write
 down what changed, push, and keep CI green. Pair on the KPI runs: A drives the portal side, B watches
