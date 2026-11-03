@@ -485,6 +485,8 @@ def status(cid):
         st, note = "ready", ""
         if miss:
             st, note = "missing", "Missing: " + ", ".join(miss)
+        elif key == "site_photo" and not (DOCS / cid / "site_photo.jpg").exists():
+            st, note = "missing", "Add the site photo (coordinates alone are not enough)"
         elif key == "datasheet" and not (LIBRARY / f"{datasheet_key(d)}.pdf").exists():
             st, note = "missing", f"Upload the datasheet for {d['module_make']} + {d['inverter_make']} once"
         elif key in TEMPLATES and blocked:

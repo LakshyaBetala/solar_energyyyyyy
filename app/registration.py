@@ -43,7 +43,8 @@ def values(cid):
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
-            "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"]}
+            "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
+            "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng")}
 
 
 def missing(cid):

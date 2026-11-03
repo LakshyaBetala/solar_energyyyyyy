@@ -7,6 +7,44 @@ Commercial terms are not part of this document.
 
 ---
 
+## 0. The whole project
+
+### The problem
+The client is a rooftop-solar installer. For every customer, the owner files paperwork on **four
+government portals**, typing the same name, consumer number and address again and again. It takes
+about **an hour per application** today:
+
+| Portal | What is filed there |
+|---|---|
+| **PM Surya Ghar** (national portal) | customer registration and application, vendor consent, the vendor–consumer agreement, the site feasibility report, the 5-screen installation submission, status |
+| **NISE DCR portal** | the B2C "made in India" panel certificate with every panel's serial number |
+| **MSEDCL rooftop portal** | six documents per customer after installation, PDF only, 300 KB each |
+| **Jan Samarth** | the customer's bank-loan application, if they take a loan |
+
+On top of that: Excel macros to make the reports, print, get signatures, scan, shrink the files and
+upload them again.
+
+### What Solara is
+**Enter once, use everywhere.** The owner adds a customer's documents once; Solara reads them into one
+customer record, generates every document, gets the customer's e-signature on their phone, and a
+**co-pilot extension in the owner's own Chrome** fills every portal form from that record. The owner
+logs in, types the OTP and CAPTCHA, checks the form and presses Submit. One dashboard shows where every
+customer stands and what to do next.
+
+### The five milestones (the client's KPIs)
+
+| # | Milestone | Final result the client sees | Planned | Status |
+|---|---|---|---|---|
+| **K1** | Documents → registration and agreement | a new customer registered, accepted in the vendor login, agreement e-signed and uploaded — in ≤ 5 min of owner's time | week 1 | **built; prove on real portals** |
+| **K2** | Portal filing, reports, loan and tracking | all post-installation paperwork closed the same day (DCR, installation, six MSEDCL documents), plus the feasibility report and the Jan Samarth application | weeks 2–3 | reports, e-sign and MSEDCL upload **built**; the rest to build |
+| **K3** | Dashboard | one screen with every customer's stage and today's to-do list | week 4 | pipeline and screens exist; to finish |
+| **K4** | OTP, security and problem cases | 8 common problems handled without filing anything twice or wrong | week 5 | partly built; to finish and demonstrate |
+| **K5** | Live testing and handover | the client's team runs Solara on real customers for 2 weeks | weeks 5–6 | — |
+
+Week 7 is held in reserve. The detailed KPI for each milestone and who does what is in section 7.
+
+---
+
 ## 1. Milestone 1 in one line
 
 A new customer's documents go in once; the customer is **registered on PM Surya Ghar → the
@@ -146,10 +184,11 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `ui.py` | 38 | every dashboard view in a real browser |
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
+| `real_labels.py` | 6 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report, installation step 1, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |
 
 `milestone1.py` with `SOLARA_SHOTS=docs/screenshots` saves the four reference screenshots
-(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all five on every push.
+(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all six on every push.
 
 ### Manual test script (do this 3 times before each client session)
 
@@ -180,7 +219,7 @@ Record each run in a sheet: date, who, steps passed, anything odd, screenshots o
 
 | Limit | What it means | Owner of the fix |
 |---|---|---|
-| The real portal's field labels are **not yet confirmed** | `RULES` in `panel.js` are written from the recording and common wording. On the real pages some fields may land in "Left for you" | Intern A, first client session |
+| The real **registration** pages are not yet seen | the vendor-side screens from the recording pass `real_labels.py`; the consumer registration and application pages were not shown on the call, so some fields there may land in "Left for you" | Intern A, first client session (A2–A3) |
 | The real MSEDCL bill layout is **not yet tested** | `LABELS` in `extract.py` match our sample bill. Real bills may fall back to the AI model (needs the key) or get flagged | Intern B, with real sample bills |
 | Angular Material dropdowns (not native `<select>`) | the co-pilot fills native selects; custom dropdowns are listed as "left for you" | Intern A, if the real portal uses them |
 | Agreement template is a **draft** | it prints a "draft format" footer until the client's wording is in (`closeout.t_agreement`, `TEMPLATE_DRAFT`) | Intern B |
@@ -189,35 +228,114 @@ Record each run in a sheet: date, who, steps passed, anything odd, screenshots o
 
 ---
 
-## 7. Who does what next
+## 7. Who does what: all five milestones
 
-### Intern A — portals and the co-pilot
+**Intern A owns the portals and the co-pilot. Intern B owns documents, data, the dashboard and
+deployment.** Each milestone ends with its KPI demonstrated on the client's real customers; a milestone
+is done only when every KPI line passes. Keep the order: never start the next milestone's live work
+until the current KPI is signed off.
 
-| Task | Done when |
+Every task follows the same loop: **build → add or extend a test → `tests/run_all.py` green → push →
+CI green → try it on the real portal with the owner.**
+
+### K1 — Documents → registration and agreement (week 1) · built, prove it live
+
+**KPI:** 3 real new customers · documents to "accepted in vendor login" in ≤ 5 min of owner's time
+(OTP wait not counted) · agreement e-signed and uploaded through Solara · nothing typed except OTPs,
+CAPTCHA and flagged fields.
+
+| Intern A | Done when |
 |---|---|
-| A1 Run the manual script (section 5) 3× in the sandbox; log results | 3 clean runs logged |
-| A2 Client session on the **real PM Surya Ghar** (owner at the keyboard): for each page of registration, application, vendor selection, Vendor Consent and Upload Agreement, open the panel, press Fill, and note every field in "Left for you". Save the page's HTML (Ctrl+S) **without customer data** for offline work | a field list per page |
-| A3 Update `RULES` / `FILES` in `extension/panel.js` so every field on those pages fills; add a sandbox copy of any page that differs (in `app/portal.py` / `app/pmsg.py`) and a check in `tests/milestone1.py` | `milestone1.py` green, no "left for you" except OTP/CAPTCHA/declaration on the real pages |
-| A4 Check the application-number capture and the dialog detection on the real portal | number saved without typing; Upload Agreement finds the right customer |
-| A5 Package the extension (zip + one-page install guide for the owner); set the hosted Solara address in Options | owner installs it alone |
-| A6 KPI run 1–3 with the owner: stopwatch each customer, documents → accepted | 3 customers ≤ 5 min each, logged |
+| A1 Run the manual script (section 5) 3× in the sandbox; log each run | 3 clean runs logged |
+| A2 Client session on the **real PM Surya Ghar** (owner at the keyboard): on registration, application, vendor selection, Vendor Consent and Upload Agreement, press Fill and note every field left over. Save each page's HTML (Ctrl+S) with customer data removed | a field list per page |
+| A3 Add each real page's labels to `tests/real_labels.py` (it already holds the five screens from the recording and the MSEDCL login); fix `RULES`/`FILES` in `extension/panel.js` until it passes | `real_labels.py` green with the real pages |
+| A4 Confirm on the real portal: application number saved without typing; Upload Agreement finds the right customer | both seen working |
+| A5 Package the extension (zip + one-page install guide); set the hosted Solara address in Options | owner installs it alone |
+| A6 KPI runs 1–3 with the owner, stopwatch per customer | 3 customers ≤ 5 min each, logged |
 
-### Intern B — documents, data and deployment
-
-| Task | Done when |
+| Intern B | Done when |
 |---|---|
-| B1 Get 3–5 real MSEDCL bills (PDF from the MSEDCL site and photos) and 3 Aadhaar QR photos **with the customers' consent**; keep them **outside the repo**; run extraction; tune `LABELS` for the real bill layout | consumer no., name, address, PIN, load, tariff, mobile read from every sample |
-| B2 Make synthetic copies of the real layouts in `tests/fixtures.py` and add checks | `milestone1.py` covers the real layout |
-| B3 Set the AI key in `.env` on the client install and check a bill photo and a bank-page photo read with "sure" values; unsure ones flagged | photo bills read |
-| B4 Put the client's agreement wording into `closeout.t_agreement`; switch off the draft footer for it | agreement PDF matches the client's format |
-| B5 Deploy: a server in India (or the owner's PC), HTTPS in front (e.g. Caddy), `SOLARA_MODE=live`, `SOLARA_DATA`, users via `app.users`, daily backup, vault key stored apart from backups (OPERATIONS.md) | owner signs in at the hosted address; the e-sign link opens on a customer's phone |
-| B6 Restore drill: restore yesterday's backup on another folder and open a document | restore works |
+| B1 Collect 3–5 real MSEDCL bills (website PDF and photos) and 3 Aadhaar QR photos **with consent**, kept **outside the repo**; tune `LABELS` in `extract.py` | every sample's consumer no., name, address, PIN, load, tariff, mobile read |
+| B2 Add synthetic copies of those layouts to `tests/fixtures.py` with checks | `milestone1.py` covers the real layout |
+| B3 Set the AI key on the client install; check photo bills and bank pages read, unsure values flagged | photos read |
+| B4 Put the client's agreement wording into `closeout.t_agreement`; drop the draft footer for it | agreement matches the client's format |
+| B5 Deploy: server in India (or the owner's PC), HTTPS (e.g. Caddy), `SOLARA_MODE=live`, `SOLARA_DATA`, users via `app.users`, daily backup, vault key kept apart (OPERATIONS.md) | owner signs in at the hosted address; e-sign link opens on a phone |
+| B6 Restore drill on a separate folder | a restored document opens |
 
-**Together:** before each client session, both run `tests/run_all.py`; after each, write down what
-changed and push. Pair on A6 (A drives the portal side, B watches Solara and the documents).
+### K2 — Portal filing, reports, loan and tracking (weeks 2–3)
+
+**KPI:** 3 real customers from "agreement uploaded" to "6 documents on MSEDCL" through Solara ·
+post-installation ≤ 5 min of owner's time each (customer's e-sign not counted) · reports made
+automatically, 0 files rejected for size or format · Jan Samarth application submitted up to bank and
+branch for 2 loan customers, basic details filled by Solara (the customer enters their own Aadhaar OTP).
+
+Already built: the six MSEDCL documents (`closeout.py`), consent-bound e-sign, the 300 KB fit, the
+MSEDCL co-pilot attach (`tests/closeout.py`, 59 checks). Field labels for the feasibility report,
+installation step 1 and the DCR form are already in `tests/real_labels.py`.
+
+| Intern A | Done when |
+|---|---|
+| A7 Site feasibility report: values in the record (roof load, shade-free area, permissible kW, visitor, quotation PDF, pre-installation photo); co-pilot fills and attaches; sandbox page + test | real SFR filled, owner submits |
+| A8 Installation, all 5 screens: lat/long from the photo GPS, inverter and module rows, DCR certificate number, photos, protection checklist; sandbox copy + test | real installation submitted through the co-pilot |
+| A9 DCR B2C certificate: fill from the record; serial numbers as the portal's Excel (column A from row 2); "waiting for dealer" when the panels are not credited | a real certificate issued |
+| A10 Jan Samarth: co-pilot fills basic details and address; the customer enters the Aadhaar OTP and picks bank and branch; the approval PDF is saved to the customer | 2 loan customers submitted |
+| A11 MSEDCL on the real page: confirm the six rows match `MSEDCL` in `panel.js` | 6 files attached on the real page |
+
+| Intern B | Done when |
+|---|---|
+| B7 Field-team upload page (phone): GPS photos and serial-label photos; serials read and shown beside their photo for one-tap confirm; count and repeat checks | 1 real installation's serials confirmed |
+| B8 The client's report templates (WCR, Annexure-I, DCR declaration, net agreement, QC) from their Word/Excel files; switch off `TEMPLATE_DRAFT` when all are in | PDFs match the client's formats |
+| B9 Application tracking: each filed step stored with its time; statuses read when the owner opens a portal list | every step visible per customer |
+| B10 Timer for "post-installation": first field upload → six on MSEDCL | time shown per customer |
+
+### K3 — Dashboard (week 4)
+
+**KPI:** 10 live customers, stage on screen matches the portal 10 out of 10 · today's list shows every
+pending OTP call, e-sign and upload · monthly Excel in one click.
+
+| Intern A | Done when |
+|---|---|
+| A12 Status capture: when the owner opens My Application (PM Surya Ghar) or the MSEDCL list, the co-pilot reports each customer's status to Solara (read-only, no clicks) | statuses update without typing |
+| A13 Check 10 live customers against the portals; fix any mismatch | 10/10 |
+
+| Intern B | Done when |
+|---|---|
+| B11 Pipeline built from real stages (registration → feasibility → agreement → installation → inspection → subsidy), one row per customer | every live customer on one screen |
+| B12 "Today" list: OTP calls due, e-signs pending, uploads pending, waiting for dealer, with a button per item that opens the right screen | owner works from the list alone |
+| B13 Monthly Excel export of the pipeline and the audit trail | one click |
+
+### K4 — OTP, security and problem cases (week 5)
+
+**KPI:** a live demo with 8 of 8 handled — wrong OTP · OTP not received (resend) · portal session
+timeout · internet cut mid-form · file over 300 KB · repeated serial number · photo without GPS ·
+dealer panels not yet transferred — plus separate staff logins and one backup restored.
+
+| Intern A | Done when |
+|---|---|
+| A14 Co-pilot behaviour on wrong OTP, resend, session timeout (re-reads the page and carries on), internet cut (nothing filed twice: status checked before re-filling) | 4 cases shown live |
+| A15 Re-test every rule in `real_labels.py` against the real pages again (portals change) | green |
+
+| Intern B | Done when |
+|---|---|
+| B14 File over 300 KB, repeated serial, photo without GPS, dealer not transferred: each refused with a clear message (most exist; test each on real files) | 4 cases shown live |
+| B15 Staff logins with roles for each person; check a viewer cannot change anything; backup restored on demo day | done in the demo |
+
+### K5 — Live testing and handover (weeks 5–6)
+
+**KPI:** 10 real customers from order to MSEDCL through Solara · 0 wrong submissions caused by Solara ·
+average ≤ 15 min of owner's time per application · staff trained, written guide handed over.
+
+| Intern A | Intern B |
+|---|---|
+| A16 Sit with the owner on each live customer; log time per customer and every field left over; fix within a day | B16 Log every flagged document and its cause; fix reading problems within a day |
+| A17 One-page owner guide for the co-pilot (with screenshots) | B17 One-page owner guide for Solara (Registration, Close-out, Today) and the backup routine |
+| A18 Training session with the owner and staff (portal side) | B18 Training session (Solara side); hand over users, backup copy and key procedure |
+
+**Together, every milestone:** both run `tests/run_all.py` before a client session; after it, write
+down what changed, push, and keep CI green. Pair on the KPI runs: A drives the portal side, B watches
+Solara and the documents and keeps the stopwatch sheet.
 
 ---
-
 ## 8. Questions for the client — ask only after the test named, and only if still stuck
 
 Keep each message short, one topic, on the project WhatsApp group.

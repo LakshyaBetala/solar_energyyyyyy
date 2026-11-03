@@ -31,6 +31,8 @@ jobs:
         run: python tests/closeout.py
       - name: Milestone 1 acceptance (K1)
         run: python tests/milestone1.py
+      - name: Co-pilot on the real portal labels
+        run: python tests/real_labels.py
       - name: Live mode
         run: python tests/live_mode.py
       - name: Server log

@@ -12,22 +12,28 @@
                   ['net_agreement', /net agreement/i], ['datasheet', /brochure|datasheet/i],
                   ['site_photo', /photo of installed/i]];
   // first match wins; null means "never touch"
+  // labels are taken from the client's real portal screens (tests/real_labels.py checks them)
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
+    [/user ?id|username|register email|login/, null],         // the vendor's own login, never the customer's
+    [/employee|contact person|contact number/, null],         // the vendor's site staff, not the customer
+    [/application (no|number)/, 'application_no'],
     [/consumer (account )?(no|number)|ca number|consumer id/, 'consumer_no'],
-    [/mobile|phone|contact (no|number)/, 'mobile'],
+    [/mobile|phone/, 'mobile'],
     [/e ?mail/, 'email'],
+    [/latitude/, 'lat'],
+    [/longitude/, 'lng'],
     [/distribution|discom|electricity company|utility/, 'discom'],
     [/\bdistrict\b/, 'district'],
     [/\bstate\b/, 'state'],
     [/pin ?code|pincode|postal code/, 'pin'],
     [/address/, 'address'],
+    [/name of (the )?vendor|vendor name|registered vendor|select vendor/, 'vendor'],
     [/(applicant|consumer|customer|full|beneficiary) name|^name\b/, 'name'],
     [/sanctioned|connected load/, 'sanctioned_load'],
-    [/proposed capacity|rts capacity|plant capacity|capacity kw/, 'capacity'],
+    [/capacity/, 'capacity'],
     [/category/, 'category'],
-    [/total cost|cost of rts|installation cost|project cost/, 'rts_cost'],
-    [/vendor/, 'vendor'],
+    [/total cost|cost of rts|installation cost|project cost|quotation amount/, 'rts_cost'],
   ];
   const FILES = [[/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
                  [/passbook|bank|cheque/, 'passbook'], [/roof|site photo/, 'roof']];
