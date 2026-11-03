@@ -30,6 +30,8 @@ FIELDS = [  # key, label, group
     ("install_date", "Installation date", "References"),
     ("rts_cost", "Total cost of installation, incl. taxes (Rs)", "References"),
     ("mobile", "Customer mobile", "Connection"),
+    ("email", "Customer email", "Connection"),
+    ("district", "District", "Connection"),
     ("aadhaar_last4", "Aadhaar, last 4 digits only", "Connection"),
     ("billing_unit", "Name of billing unit", "Connection"),
     ("sanctioned_load", "Sanctioned / connected load (kW)", "Connection"),
@@ -54,7 +56,9 @@ FIELDS = [  # key, label, group
     ("protection_checks", "All earthing and protection checks done", "Earthing and protection"),
 ]
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
-SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at")
+SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
+          # pre-installation milestones, stamped when each step is done
+          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at")
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,

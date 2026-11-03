@@ -207,7 +207,7 @@ async def main():
         await pg.locator('.navitem[data-view="pipeline"]').click()
         await pg.wait_for_timeout(600)
         txt = await pg.locator("#otherview").inner_text()
-        check("pipeline shows the new rooftop application number", "PMSG/MH/" in txt)
+        check("pipeline shows the new rooftop application number", "NP-MHSED" in txt)
         check("pipeline shows the DISCOM request", "SR/MH/" in txt)
         await pg.locator('.navitem[data-view="audit"]').click()
         await pg.wait_for_timeout(500)

@@ -468,7 +468,7 @@ def review_post(request: Request, declaration: str = Form("")):
     if db.one("SELECT 1 FROM portal_applications WHERE consumer_no=?", (s["consumer_no"],)):
         return review_get(request, "An application already exists against this consumer number.",
                           "VAL-0901")
-    app_no = f"PMSG/MH/{datetime.now().year}/1{random.randint(22500, 23400)}"
+    app_no = f"NP-MHSED{datetime.now():%y}-{random.randint(10 ** 7, 10 ** 8 - 1)}"  # the national portal's format
     db.ex("""INSERT INTO portal_applications(application_no,consumer_no,applicant_name,capacity,
              submitted_at,payload) VALUES(?,?,?,?,?,?)""",
           (app_no, s["consumer_no"], d.get("applicant_name"), float(d.get("capacity") or 0),

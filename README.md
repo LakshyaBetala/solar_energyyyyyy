@@ -1,5 +1,7 @@
 # Solara — Solar Back Office
 
+[![tests](https://github.com/LakshyaBetala/solar_energyyyyyy/actions/workflows/tests.yml/badge.svg)](https://github.com/LakshyaBetala/solar_energyyyyyy/actions/workflows/tests.yml)
+
 Back-office automation for a solar EPC. Solara drives a real browser through the rooftop-solar
 portal and a DISCOM self-service portal, reads the customer's documents, and stops for a person
 at every point where one is actually required. Nothing is ever filed without a supervisor's
@@ -34,6 +36,8 @@ the live page, documents are encrypted at rest, and role checks are enforced by 
 - [Limitations](#limitations)
 
 Operations — users, backups, restore, keys — are in **[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
+**Taking over the project? Start with [docs/HANDOVER.md](docs/HANDOVER.md)** (Milestone 1, setup, tests,
+manual test script, rules, who does what).
 The Phase 1 plan — feasibility, the five phases with KPIs, client pricing, and the 5-minute pre- and
 post-installation targets — is in **[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)**.
 
@@ -47,10 +51,16 @@ post-installation targets — is in **[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.m
 | Sanctioned load enhancement | DISCOM self-service | OTP, approval |
 | Sanctioned load reduction | DISCOM self-service | OTP, approval |
 | New LT connection | DISCOM self-service | OTP, approval |
+| **Milestone 1: documents → registered → accepted → agreement uploaded** | national portal, consumer and vendor side, through the co-pilot | OTP, CAPTCHA, declaration, every Submit, customer e-sign |
 | Post-installation close-out | MSEDCL rooftop vendor portal (six documents) | customer e-sign, operator presses Upload |
 
 Around the workflows:
 
+- **Registration (Milestone 1).** + New customer, drop in the bill and Aadhaar (PDF or photo).
+  The bill is read from its text layer; the Aadhaar from its **QR code, offline** (only the last 4
+  digits are kept); anything unclear is flagged, never guessed. One next-action button walks the owner
+  through registration, vendor acceptance and the e-signed agreement; the co-pilot fills the portal
+  forms by their labels, attaches the documents and saves the application number.
 - **Close-out.** Installation details entered once become the agreement, Work Completion Report,
   Annexure-I, DCR declaration, net-metering agreement, datasheet and geotagged site photo, each a
   PDF under MSEDCL's 300 KB limit. Serial numbers are checked for count and repeats, earth
@@ -331,12 +341,18 @@ app/
   backup.py        consistent backups
   db.py            schema and seed data
   reset.py         returns the demo to its opening state
+  registration.py  Milestone 1: new customer, six steps, the next action
+  pmsg.py          sandbox: vendor side of the national portal (consent, upload agreement)
+  users.py         add and remove people, set passwords (python -m app.users)
 web/               console — plain HTML, CSS and JavaScript, no build step
 extension/         the co-pilot Chrome extension (Manifest V3, no build step)
 tests/
   smoke.py         61 checks through the HTTP API, asserting on the database and the disk
   ui.py            38 checks driving the console in a real browser
   closeout.py      59 checks: close-out, e-sign consent rules, 300 KB pack, the extension
+  milestone1.py    44 checks: Milestone 1 end to end with the co-pilot, plus failure paths
+  live_mode.py     7 checks: a fresh live install
+  run_all.py       runs every suite with one summary
 docs/              OPERATIONS.md and the screenshots used here
 data/              database, encrypted documents and screenshots, exports, backups (created at runtime)
 ```
@@ -369,6 +385,10 @@ SOLARA_VENDOR_NAME=Your Solar Company Pvt Ltd
 SOLARA_VENDOR_SIGNATORY=Name of the authorised signatory
 ```
 
+**Live install:** `SOLARA_MODE=live` starts with no demo data or demo accounts, hides the sandbox-only
+screens, links to the real portals and refuses the demo reset. Give it its own folder with
+`SOLARA_DATA=/path`, then add people with `python -m app.users add <username> "<Full Name>" supervisor`.
+
 Ports and timings live in `app/config.py`.
 
 ---
@@ -389,9 +409,13 @@ python tests/closeout.py  # 59 checks: the close-out screen, GPS and serial chec
                           # customer signatures, wrong digits and lockout, consent bound to the
                           # document's content, the pack under 300 KB, signing on a phone-sized
                           # screen, and the extension attaching six files on the MSEDCL sandbox
+python tests/milestone1.py # 44 checks: Milestone 1 (K1) end to end with the co-pilot loaded, plus
+                          # unreadable documents, wrong formats and steps out of order
+python tests/live_mode.py  # 7 checks: its own live server on port 8911
+python tests/run_all.py    # all of the above, one summary (CI runs this on every push)
 ```
 
-All three reset the demo before and after, and assert on what actually landed: the application number
+Each resets the demo before and after, and assert on what actually landed: the application number
 came off the portal page, the operator's approval was refused by the server, documents on disk are
 ciphertext, the backup holds no key, and no OTP value appears in any log.
 

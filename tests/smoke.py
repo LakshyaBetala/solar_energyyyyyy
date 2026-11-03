@@ -169,7 +169,7 @@ async def main():
               "Incorrect OTP" in (holds[2]["context"].get("error") or ""))
         if end and end["type"] == "done":
             app_no = end["application_no"]
-            check("application number read off the portal page", app_no.startswith("PMSG/MH/"),
+            check("application number read off the portal page", app_no.startswith("NP-MHSED"),
                   app_no)
             row = db.one("SELECT * FROM portal_applications WHERE application_no=?", (app_no,))
             check("portal stored the bill spelling of the name",

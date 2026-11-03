@@ -1,0 +1,38 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Start Solara (demo mode)
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8900 > server.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8900/api/me && break; sleep 1; done
+      - name: Smoke (API, portals, agent)
+        run: python tests/smoke.py
+      - name: Dashboard UI
+        run: python tests/ui.py
+      - name: Close-out, e-sign, MSEDCL co-pilot
+        run: python tests/closeout.py
+      - name: Milestone 1 acceptance (K1)
+        run: python tests/milestone1.py
+      - name: Live mode
+        run: python tests/live_mode.py
+      - name: Server log
+        if: failure()
+        run: tail -n 200 server.log

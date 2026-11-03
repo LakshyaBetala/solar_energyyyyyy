@@ -9,13 +9,13 @@ are kept so whoever is presenting stays signed in.
 import shutil
 from datetime import datetime, timedelta
 from . import db
-from .config import SHOTS, EXPORTS
+from .config import SHOTS, EXPORTS, DOCS
 
 
 def reset(wipe_files=True):
     for t in ("runs", "run_steps", "run_events", "holds", "screenshots",
               "portal_applications", "portal_requests", "portal_sessions", "sms",
-              "closeout", "sign_requests", "approvals", "msedcl_uploads"):
+              "closeout", "sign_requests", "approvals", "msedcl_uploads", "pmsg_vendor"):
         db.ex(f"DELETE FROM {t}")
     # the company signature is one-time setup and survives a reset; customers' do not
     db.ex("DELETE FROM signatures WHERE role='consumer'")
@@ -23,10 +23,20 @@ def reset(wipe_files=True):
     db.seed_closeout()
     from . import closeout
     closeout.demo_assets()
+    # customers added during a rehearsal go; seeded ones come back exactly as seeded
+    ids = [c[0] for c in db.CUSTOMERS]
+    nos = [p[0] for p in db.PORTAL_CONSUMERS]
+    for t in ("documents", "extractions"):
+        db.ex(f"DELETE FROM {t} WHERE customer_id NOT IN ({','.join('?' * len(ids))})", ids)
+    db.ex(f"DELETE FROM customers WHERE id NOT IN ({','.join('?' * len(ids))})", ids)
+    db.ex(f"DELETE FROM portal_consumers WHERE consumer_no NOT IN ({','.join('?' * len(nos))})", nos)
+    for d in DOCS.iterdir():
+        if d.is_dir() and d.name not in ids and d.name != "vendor":
+            shutil.rmtree(d, ignore_errors=True)
     for c in db.CUSTOMERS:
-        # seed tuple: 7 stage, 8 reference, 10 last activity, 11 blocked note, 15 workflow
-        db.ex("""UPDATE customers SET stage=?,application_no=?,last_activity=?,blocked_note=?,
-                 workflow=?,discom_ref=NULL WHERE id=?""", (c[7], c[8], c[10], c[11], c[15], c[0]))
+        db.ex("""INSERT OR REPLACE INTO customers(id,name,aadhaar_name,place,consumer_no,kw,category,
+                 stage,application_no,subsidy,last_activity,blocked_note,pin,address,bank,workflow)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", c)
     for msisdn, cid, days, otps, st in db.NUMBERS:
         db.ex("""UPDATE numbers SET customer_id=?,otp_count=?,status=?,expires_at=?
                  WHERE msisdn=?""",

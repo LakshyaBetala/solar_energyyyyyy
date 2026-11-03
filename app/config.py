@@ -1,7 +1,8 @@
 from pathlib import Path
 
+import os
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = Path(os.environ.get("SOLARA_DATA") or ROOT / "data")  # a live install keeps its own folder
 DOCS = DATA / "documents"
 SHOTS = DATA / "screenshots"
 EXPORTS = DATA / "exports"
@@ -26,6 +27,26 @@ FRAME_QUALITY = 55
 ROLES = {"viewer": 0, "operator": 1, "supervisor": 2}
 
 MAX_UPLOAD_KB = 300  # MSEDCL rooftop portal: PDF only, 300 KB per file
+
+
+def live():
+    """SOLARA_MODE=live: no demo data, and the links open the real portals."""
+    import os
+    return os.environ.get("SOLARA_MODE", "").lower() == "live"
+
+
+def portals():
+    if live():
+        return {"pmsg": "https://pmsuryaghar.gov.in/", "pmsg_vendor": "https://pmsuryaghar.gov.in/",
+                "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/"}
+    return {"pmsg": "/portal/verify", "pmsg_vendor": "/pmsg/vendor/consent", "msedcl": "/msedcl/"}
+
+
+def region():
+    """What the installer always picks on the portals: their state and distribution company."""
+    import os
+    return {"state": os.environ.get("SOLARA_STATE", "Maharashtra"),
+            "discom": os.environ.get("SOLARA_DISCOM", "Maharashtra State Electricity Distribution Co. Ltd.")}
 
 
 def vendor():

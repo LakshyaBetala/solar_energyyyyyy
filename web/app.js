@@ -17,6 +17,7 @@ const TITLES = {
   pipeline: ['Pipeline', 'Every live application and the stage it is sitting at.'],
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
+  reg: ['Registration', 'New customer to registered, accepted and agreement uploaded. Upload the documents once; the co-pilot fills PM Surya Ghar.'],
   closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],
@@ -30,7 +31,7 @@ const S = {
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
   headless: true, es: null, lastFrame: null, t0: null,
   runCid: 'SS-2045', runWf: null, runKw: null, workflows: [], followups: [],
-  co: [], coCid: 'SS-2042', coData: null
+  co: [], coCid: 'SS-2042', coData: null, reg: [], regCid: null, regData: null
 };
 
 const can = lvl => S.me && ROLES[S.me.role] >= ROLES[lvl];
@@ -85,6 +86,7 @@ async function boot() {
   S.workflows = b.workflows || [];
   S.followups = await api('/followups').catch(() => []);
   S.co = await api('/closeout').catch(() => []);
+  S.reg = await api('/registration').catch(() => []);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
   $('#llmChip').innerHTML = S.llm.enabled
@@ -111,6 +113,7 @@ function counters() {
   $('#tagDocs').className = 'tag' + (flagged ? ' hot' : '');
   $('#tagAudit').textContent = S.audit.length;
   $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
+  $('#tagReg').textContent = S.reg.filter(x => x.done < x.total).length;
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -524,6 +527,129 @@ async function loadExtract(cid) {
   if (S.view === 'docs') render();
 }
 
+/* ------------------------------ registration (milestone 1) ------------------------------ */
+async function loadReg(cid) {
+  if (cid) S.regCid = cid;
+  S.reg = await api('/registration');
+  if (!S.regCid || !S.reg.some(x => x.id === S.regCid)) S.regCid = S.reg[0] && S.reg[0].id;
+  S.regData = S.regCid ? await api('/registration/' + S.regCid) : null;
+  if (S.view === 'reg') render();
+}
+
+const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
+const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+VIEWS.reg = () => {
+  const list = S.reg || [], g = S.regData;
+  const top = `<div class="kpis">
+    <div class="kpi"><div class="k">In progress</div><div class="v num">${list.filter(x => x.done < x.total).length}</div><div class="d">new customers not yet through</div></div>
+    <div class="kpi"><div class="k">Ready to register</div><div class="v num">${list.filter(x => x.next.act === 'register').length}</div><div class="d">documents read, details complete</div></div>
+    <div class="kpi"><div class="k">Waiting for e-sign</div><div class="v num">${list.filter(x => x.next.act === 'wait').length}</div><div class="d">agreement link with the customer</div></div>
+    <div class="kpi"><div class="k">Milestone 1 done</div><div class="v num">${list.filter(x => x.done === x.total).length}</div><div class="d">registered, accepted, agreement uploaded</div></div></div>`;
+  const left = `<div class="card"><div class="ch"><h3>Customers</h3><span class="spacer"></span>
+    <button class="btn sm go" id="regNew"${can('operator') ? '' : ' disabled'}>+ New customer</button></div>
+    <div class="colist">${list.length ? list.map(x => `<button data-reg="${x.id}" aria-current="${x.id === S.regCid}">
+      <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
+      <div><span class="pill ${x.done === x.total ? 'ok' : x.next.act === 'wait' ? 'info' : x.next.act === 'register' ? 'live' : 'warn'}">${x.done === x.total ? 'Done' : esc(x.next.label)}</span>
+      <span class="sub">${x.done}/${x.total}</span></div></button>`).join('') : '<div class="cb hint">No customers yet. Press New customer.</div>'}</div></div>`;
+  if (!g) return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}<div></div></div></div>`;
+  const c = g.customer, d = g.data, v = g.values, op = can('operator') ? '' : ' disabled';
+  const docs = Object.fromEntries(g.documents.map(x => [x.kind, x]));
+  const flagged = g.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key));
+  const fieldRow = f => {
+    const later = REG_LATER.includes(f.key), rev = f.status === 'review';
+    return `<div class="fld ${rev && !later ? 'review' : ''}" data-field="${esc(f.key)}">
+      <div class="fk">${esc(f.field)} <span style="opacity:.7">&middot; ${esc(f.source)}</span>${later ? ' <span class="pill idle">needed later</span>' : ''}</div>
+      ${rev && !later ? `<div class="row" style="gap:6px;margin-top:4px"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="type it as on the document" style="flex:1">
+        <button class="btn sm go" data-confirm="${esc(f.key)}"${op}>Confirm</button></div>` : `<div class="fv">${esc(f.value)}</div>`}
+      ${f.note ? `<div class="fk" style="color:${rev ? 'var(--warn)' : 'var(--fg-dim)'};letter-spacing:0;text-transform:none;font-size:11px;line-height:1.5">${esc(f.note)}</div>` : ''}</div>`;
+  };
+  const det = [['name', 'Customer name', c.name], ['mobile', 'Mobile (gets the portal OTP)', d.mobile], ['email', 'Email (optional)', d.email],
+    ['consumer_no', 'Consumer number', c.consumer_no], ['kw', 'Proposed capacity (kW)', c.kw], ['rts_cost', 'Installation cost, Rs (for the agreement)', d.rts_cost],
+    ['district', 'District', d.district]];
+  const stepDone = k => g.steps.find(s => s.key === k).done;
+  return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}
+  <div class="grid" style="gap:12px">
+    <div class="card raise"><div class="ch"><div><h3>${esc(c.name)}</h3>
+      <div class="sub mono">${c.id} · consumer ${esc(c.consumer_no || '—')} · ${c.kw ? c.kw + ' kW' : 'capacity —'} · application ${esc(c.application_no || '—')}</div></div>
+      <span class="spacer"></span>
+      <button class="btn ${g.next.act ? 'go' : ''}" id="regNext" data-act="${g.next.act}"${g.next.act && (g.next.act === 'vsig' || can('operator')) ? '' : ' disabled'}>${esc(g.next.label)}</button></div>
+      <div class="cb"><div class="costeps" style="grid-template-columns:repeat(6,minmax(0,1fr))">${g.steps.map((s, i) =>
+        `<div class="${s.done ? 'done' : ''}">${s.done ? '&#10003;' : i + 1}. ${esc(s.label)}</div>`).join('')}</div>
+      ${g.elapsed_to_accepted != null ? `<div class="hint" style="margin-top:8px">Documents to accepted: <b class="mono">${regMin(g.elapsed_to_accepted)}</b> (includes waiting for the customer's OTP)</div>` : ''}</div></div>
+
+    <div class="two">
+      <div class="card" id="regDocs"><div class="ch"><h3>Documents</h3><span class="spacer"></span><span class="hint">PDF or photo</span></div>
+        <div class="cb" style="display:grid;gap:8px">${Object.entries(g.doc_kinds).map(([k, label]) => `<div class="docrow">
+          <span class="pill ${docs[k] ? 'ok' : ['bill', 'aadhaar'].includes(k) ? 'warn' : 'idle'}">${docs[k] ? 'on file' : ['bill', 'aadhaar'].includes(k) ? 'needed' : 'optional'}</span>
+          <span class="nm">${esc(label)}${docs[k] ? `<div class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</div>` : ''}</span>
+          <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${op}></label></div>`).join('')}
+          <div class="hint">Aadhaar is read from its QR code on this computer; nothing is sent out.${g.llm.enabled ? '' : ' Photos of bills and bank pages need the AI key; the PDF from the MSEDCL website reads without it.'}</div></div></div>
+
+      <div class="card" id="regDetails"><div class="ch"><h3>Details for the portal</h3><span class="spacer"></span>
+        <button class="btn sm pri" id="regSave"${op}>Save</button></div>
+        <div class="cb cofields" style="grid-template-columns:1fr 1fr">${det.map(([k, label, val]) => `<div class="field${g.missing.some(m => label.toLowerCase().startsWith(m.split(' ')[0])) && !val ? ' miss' : ''}"><label>${esc(label)}</label>
+          <input type="text" data-r="${k}" value="${esc(val ?? '')}"${op}></div>`).join('')}</div></div>
+    </div>
+
+    <div class="card" id="regRead"><div class="ch"><h3>What Solara read</h3><span class="spacer"></span>
+      <span class="pill ${!g.fields.length ? 'idle' : flagged.length ? 'warn' : 'ok'}">${!g.fields.length ? 'nothing yet' : flagged.length ? flagged.length + ' to check' : 'all clear'}</span></div>
+      <div class="cb" style="display:grid;gap:1px;padding:7px">${g.fields.length ? [...flagged, ...g.fields.filter(f => !flagged.includes(f))].map(fieldRow).join('')
+        : '<div class="hint" style="padding:16px;text-align:center">Upload the bill and the Aadhaar. Solara reads them straight away.</div>'}</div></div>
+
+    <div class="card"><div class="ch"><h3>On PM Surya Ghar</h3><span class="spacer"></span><span class="hint">the co-pilot fills these; you press every Submit</span></div>
+      <div class="cb" style="display:grid;gap:10px">
+        <div class="sumgrid">${[['Name filed', v.name], ['Consumer no.', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
+          ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><div class="k">${k}</div><div class="v" style="font-size:12.5px;font-family:var(--font-ui);font-weight:500;line-height:1.35">${esc(x || '—')}</div></div>`).join('')}</div>
+        <div class="row"><a class="btn" href="${esc(g.portals.pmsg)}" target="_blank" rel="noopener">Open customer registration</a>
+          <input type="text" id="regApp" placeholder="NP-MHSED26-…" value="${esc(c.application_no || '')}" style="width:190px"${op}>
+          <button class="btn sm" id="regAppSave"${op}>Save application no.</button></div>
+        <div class="row"><a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open vendor login</a>
+          <button class="btn sm" id="regAccepted"${stepDone('registered') && !stepDone('accepted') ? op : ' disabled'}>${stepDone('accepted') ? '&#10003; Accepted' : 'Mark accepted'}</button>
+          <button class="btn sm" id="regSign"${stepDone('accepted') && !stepDone('signed') && d.rts_cost ? op : ' disabled'}>Send agreement for e-sign</button>
+          <button class="btn sm" id="regUploaded"${stepDone('signed') && !stepDone('uploaded') ? op : ' disabled'}>${stepDone('uploaded') ? '&#10003; Agreement uploaded' : 'Mark agreement uploaded'}</button></div>
+        ${g.requests.length ? `<div class="sub">Agreement link: ${g.requests.map(r => `${esc(r.status === 'signed' ? 'signed by ' + r.signer_name : r.status)} (${esc(r.created_at.slice(5, 16).replace('T', ' '))})`).join(' · ')}</div>` : ''}
+      </div></div>
+  </div></div></div>`;
+};
+
+async function regPost(path, body) {
+  try { S.regData = await api(`/registration/${S.regCid}${path}`, { method: 'POST', body: body || {} }); S.reg = await api('/registration'); render(); return true; }
+  catch (err) { toast(err.message, true); return false; }
+}
+
+async function regSendAgreement() {
+  try {
+    const s = await api(`/registration/${S.regCid}/agreement`, { method: 'POST', body: {} });
+    modal('Agreement to the customer', 'They confirm the last 4 digits of their consumer number, read the agreement and sign with a finger. The link works for 7 days.',
+      `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+       <div class="hint">With the customer? Open it on your phone and hand it over.</div>`,
+      `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
+       <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
+       ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}`);
+    await loadReg();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function regAct(act) {
+  const g = S.regData;
+  const go = sel => { const el = $(sel); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return el; };
+  if (act === 'docs') return go('#regDocs');
+  if (act === 'check') { const el = go('#regRead .fld.review input'); if (el) el.focus(); return; }
+  if (act === 'details') { go('#regDetails'); const m = $$('#regDetails input').find(i => !i.value); if (m) m.focus(); return; }
+  if (act === 'register') { window.open(g.portals.pmsg, '_blank'); toast('On the portal, the Solara panel (bottom right) fills the form. You type the OTP and press Submit.'); return; }
+  if (act === 'accept') {
+    modal('Accept in vendor login', 'On the portal: vendor login → Vendor Consent → Approve this customer. Then mark it here.',
+      `<div class="hint">${esc(g.customer.name)} · application ${esc(g.customer.application_no)}</div>`,
+      `<button class="btn" data-close>Cancel</button><a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open Vendor Consent</a>
+       <button class="btn go" id="regAcceptedModal">I approved it</button>`);
+    return;
+  }
+  if (act === 'vsig') return coAct('vsig');
+  if (act === 'sign' || act === 'wait') return regSendAgreement();
+  if (act === 'upload') { window.open(g.portals.pmsg_vendor, '_blank'); toast('My Application → Update Agreement → press Attach in the Solara panel → Submit.'); }
+}
+
 /* ------------------------------ close-out ------------------------------ */
 const CO_STATE = {
   ready: ['ok', 'Ready'], missing: ['warn', 'Missing data'], blocked: ['bad', 'Blocked'],
@@ -836,7 +962,7 @@ VIEWS.reports = () => {
     <div class="card"><div class="ch"><h3>Exports</h3></div><div class="cb" style="display:grid;gap:9px">
       <button class="btn" id="xlsx">Pipeline, numbers, runs and audit (.xlsx)</button>
       <button class="btn" id="backup"${can('supervisor') ? '' : ' disabled'}>Create a backup (.zip, documents stay encrypted)</button>
-      <button class="btn danger" id="resetdemo"${can('supervisor') ? '' : ' disabled'}>Reset the demo environment</button>
+      <button class="btn danger" id="resetdemo" data-demo${can('supervisor') ? '' : ' disabled'}>Reset the demo environment</button>
       ${S.runs.filter(x => x.status === 'done' || x.status === 'failed').slice(0, 6).map(x =>
       `<button class="btn" data-pdf="${x.id}">Run ${x.id} report — ${esc(x.customer_id)} (.pdf)</button>`).join('')}
       <div class="hint">Both are produced server-side: openpyxl for the workbook, Chromium print-to-PDF
@@ -860,7 +986,40 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') api('/reports').then(r => { S.reports = r; render(); }); if (S.view === 'closeout') loadCo(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') api('/reports').then(r => { S.reports = r; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
+
+  /* registration */
+  if (t.dataset.reg) { loadReg(t.dataset.reg); return; }
+  if (t.id === 'regNext') { regAct(t.dataset.act); return; }
+  if (t.id === 'regNew') {
+    modal('New customer', 'Just the name to start. Everything else comes from the documents.',
+      `<div class="field"><label for="nName">Customer name</label><input type="text" id="nName" autocomplete="off"></div>
+       <div class="field"><label for="nMobile">Mobile (optional)</label><input type="text" id="nMobile" inputmode="numeric" autocomplete="off"></div>`,
+      '<button class="btn" data-close>Cancel</button><button class="btn go" id="regCreate">Add customer</button>');
+    $('#nName').focus(); return;
+  }
+  if (t.id === 'regCreate') {
+    try {
+      const g = await api('/customers', { method: 'POST', body: { name: $('#nName').value, mobile: $('#nMobile').value } });
+      closeModal(); await loadReg(g.customer.id); toast('Added. Now upload the bill and the Aadhaar.');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.confirm) {
+    const k = t.dataset.confirm;
+    if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
+    return;
+  }
+  if (t.id === 'regSave') {
+    const body = Object.fromEntries($$('[data-r]').map(i => [i.dataset.r, i.value]));
+    try { S.regData = await api('/registration/' + S.regCid, { method: 'PUT', body }); S.reg = await api('/registration'); render(); toast('Saved'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'regAppSave') { if (await regPost('/mark', { step: 'registered', app_no: $('#regApp').value })) toast('Application number saved'); return; }
+  if (t.id === 'regAccepted' || t.id === 'regAcceptedModal') { closeModal(); if (await regPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
+  if (t.id === 'regSign') { regSendAgreement(); return; }
+  if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Milestone 1 done for this customer.'); return; }
 
   /* close-out */
   if (t.dataset.co) { loadCo(t.dataset.co); return; }
@@ -876,7 +1035,7 @@ document.addEventListener('click', async e => {
   if (t.id === 'vsSave') {
     try {
       await api('/signature/vendor', { method: 'POST', body: { name: $('#vsName').value, image: S.pad.url() } });
-      closeModal(); toast('Company signature saved'); await loadCo();
+      closeModal(); toast('Company signature saved'); S.view === 'reg' ? await loadReg() : await loadCo();
     } catch (err) { toast(err.message, true); }
     return;
   }
@@ -1023,6 +1182,17 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
+  if (e.target.dataset.doc && e.target.files[0]) {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    toast('Reading the document…');
+    try {
+      const r = await fetch(`/api/registration/${S.regCid}/document?kind=${e.target.dataset.doc}`, { method: 'POST', body: fd });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.regData = j; S.reg = await api('/registration'); render();
+      const n = j.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key)).length;
+      toast(n ? `Read. ${n} detail${n > 1 ? 's' : ''} to check.` : 'Read. Nothing to check.');
+    } catch (err) { toast(err.message, true); }
+  }
   if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);
   if (e.target.id === 'coSheet' && e.target.files[0]) coUpload('datasheet', e.target.files[0]);
 });
@@ -1059,6 +1229,14 @@ function syncTheme() {
 }
 
 /* ------------------------------ start ------------------------------ */
+/* a live install shows only the real work: no demo accounts, no sandbox-only screens */
+function liveMode() {
+  S.live = true;
+  $$('.whoami, [data-demo], .railfoot .hint').forEach(el => { el.hidden = true; }); // hidden, not removed: counters still update them
+  $('#u').value = ''; $('#p').value = '';
+  if (['run', 'numbers', 'calls', 'docs'].includes(S.view)) S.view = 'reg';
+}
+
 (function init() {
   const mark = $('#markSvg').content.firstElementChild;
   $('#gateMark').appendChild(mark.cloneNode(true));
@@ -1066,6 +1244,7 @@ function syncTheme() {
   try { const t = localStorage.getItem('solara-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch { }
   syncTheme();
   api('/me').then(async r => {
+    if (r && r.live) liveMode();
     if (!r || !r.user) return showGate();
     S.me = r.user; $('#gate').hidden = true; $('#shell').hidden = false; await boot();
   }).catch(() => showGate());

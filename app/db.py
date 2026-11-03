@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS approvals(
 CREATE TABLE IF NOT EXISTS copilot_keys(
   key_hash TEXT PRIMARY KEY, username TEXT, created_at TEXT);
 
+-- national portal sandbox, vendor side: consent and the uploaded agreement
+CREATE TABLE IF NOT EXISTS pmsg_vendor(
+  application_no TEXT PRIMARY KEY, consented_at TEXT, cost TEXT, agreement_file TEXT,
+  agreement_bytes INTEGER, agreement_at TEXT);
+
 -- MSEDCL rooftop portal sandbox: files received per application and document slot
 CREATE TABLE IF NOT EXISTS msedcl_uploads(
   application_id TEXT, slot INTEGER, filename TEXT, bytes INTEGER, ts TEXT);
@@ -173,14 +178,14 @@ def audit(actor, role, action, target="", detail=""):
 
 CUSTOMERS = [
     # id, crm name, aadhaar name, place, consumer_no, kW, category, stage, ref, subsidy, last, blocked, pin, address, bank, workflow
-    ("SS-2041", "Mangesh Kulkarni", "Mangesh Anil Kulkarni", "Kothrud, Pune", "170024518893", 3, "Residential", "disbursed", "PMSG/MH/2026/118842", 78000, "4 Oct", None, "411038", "Flat 7, Shivtirth Nagar, Kothrud, Pune", "XXXXXX3310 / MAHB0000221", "rooftop_registration"),
-    ("SS-2042", "Asha Deshpande", "Asha Vinayak Deshpande", "Nashik Road, Nashik", "170031277450", 5, "Residential", "install", "PMSG/MH/2026/121907", 78000, "22 Oct", None, "422101", "Plot 61, Jatra Hotel Road, Nashik Road", "XXXXXX8841 / SBIN0004012", "rooftop_registration"),
-    ("SS-2043", "Royal Classic CHS Ltd.", "Royal Classic Co-op Housing Society Ltd.", "Baner, Pune", "170029903114", 40, "Housing society", "feasible", "PMSG/MH/2026/122416", 0, "23 Oct", None, "411045", "Survey 112, Baner Road, Pune", "XXXXXX5520 / HDFC0000412", "rooftop_registration"),
+    ("SS-2041", "Mangesh Kulkarni", "Mangesh Anil Kulkarni", "Kothrud, Pune", "170024518893", 3, "Residential", "disbursed", "NP-MHSED26-16118842", 78000, "4 Oct", None, "411038", "Flat 7, Shivtirth Nagar, Kothrud, Pune", "XXXXXX3310 / MAHB0000221", "rooftop_registration"),
+    ("SS-2042", "Asha Deshpande", "Asha Vinayak Deshpande", "Nashik Road, Nashik", "170031277450", 5, "Residential", "install", "NP-MHSED26-16121907", 78000, "22 Oct", None, "422101", "Plot 61, Jatra Hotel Road, Nashik Road", "XXXXXX8841 / SBIN0004012", "rooftop_registration"),
+    ("SS-2043", "Royal Classic CHS Ltd.", "Royal Classic Co-op Housing Society Ltd.", "Baner, Pune", "170029903114", 40, "Housing society", "feasible", "NP-MHSED26-16122416", 0, "23 Oct", None, "411045", "Survey 112, Baner Road, Pune", "XXXXXX5520 / HDFC0000412", "rooftop_registration"),
     ("SS-2044", "Irfan Shaikh", "Irfan Yusuf Shaikh", "Satpur MIDC, Nashik", "170044120867", 25, "Commercial", "docs", None, 0, "25 Oct", "Commercial connection, not covered by PM Surya Ghar. Net-metering application only; GST certificate pending", "422007", "W-18 Satpur MIDC, Nashik", "XXXXXX1174 / ICIC0000765", None),
     ("SS-2045", "Vaishali Pawar", "Vaishali Dattatray Pawar", "Panchavati, Nashik", "170038865021", 3, "Residential", "docs", None, 78000, "26 Oct", None, "422003", "Plot 14, Ganga Nagar, Panchavati, Nashik", "XXXXXX7792 / MAHB0000412", "rooftop_registration"),
     ("SS-2046", "Gurudatta Agro Industries", "Gurudatta Agro Industries Pvt Ltd", "Sinnar, Nashik", "170051340226", 100, "Industrial", "netmeter", "NM/MH/2026/04417", 0, "21 Oct", None, "422103", "Gat 204, Sinnar MIDC, Nashik", "XXXXXX2298 / AXIS0000118", None),
     ("SS-2047", "Prakash Jadhav", "Prakash Namdev Jadhav", "Hadapsar, Pune", "170027714309", 2, "Residential", "register", None, 60000, "26 Oct", "OTP not received; assigned number expires in 3 days", "411028", "Lane 4, Sasanenagar, Hadapsar, Pune", "XXXXXX6603 / BKID0000901", "rooftop_registration"),
-    ("SS-2048", "Sheetal Rane", "Sheetal Mahesh Rane", "Gangapur Road, Nashik", "170036002985", 4, "Residential", "claim", "PMSG/MH/2026/120771", 78000, "24 Oct", None, "422013", "Row House 3, Gangapur Road, Nashik", "XXXXXX4417 / MAHB0000733", "rooftop_registration"),
+    ("SS-2048", "Sheetal Rane", "Sheetal Mahesh Rane", "Gangapur Road, Nashik", "170036002985", 4, "Residential", "claim", "NP-MHSED26-16120771", 78000, "24 Oct", None, "422013", "Row House 3, Gangapur Road, Nashik", "XXXXXX4417 / MAHB0000733", "rooftop_registration"),
     ("SS-2049", "Rahul Shinde", "Rahul Sanjay Shinde", "Pimple Saudagar, Pune", "170041190358", 5, "Residential", "lead", None, 78000, "26 Oct", "Sanctioned load 3 kW is below the 5 kW plant. Load enhancement must be filed with the DISCOM first", "411027", "Flat 902, Roseland Residency, Pimple Saudagar, Pune", "XXXXXX5031 / SBIN0011245", "load_enhancement"),
     ("SS-2050", "Sunita Patil", "Sunita Ramesh Patil", "Makhmalabad, Nashik", None, 5, "Residential", "lead", None, 0, "27 Oct", "New bungalow with no supply connection. A new LT connection must be applied for before any solar paperwork", "422003", "Plot 7, Shivkrupa Colony, Makhmalabad Road, Nashik", "XXXXXX2210 / BKID0000417", "new_connection"),
 ]
@@ -241,7 +246,7 @@ CALLS = [
 
 SEED_AUDIT = [
     ("system", "system", "Worker started", "", "chromium · isolated profile per consumer"),
-    ("r.deshmukh", "supervisor", "Approved final submission", "SS-2048", "PMSG/MH/2026/120771"),
+    ("r.deshmukh", "supervisor", "Approved final submission", "SS-2048", "NP-MHSED26-16120771"),
     ("agent", "agent", "Subsidy claim filed", "SS-2048", "acknowledgement captured"),
     ("agent", "agent", "AI call completed", "SS-2045", "C-6609 · site visit booked 2 Nov 11:00"),
     ("s.kale", "operator", "Released number", "+91 90281 44515", "retention expired"),
@@ -281,7 +286,8 @@ def seeded():
 
 
 def seed():
-    if seeded():
+    from .config import live
+    if seeded() or live():  # a live install starts empty; people are added with app.users
         return False
     for u, n, r in [("r.deshmukh", "Rohit Deshmukh", "supervisor"),
                     ("s.kale", "Sneha Kale", "operator"),

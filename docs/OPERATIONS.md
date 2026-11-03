@@ -79,12 +79,14 @@ Suggested routine: one backup a day, copied off the PC, with the last 7 kept.
 | operator | run the agent, answer OTP / CAPTCHA / corrections, upload documents, manage numbers |
 | supervisor | everything an operator can, plus approve filings, create backups, reset |
 
-The demo ships three accounts with the password `demo`. **Before real use, change every password**
-and create named accounts per person, so the audit trail says who did what. User management in the
-console is part of the delivery scope; until then, passwords are set with:
+The demo ships three accounts with the password `demo`. A live install (`SOLARA_MODE=live`) has none:
+create a named account for each person, so the audit trail says who did what:
 
 ```bash
-python -c "from app import db; db.ex('UPDATE users SET pw=? WHERE username=?', (db.pwhash('NEW-PASSWORD'), 'r.deshmukh'))"
+python -m app.users add owner "Owner Name" supervisor     # asks for the password, 10+ characters
+python -m app.users list
+python -m app.users passwd owner                        # also signs them out everywhere
+python -m app.users remove old.staff
 ```
 
 ---

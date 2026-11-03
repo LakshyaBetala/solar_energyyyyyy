@@ -6,15 +6,16 @@ from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HT
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
-               msedcl, reset as resetmod)
+               msedcl, pmsg, registration, reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL
+from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
 app.include_router(discom.router)
 app.include_router(esign.router)
 app.include_router(msedcl.router)
+app.include_router(pmsg.router)
 
 
 @app.on_event("startup")
@@ -31,6 +32,11 @@ async def startup():
         db.audit("system", "system", "Run closed on restart", "", f"run {o['id']}, nothing submitted")
     if orphans:
         print(f"  closed {len(orphans)} run(s) orphaned by a restart")
+    if live():
+        print(f"\n  Solara LIVE -> http://127.0.0.1:8900   ({len(db.q('SELECT 1 FROM users'))} user(s))")
+        if not db.q("SELECT 1 FROM users"):
+            print('  no users yet: python -m app.users add <username> "<Full Name>" supervisor\n')
+        return
     if fresh or not db.q("SELECT 1 FROM documents LIMIT 1"):
         await docs_gen.generate()
         for c in db.q("SELECT id FROM customers"):
@@ -96,7 +102,8 @@ def logout(request: Request):
 def me(request: Request):
     """Session probe. Not being signed in is an answer, not an error, so this stays 200."""
     u = session_user(request)
-    return {"user": db.one("SELECT username,name,role FROM users WHERE username=?", (u,)) if u else None}
+    return {"user": db.one("SELECT username,name,role FROM users WHERE username=?", (u,)) if u else None,
+            "live": live()}
 
 
 # ------------------------------- reads -------------------------------
@@ -217,9 +224,13 @@ async def upload_doc(customer_id: str, kind: str = "bill", file: UploadFile = Fi
         raise HTTPException(404, "unknown customer")
     out = DOCS / customer_id
     out.mkdir(parents=True, exist_ok=True)
-    name = Path(file.filename or "upload.pdf").name
+    # phones name every photo image.jpg; keep the bill and the Aadhaar from overwriting each other
+    name = f"{kind}_{Path(file.filename or 'upload.pdf').name}"
     p = out / name
-    size = vault.write(p, await file.read())
+    blob = await file.read()
+    if len(blob) > 15 * 1024 * 1024:
+        raise HTTPException(400, "that file is over 15 MB; send a smaller photo")
+    size = vault.write(p, blob)
     db.ex("DELETE FROM documents WHERE customer_id=? AND kind=?", (customer_id, kind))
     db.ex("""INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at)
              VALUES(?,?,?,?,?,?)""", (customer_id, kind, name, str(p), size, db.now()))
@@ -498,7 +509,7 @@ def _cid(cid):
 @app.get("/api/closeout")
 def closeout_list(user=Depends(current)):
     rows = db.q(f"""SELECT id FROM customers WHERE stage IN ({",".join("?" * len(CLOSE_STAGES))})
-                    OR id IN (SELECT customer_id FROM closeout) ORDER BY id""", CLOSE_STAGES)
+                    ORDER BY id""", CLOSE_STAGES)
     return [closeout_summary(r["id"]) for r in rows]
 
 
@@ -598,6 +609,101 @@ def vendor_signature(body: dict = Body(...), user=Depends(need("supervisor"))):
     return {"ok": True}
 
 
+# ------------------------------- registration (milestone 1) -------------------------------
+DOC_KINDS = {"bill": "Electricity bill", "aadhaar": "Aadhaar", "passbook": "Bank passbook or cheque",
+             "roof": "Roof photo"}
+
+
+def _pre_install():
+    return db.q(f"""SELECT id FROM customers WHERE workflow='rooftop_registration' AND stage IN
+                    ({",".join("?" * len(registration.PRE_STAGES))}) ORDER BY id DESC""",
+                registration.PRE_STAGES)
+
+
+@app.get("/api/registration")
+def registration_list(user=Depends(current)):
+    return [registration.summary(r["id"]) for r in _pre_install()]
+
+
+@app.post("/api/customers")
+def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
+    try:
+        cid = registration.create(body.get("name"), body.get("mobile"), user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return registration_get(cid, user)
+
+
+@app.get("/api/registration/{cid}")
+def registration_get(cid: str, user=Depends(current)):
+    c, d = closeout.data(_cid(cid))
+    reqs = db.q("""SELECT status,created_at,signed_at,signer_name FROM sign_requests WHERE customer_id=?
+                   AND docs LIKE '%agreement%' ORDER BY created_at DESC LIMIT 3""", (cid,))
+    return {"customer": c, "data": d, **registration.status(cid),
+            "fields": [{**r, "key": extract.KEY_OF.get(r["field"])} for r in extract.saved(cid)],
+            "documents": db.q("""SELECT kind, filename, bytes, uploaded_at FROM documents WHERE
+                                 customer_id=? AND kind NOT LIKE 'co_%'""", (cid,)),
+            "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
+            "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
+            "llm": extract.llm_status()}
+
+
+@app.post("/api/registration/{cid}/document")
+async def registration_document(cid: str, kind: str, file: UploadFile = File(...),
+                                user=Depends(need("operator"))):
+    if kind not in DOC_KINDS:
+        raise HTTPException(400, "unknown document type")
+    await upload_doc(_cid(cid), kind, file, user)
+    registration.docs_uploaded(cid, user["username"])
+    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
+    if kinds & {"bill", "aadhaar"}:
+        await extract.run(cid)
+    return registration_get(cid, user)
+
+
+@app.put("/api/registration/{cid}")
+def registration_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    try:
+        registration.save_details(_cid(cid), body, user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return registration_get(cid, user)
+
+
+@app.post("/api/registration/{cid}/confirm")
+def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    try:
+        extract.confirm(_cid(cid), body.get("key"), body.get("value"), user)
+    except KeyError:
+        raise HTTPException(404, "no such extracted field")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return registration_get(cid, user)
+
+
+@app.post("/api/registration/{cid}/mark")
+def registration_mark(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    try:
+        registration.mark(_cid(cid), body.get("step"), user, body.get("app_no"))
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return registration_get(cid, user)
+
+
+@app.post("/api/registration/{cid}/agreement")
+def registration_agreement(cid: str, request: Request, user=Depends(need("operator"))):
+    c, d = closeout.data(_cid(cid))
+    if not d.get("agreement_date"):
+        closeout.save(cid, {"agreement_date": datetime.now().date().isoformat()}, user["username"])
+    try:
+        token, keys = esign.create(cid, ["agreement"], user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    closeout.mark(cid, user["username"], agreement_sent_at=db.now())
+    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url)}
+
+
 # ------------------------------- co-pilot extension -------------------------------
 def copilot_user(request: Request):
     key = request.headers.get("X-Solara-Key", "")
@@ -617,10 +723,24 @@ def copilot_key(user=Depends(need("operator"))):
     return {"key": key}
 
 
+@app.get("/api/copilot/pending")
+def copilot_pending(user=Depends(copilot_user)):
+    """Customers ready to be registered: the co-pilot offers these on a blank portal form."""
+    out = []
+    for r in _pre_install():
+        c = db.one("SELECT id, name, consumer_no, application_no FROM customers WHERE id=?", (r["id"],))
+        if c["consumer_no"] and not c["application_no"]:
+            out.append({"id": c["id"], "name": c["name"], "consumer_no": c["consumer_no"]})
+    return out
+
+
 @app.get("/api/copilot/lookup")
-async def copilot_lookup(consumer_no: str = "", app_no: str = "", user=Depends(copilot_user)):
+async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
+                         user=Depends(copilot_user)):
     """Which customer is on the portal page the operator has open, and what Solara has for it."""
-    c = db.one("SELECT id FROM customers WHERE consumer_no=?", (consumer_no.strip(),)) if consumer_no else None
+    c = db.one("SELECT id FROM customers WHERE id=?", (cid,)) if cid else None
+    if not c and consumer_no:
+        c = db.one("SELECT id FROM customers WHERE consumer_no=?", (consumer_no.strip(),))
     if not c and app_no:
         c = db.one("SELECT id FROM customers WHERE application_no=?", (app_no.strip(),))
         if not c:
@@ -638,12 +758,29 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", user=Depends(c
               ("Address", cust["address"]), ("PIN code", cust["pin"]),
               ("Capacity (kWp)", closeout.capacity(d))]
     fields += [(lbl, d.get(k)) for k, lbl, _ in closeout.FIELDS if d.get(k)]
-    return {"customer_id": cid, "name": cust["name"],
+    return {"customer_id": cid, "name": cust["name"], "application_no": cust["application_no"],
             "files": [{"key": s["key"], "slot": s["slot"], "title": s["title"], "bytes": made[s["key"]]}
                       for s in st if s["key"] in made],
             "not_ready": [{"title": s["title"], "note": s["note"]} for s in st
                           if s["slot"] and s["key"] not in made],
-            "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")]}
+            "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
+            "values": {k: v for k, v in registration.values(cid).items() if v},
+            "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
+                                             "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}
+
+
+@app.get("/api/copilot/doc/{cid}/{kind}")
+def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
+    """A customer's own document (bill, Aadhaar...), for a portal's upload box."""
+    d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
+    if not d or kind not in DOC_KINDS:
+        raise HTTPException(404, "no such document on file")
+    blob = vault.read(Path(d["path"]))
+    db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
+    kind_type = "application/pdf" if blob.startswith(b"%PDF") else \
+        "image/png" if blob.startswith(b"\x89PNG") else "image/jpeg"
+    return Response(blob, media_type=kind_type,
+                    headers={"Content-Disposition": f'attachment; filename="{d["filename"]}"'})
 
 
 @app.get("/api/copilot/file/{cid}/{key}")
@@ -661,6 +798,16 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
+    if body.get("event") in ("app_no", "agreement_uploaded"):
+        c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
+        if body["event"] == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
+            return {"ok": True, "already": True}
+        try:
+            registration.mark(cid, "registered" if body["event"] == "app_no" else "agreement_uploaded",
+                              user, body.get("app_no"))
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        return {"ok": True}
     if body.get("portal") == "msedcl" and msedcl_keys <= uploaded:
         closeout.mark(cid, user["username"], msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
         db.audit(user["username"], user["role"], "MSEDCL documents uploaded", cid,
@@ -689,6 +836,8 @@ def get_backup(name: str, user=Depends(need("supervisor"))):
 
 @app.post("/api/demo/reset")
 def demo_reset(user=Depends(need("supervisor"))):
+    if live():  # reset deletes every customer that is not demo data
+        raise HTTPException(403, "reset is for the demo only and is switched off on a live install")
     for r in list(runner.RUNS.values()):
         if r.status in ("running", "held", "paused", "starting"):
             r.stop(user)

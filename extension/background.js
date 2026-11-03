@@ -12,16 +12,19 @@ async function handle(msg) {
   const { url, key } = await cfg();
   if (!key) return { ok: false, error: 'Open the Solara co-pilot options and paste your key.' };
   const headers = { 'X-Solara-Key': key };
-  if (msg.type === 'lookup') {
-    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '' });
-    const r = await fetch(`${url}/api/copilot/lookup?${q}`, { headers });
+  if (msg.type === 'lookup' || msg.type === 'pending') {
+    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '' });
+    const r = await fetch(`${url}/api/copilot/${msg.type}?${q}`, { headers });
     const data = await r.json().catch(() => ({}));
     return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
   }
-  if (msg.type === 'file') {
-    const r = await fetch(`${url}/api/copilot/file/${msg.cid}/${msg.key}`, { headers });
-    if (!r.ok) return { ok: false, error: `could not fetch ${msg.key}` };
-    return { ok: true, b64: b64(await r.arrayBuffer()), name: `${msg.cid}_${msg.key}.pdf` };
+  if (msg.type === 'file' || msg.type === 'doc') {
+    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `doc/${msg.cid}/${msg.kind}`;
+    const r = await fetch(`${url}/api/copilot/${path}`, { headers });
+    if (!r.ok) return { ok: false, error: `could not fetch ${msg.key || msg.kind}` };
+    const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);
+    return { ok: true, b64: b64(await r.arrayBuffer()), type: r.headers.get('content-type'),
+             name: name ? name[1] : `${msg.cid}_${msg.key || msg.kind}.pdf` };
   }
   if (msg.type === 'report') {
     await fetch(`${url}/api/copilot/report`, {
