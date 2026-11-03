@@ -4,7 +4,7 @@ vendor agreement uploaded on the national portal.
 Six steps, each done or not, and the one thing to do next. The record itself lives in the
 customers row and the close-out record (closeout.data), so every later document reuses it.
 """
-import re
+import json, re
 from datetime import datetime
 from . import db, closeout, extract
 from .config import vendor, region
@@ -17,10 +17,52 @@ REQUIRED = (("consumer_no", "consumer number"), ("name", "customer name"), ("mob
             ("kw", "proposed capacity (kW)"))
 
 
-def create(name, mobile, user):
+class Duplicate(ValueError):
+    """The customer looks like one already on file. matches: [{id, name, why}]."""
+    def __init__(self, matches):
+        self.matches = matches
+        super().__init__("This looks like " + "; ".join(f"{m['name']} ({m['id']}, {m['why']})" for m in matches))
+
+
+MOBILE = re.compile(r"^[6-9]\d{9}$")
+PIN = re.compile(r"^\d{6}$")
+
+
+def clean_mobile(v):
+    n = re.sub(r"\D", "", v or "")
+    n = n[-10:] if len(n) > 10 and n[:-10] in ("91", "091", "0091") else n
+    n = n[1:] if len(n) == 11 and n[0] == "0" else n
+    if n and not MOBILE.match(n):
+        raise ValueError("the mobile number has 10 digits and starts with 6, 7, 8 or 9")
+    return n
+
+
+def duplicates(name, mobile=None, consumer_no=None, exclude=None):
+    """Customers already on file with the same mobile, the same consumer number, or the same
+    name once spelling, case and spaces are ignored."""
+    out, nm = {}, extract.norm_name(name)
+    for r in db.q("SELECT id, name, aadhaar_name, consumer_no FROM customers WHERE id<>?", (exclude or "",)):
+        if consumer_no and r["consumer_no"] == consumer_no:
+            out[r["id"]] = {"id": r["id"], "name": r["name"], "why": "same consumer number"}
+        elif nm and nm in (extract.norm_name(r["name"]), extract.norm_name(r["aadhaar_name"])):
+            out.setdefault(r["id"], {"id": r["id"], "name": r["name"], "why": "same name"})
+    if mobile:
+        for r in db.q("SELECT customer_id, data FROM closeout"):
+            if r["customer_id"] != exclude and json.loads(r["data"]).get("mobile") == mobile:
+                c = db.one("SELECT name FROM customers WHERE id=?", (r["customer_id"],))
+                out[r["customer_id"]] = {"id": r["customer_id"], "name": c["name"] if c else "",
+                                         "why": "same mobile number"}
+    return list(out.values())
+
+
+def create(name, mobile, user, allow_duplicate=False):
     name = " ".join((name or "").split())
     if len(name) < 3:
         raise ValueError("enter the customer's name")
+    mobile = clean_mobile(mobile)
+    dup = duplicates(name, mobile)
+    if dup and not allow_duplicate:
+        raise Duplicate(dup)
     nums = [int(r["id"].split("-")[1]) for r in db.q("SELECT id FROM customers WHERE id LIKE 'SS-%'")]
     cid = f"SS-{max(nums, default=2000) + 1}"
     db.ex("""INSERT INTO customers(id,name,category,stage,workflow,last_activity,subsidy)
@@ -52,6 +94,33 @@ def missing(cid):
     have = {"consumer_no": c["consumer_no"], "name": c["name"] or c["aadhaar_name"],
             "mobile": d.get("mobile"), "kw": c["kw"]}
     return [label for key, label in REQUIRED if not have[key]]
+
+
+MISMATCH = {"bill_name", "pin", "aadhaar_pin", "bill_mobile", "consumer_no", "owner_name"}
+
+
+def validate(cid):
+    """Everything wrong or doubtful with the record, before the portal form is filled.
+    kinds: missing, invalid, uncertain (could not be read or is unsure), mismatch (two sources
+    disagree). `blocking` is true while any remain; the co-pilot then says so, never silently."""
+    c, d = closeout.data(cid)
+    issues = [{"kind": "missing", "field": label, "message": f"{label} is not on file"}
+              for label in missing(cid)]
+    bad = lambda f, m: issues.append({"kind": "invalid", "field": f, "message": m})
+    if d.get("mobile") and not MOBILE.match(re.sub(r"\D", "", d["mobile"])):
+        bad("mobile", "the mobile number must be 10 digits starting with 6-9")
+    if c["pin"] and not PIN.match(c["pin"]):
+        bad("PIN code", "the PIN code must be 6 digits")
+    if c["consumer_no"] and not 9 <= len(c["consumer_no"]) <= 14:
+        bad("consumer number", "the consumer number must be 9 to 14 digits")
+    for r in extract.saved(cid):
+        key = extract.KEY_OF.get(r["field"])
+        if r["status"] != "review" or key in LATER:
+            continue
+        unread = r["value"] == "not read"
+        issues.append({"kind": "uncertain" if unread or key not in MISMATCH else "mismatch",
+                       "field": r["field"], "message": r["note"] or "check this against the document"})
+    return {"issues": issues, "blocking": bool(issues)}
 
 
 def status(cid):
@@ -102,7 +171,7 @@ def status(cid):
                        datetime.fromisoformat(t("docs_at"))).total_seconds())
     return {"steps": [{"key": k, "label": lbl, "done": ok} for k, lbl, ok in steps],
             "next": {"act": nxt[0], "label": nxt[1]}, "flagged": len(flagged), "missing": miss,
-            "link_open": link_open, "elapsed_to_accepted": elapsed,
+            "link_open": link_open, "elapsed_to_accepted": elapsed, "validation": validate(cid),
             "times": {k: t(k) for k in ("docs_at", "registered_at", "accepted_at",
                                          "agreement_sent_at", "agreement_uploaded_at")}}
 
@@ -115,6 +184,9 @@ def save_details(cid, body, user):
         no = re.sub(r"\D", "", body["consumer_no"] or "")
         if no and not 9 <= len(no) <= 14:
             raise ValueError("the consumer number on an MSEDCL bill has 12 digits")
+        other = duplicates("", None, no, exclude=cid) if no else []
+        if other:
+            raise ValueError(f"consumer number {no} is already on {other[0]['id']} ({other[0]['name']})")
         cols["consumer_no"] = no or None
     if "kw" in body:
         try:
@@ -128,9 +200,9 @@ def save_details(cid, body, user):
         db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, cid))
     rest = {k: body[k] for k in ("mobile", "email", "district", "rts_cost") if k in body}
     if "mobile" in rest:
-        rest["mobile"] = re.sub(r"\D", "", rest["mobile"] or "")[-10:]
-        if rest["mobile"] and len(rest["mobile"]) != 10:
-            raise ValueError("the mobile number has 10 digits")
+        rest["mobile"] = clean_mobile(rest["mobile"])
+    if rest.get("email") and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", rest["email"].strip()):
+        raise ValueError("that email address does not look right")
     if rest.get("rts_cost"):
         rest["rts_cost"] = re.sub(r"[^\d]", "", rest["rts_cost"])
     if rest:
@@ -159,6 +231,9 @@ def mark(cid, step, user, app_no=None):
         agreement = next(s for s in closeout.status(cid) if s["key"] == "agreement")
         if agreement["state"] != "ready":
             raise ValueError("the agreement is not signed by both sides yet")
+        check = closeout.verify_agreement(cid)
+        if not check["ok"]:
+            raise ValueError("the signed agreement does not verify: " + "; ".join(check["problems"]))
         closeout.mark(cid, user["username"], agreement_uploaded_at=db.now())
     else:
         raise ValueError("unknown step")

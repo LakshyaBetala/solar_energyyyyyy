@@ -8,34 +8,46 @@ function b64(buf) {
   return btoa(s);
 }
 
+// every call to Solara gives up after 25 s, so a hung server shows an error instead of a frozen panel
+async function call(url, opts) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 25000);
+  try { return await fetch(url, { ...opts, signal: ctl.signal }); } finally { clearTimeout(t); }
+}
+
 async function handle(msg) {
   const { url, key } = await cfg();
   if (!key) return { ok: false, error: 'Open the Solara co-pilot options and paste your key.' };
   const headers = { 'X-Solara-Key': key };
   if (msg.type === 'lookup' || msg.type === 'pending') {
     const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '' });
-    const r = await fetch(`${url}/api/copilot/${msg.type}?${q}`, { headers });
+    const r = await call(`${url}/api/copilot/${msg.type}?${q}`, { headers });
     const data = await r.json().catch(() => ({}));
     return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
   }
   if (msg.type === 'file' || msg.type === 'doc') {
     const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `doc/${msg.cid}/${msg.kind}`;
-    const r = await fetch(`${url}/api/copilot/${path}`, { headers });
-    if (!r.ok) return { ok: false, error: `could not fetch ${msg.key || msg.kind}` };
+    const r = await call(`${url}/api/copilot/${path}`, { headers });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, error: `could not fetch ${msg.key || msg.kind}: ${e.detail || r.statusText}` }; }
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);
     return { ok: true, b64: b64(await r.arrayBuffer()), type: r.headers.get('content-type'),
              name: name ? name[1] : `${msg.cid}_${msg.key || msg.kind}.pdf` };
   }
   if (msg.type === 'report') {
-    await fetch(`${url}/api/copilot/report`, {
+    const r = await call(`${url}/api/copilot/report`, {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(msg.body)
     });
-    return { ok: true };
+    const data = await r.json().catch(() => ({}));
+    // a refusal from Solara is a failure, never a silent success
+    return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
   }
   return { ok: false, error: 'unknown request' };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-  handle(msg).then(reply, e => reply({ ok: false, error: 'Solara is not reachable: ' + (e.message || e) }));
+  handle(msg).then(reply, async e => {
+    const { url } = await cfg();
+    reply({ ok: false, offline: true, error: e.name === 'AbortError' ? 'Solara took too long to answer.' :
+      `Solara is not reachable at ${url}. Is it running? Check the address in the co-pilot options.` });
+  });
   return true; // keep the channel open for the async reply
 });

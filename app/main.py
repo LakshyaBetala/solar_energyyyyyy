@@ -217,17 +217,24 @@ async def extract_post(customer_id: str, use_llm: bool = True, user=Depends(need
         raise HTTPException(400, str(e))
 
 
+UPLOAD_KINDS = {"bill", "aadhaar", "passbook", "roof", "ownership"}
+
+
 @app.post("/api/documents/{customer_id}/upload")
 async def upload_doc(customer_id: str, kind: str = "bill", file: UploadFile = File(...),
                      user=Depends(need("operator"))):
     if not db.one("SELECT 1 FROM customers WHERE id=?", (customer_id,)):
         raise HTTPException(404, "unknown customer")
+    if kind not in UPLOAD_KINDS:
+        raise HTTPException(400, "unknown document type")
     out = DOCS / customer_id
     out.mkdir(parents=True, exist_ok=True)
     # phones name every photo image.jpg; keep the bill and the Aadhaar from overwriting each other
     name = f"{kind}_{Path(file.filename or 'upload.pdf').name}"
     p = out / name
     blob = await file.read()
+    if not blob:
+        raise HTTPException(400, "that file is empty; choose the document again")
     if len(blob) > 15 * 1024 * 1024:
         raise HTTPException(400, "that file is over 15 MB; send a smaller photo")
     size = vault.write(p, blob)
@@ -628,7 +635,10 @@ def registration_list(user=Depends(current)):
 @app.post("/api/customers")
 def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        cid = registration.create(body.get("name"), body.get("mobile"), user)
+        cid = registration.create(body.get("name"), body.get("mobile"), user,
+                                  allow_duplicate=bool(body.get("allow_duplicate")))
+    except registration.Duplicate as ex:
+        return JSONResponse({"detail": str(ex), "duplicates": ex.matches}, status_code=409)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
@@ -645,6 +655,7 @@ def registration_get(cid: str, user=Depends(current)):
                                  customer_id=? AND kind NOT LIKE 'co_%'""", (cid,)),
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
+            "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
             "llm": extract.llm_status()}
 
 
@@ -656,9 +667,16 @@ async def registration_document(cid: str, kind: str, file: UploadFile = File(...
     await upload_doc(_cid(cid), kind, file, user)
     registration.docs_uploaded(cid, user["username"])
     kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
+    problem = None
     if kinds & {"bill", "aadhaar"}:
-        await extract.run(cid)
-    return registration_get(cid, user)
+        try:
+            await extract.run(cid, fresh=kind)
+        except Exception as ex:  # the upload is kept; the person can retry or type the details
+            problem = f"The file is saved but could not be read ({type(ex).__name__}). Try Read again or type the details."
+            db.audit("agent", "agent", "Document extraction failed", cid, f"{kind}: {type(ex).__name__}")
+    out = registration_get(cid, user)
+    out["extract_error"] = problem
+    return out
 
 
 @app.put("/api/registration/{cid}")
@@ -688,6 +706,34 @@ def registration_mark(cid: str, body: dict = Body(...), user=Depends(need("opera
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
+
+
+@app.get("/api/registration/{cid}/agreement/check")
+async def registration_agreement_check(cid: str, user=Depends(current)):
+    """Verify the signed agreement: the approval, the kept copy, both signatures, and that the
+    stored PDF opens and names this customer."""
+    cid = _cid(cid)
+    res = closeout.verify_agreement(cid)
+    st = next(s for s in closeout.status(cid) if s["key"] == "agreement")
+    if st["state"] == "ready" and "agreement" not in closeout.built(cid):
+        try:
+            await closeout.build(cid, user)
+        except Exception as ex:
+            res["problems"].append(f"the agreement PDF could not be generated ({type(ex).__name__})")
+    if "agreement" in closeout.built(cid):
+        try:
+            from pypdf import PdfReader
+            import io
+            text = " ".join(p.extract_text() or "" for p in
+                            PdfReader(io.BytesIO(vault.read(closeout.path_for(cid, "agreement")))).pages)
+            if (closeout.data(cid)[0]["consumer_no"] or "x") not in text:
+                res["problems"].append("the stored PDF does not show this customer's consumer number")
+        except Exception as ex:
+            res["problems"].append(f"the stored PDF could not be opened ({type(ex).__name__})")
+    elif st["state"] == "ready":
+        res["problems"].append("the signed agreement PDF is not stored")
+    res["ok"] = not res["problems"]
+    return {**res, "draft": closeout.TEMPLATE_DRAFT}
 
 
 @app.post("/api/registration/{cid}/agreement")
@@ -750,11 +796,16 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
         raise HTTPException(404, "this customer is not in Solara")
     cid = c["id"]
     st = closeout.status(cid)
+    build_error = None
     if any(s["state"] == "ready" and s["key"] not in closeout.built(cid) for s in st):
-        await closeout.build(cid, user)
+        try:
+            await closeout.build(cid, user)
+        except Exception as ex:  # report it; the fields still fill and the person is told
+            build_error = f"Could not generate the signed documents ({type(ex).__name__}). Try again."
+            db.audit(user["username"], user["role"], "Document generation failed", cid, type(ex).__name__)
     cust, d = closeout.data(cid)
     made = closeout.built(cid)
-    fields = [("Consumer name", cust["aadhaar_name"]), ("Consumer number", cust["consumer_no"]),
+    fields = [("Consumer name", cust["aadhaar_name"] or cust["name"]), ("Consumer number", cust["consumer_no"]),
               ("Address", cust["address"]), ("PIN code", cust["pin"]),
               ("Capacity (kWp)", closeout.capacity(d))]
     fields += [(lbl, d.get(k)) for k, lbl, _ in closeout.FIELDS if d.get(k)]
@@ -765,6 +816,8 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in registration.values(cid).items() if v},
+            "issues": registration.validate(cid)["issues"], "build_error": build_error,
+            "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
                                              "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}
 

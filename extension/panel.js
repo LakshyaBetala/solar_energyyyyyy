@@ -5,7 +5,11 @@
 // It never types an OTP, CAPTCHA or password, never ticks a consent box, never presses Submit,
 // and never overwrites something already typed.
 (() => {
-  const ask = msg => chrome.runtime.sendMessage(msg);
+  // a closed or reloaded extension, or a stopped server, must show a message and never throw
+  const ask = async msg => {
+    try { return (await chrome.runtime.sendMessage(msg)) || { ok: false, error: 'No answer from Solara.' }; }
+    catch (e) { return { ok: false, error: 'The co-pilot lost its connection. Reload this page.' }; }
+  };
   const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const MSEDCL = [['wcr', /work completion/i], ['annexure1', /annexure/i], ['dcr_decl', /declaration of dcr/i],
@@ -38,6 +42,15 @@
   const FILES = [[/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
                  [/passbook|bank|cheque/, 'passbook'], [/roof|site photo/, 'roof']];
 
+  // anything the person changed with their own keyboard or mouse is theirs: isTrusted is false for our events
+  const touch = e => { if (e.isTrusted && e.target && e.target.dataset) e.target.dataset.solaraHuman = '1'; };
+  ['input', 'change'].forEach(t => document.addEventListener(t, touch, true));
+  // defence in depth beside RULES: whatever the label says, these are for the person only
+  const HUMAN_ONLY = /otp|captcha|one-?time|passw|security ?code|verification/i;
+  const humanOnly = el => el.type === 'password' ||
+    HUMAN_ONLY.test([el.id, el.name, el.autocomplete, el.getAttribute('aria-label'), el.placeholder].join(' '));
+  const CUSTOM = '[role=combobox],[role=listbox],mat-select,.mat-select,.ng-select,.select2-selection,.dropdown-toggle';
+
   // ---------- reading the page ----------
   const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const scope = () => [...document.querySelectorAll('[role=dialog],[aria-modal=true],.modal.show,.mat-dialog-container,.cdk-overlay-pane')]
@@ -60,10 +73,12 @@
     const t = [];
     if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t.push(l.innerText); }
     const wrap = el.closest('label'); if (wrap) t.push(wrap.innerText);
-    ['aria-label', 'placeholder', 'formcontrolname', 'name'].forEach(a => el.getAttribute(a) && t.push(el.getAttribute(a)));
     (el.getAttribute('aria-labelledby') || '').split(' ').forEach(id => { const x = id && document.getElementById(id); if (x) t.push(x.innerText); });
+    if (el.getAttribute('aria-label')) t.push(el.getAttribute('aria-label'));
+    const explicit = t.length > 0;  // a field that names itself is not named by its neighbours
+    ['placeholder', 'formcontrolname', 'name'].forEach(a => el.getAttribute(a) && t.push(el.getAttribute(a)));
     let p = el.parentElement;
-    for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
+    for (let i = 0; i < 3 && p && !explicit; i++, p = p.parentElement) {
       const lab = p.querySelector('label, mat-label, .form-label');
       if (lab && !lab.contains(el)) { t.push(lab.innerText); break; }
     }
@@ -132,8 +147,9 @@
     }
     say('Looking up this customer…');
     const r = await ask({ type: 'lookup', consumer_no: consumer, app_no: app, cid });
-    if (!r || !r.ok) { say(`<span style="color:#F2A6A0">${esc((r && r.error) || 'No answer from Solara.')}</span>` + (fields.length ? btn('solaraPick', 'Choose the customer') : ''));
-      const p = panel.querySelector('#solaraPick'); if (p) p.onclick = pick; return; }
+    if (!r || !r.ok) { say(`<span style="color:#F2A6A0">${esc((r && r.error) || 'No answer from Solara.')}</span>` + (fields.length ? btn('solaraPick', 'Choose the customer') : '') + btn('solaraRetry', 'Try again'));
+      const p = panel.querySelector('#solaraPick'); if (p) p.onclick = pick;
+      panel.querySelector('#solaraRetry').onclick = scan; return; }
     const c = r.data;
     remember(c);
     const head = `<div style="margin-top:4px"><b>${esc(c.name)}</b> &middot; ${esc(c.customer_id)} ` +
@@ -153,8 +169,9 @@
     let saved = '';
     if (!c.application_no && app && consumer === (c.values.consumer_no || '') || (!c.application_no && app && !consumer && cid)) {
       const rep = await ask({ type: 'report', body: { customer_id: c.customer_id, event: 'app_no', app_no: app } });
-      saved = rep && rep.ok ? `<div style="margin-top:6px;color:#5FD3A8">Application number <b>${esc(app)}</b> saved in Solara.</div>` : '';
-      c.application_no = app;
+      if (rep.ok) c.application_no = app;
+      saved = rep.ok ? `<div style="margin-top:6px;color:#5FD3A8">Application number <b>${esc(app)}</b> saved in Solara.</div>`
+        : `<div style="margin-top:6px;color:#F2A6A0">Application number <b>${esc(app)}</b> was NOT saved: ${esc(rep.error)}. Type it into Solara yourself.</div>`;
     }
     formMode(c, root, head, saved);
   }
@@ -191,7 +208,16 @@
 
   function formMode(c, root, head, saved) {
     const els = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) && !el.readOnly && !el.disabled &&
-      !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password', 'file'].includes(el.type));
+      !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password', 'file'].includes(el.type) && !humanOnly(el));
+    // custom dropdowns (Angular Material and the like) are never clicked open; Solara names the value to pick
+    const customs = [...root.querySelectorAll(CUSTOM)].filter(el => visible(el) && !el.closest('select') &&
+      !el.querySelector('input:not([type=hidden]),select')).map(el => {
+        const key = ruleFor(labelOf(el)); return key ? { el, key, label: labelOf(el).split(' | ')[0] || key } : null; })
+      .filter(x => x && c.values[x.key] != null);
+    const issues = c.issues || [];
+    const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
+      `<b>${issues.length} to sort out in Solara first</b>` + issues.map(i => `<div style="margin-top:3px"><b>${esc(i.kind)}</b>: ${esc(i.field)} &mdash; ${esc(i.message)}</div>`).join('') + '</div>' : '') +
+      (c.build_error ? `<div style="margin-top:6px;color:#F2A6A0">${esc(c.build_error)}</div>` : '');
     const plan = els.map(el => ({ el, key: ruleFor(labelOf(el)) }));
     const fillable = plan.filter(p => p.key && c.values[p.key] != null);
     const files = [...root.querySelectorAll('input[type=file]')].filter(el => !el.disabled).map(el => {
@@ -202,8 +228,9 @@
     // after Submit the portal locks the box, which is exactly when the owner marks it done
     const agreementBox = [...root.querySelectorAll('input[type=file]')].some(el => /agreement/.test(labelOf(el)));
     const agreementReady = c.files.some(f => f.key === 'agreement');
-    say(head + saved + (fillable.length || files.length ? btn('solaraFill', `Fill ${fillable.length} field(s)` +
-      (files.length ? ` and attach ${files.length} file(s)` : ''), true) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
+    say(head + saved + issueHtml + (fillable.length || files.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length} field(s)` +
+      (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
+      (agreementBox && c.agreement_draft ? '<div style="margin-top:6px;color:#F2C879">This agreement is a DRAFT format; the client has not approved the wording yet.</div>' : '') +
       (agreementBox ? btn('solaraMarkUploaded', 'I pressed Submit: mark agreement uploaded') : '') +
       `<details style="margin-top:8px"><summary style="cursor:pointer;color:#8FA3B2">Copy a value</summary>` +
       c.fields.map((f, i) => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-top:1px solid #23323E">` +
@@ -215,34 +242,42 @@
     const mark = panel.querySelector('#solaraMarkUploaded');
     if (mark) mark.onclick = async () => {
       const rep = await ask({ type: 'report', body: { customer_id: c.customer_id, event: 'agreement_uploaded' } });
-      mark.textContent = rep && rep.ok ? 'Saved in Solara: agreement uploaded' : (rep && rep.error) || 'Could not save';
+      mark.textContent = rep.ok ? 'Saved in Solara: agreement uploaded' : 'NOT saved: ' + rep.error;
     };
     const fill = panel.querySelector('#solaraFill');
     if (!fill) return;
     fill.onclick = async () => {
       let filled = 0, kept = 0, attached = 0;
-      const left = [];
+      const left = [], done = [], failed = [];
       for (const { el, key } of plan) {
         const label = labelOf(el).split(' | ')[0];
         if (key === null) continue; // OTP, CAPTCHA: the person types these
         if (!key || c.values[key] == null) { if (!el.value) left.push(label); continue; }
-        if (el.value && el.tagName !== 'SELECT') { kept += 1; continue; } // never overwrite what is typed
-        if (setVal(el, c.values[key])) filled += 1; else left.push(label);
+        // never overwrite what a person typed or chose
+        if ((el.value && el.tagName !== 'SELECT') || el.dataset.solaraHuman) { kept += 1; continue; }
+        if (setVal(el, c.values[key]) && (el.tagName === 'SELECT' || el.value === String(c.values[key]))) { filled += 1; done.push(label); }
+        else { left.push(label); failed.push(label); }   // the page refused or changed the value
       }
+      for (const { key, label } of customs) left.push(`${label} (pick “${c.values[key]}” yourself)`);
       for (const { el, kind } of files) {
         if (kind === 'agreement' && !agreementReady) { left.push('agreement (not signed yet)'); continue; }
+        if (el.files && el.files.length) { kept += 1; continue; }   // a file you chose stays
         const ok = kind === 'agreement' ? await attach(el, { type: 'file', cid: c.customer_id, key: 'agreement' })
           : c.docs.includes(kind) && await attach(el, { type: 'doc', cid: c.customer_id, kind });
-        if (ok) attached += 1; else left.push(kind);
+        if (ok) attached += 1; else left.push(kind + (c.docs.includes(kind) || kind === 'agreement' ? ' (could not be fetched from Solara)' : ' (not on file)'));
       }
       panel.dataset.filled = String(filled);
       panel.dataset.attached = String(attached);
       fill.outerHTML = `<div id="solaraFilled" style="margin-top:8px"><b>Filled ${filled}${attached ? `, attached ${attached}` : ''}.</b>` +
         (kept ? ` Kept ${kept} you had typed.` : '') +
+        (failed.length ? `<br><span style="color:#F2A6A0">The page did not accept: ${esc(failed.join(', '))}</span>` : '') +
+        (done.length ? `<details><summary style="cursor:pointer;color:#8FA3B2">What was filled</summary>${esc(done.join(', '))}</details>` : '') +
         (left.length ? `<br><span style="color:#F2C879">Left for you: ${esc([...new Set(left)].join(', '))}</span>` : '') +
         '<br>Check the page, then press the portal\'s button yourself.</div>';
       ask({ type: 'report', body: { customer_id: c.customer_id, portal: location.host, attached: filled + attached,
-        page: location.host + location.pathname, left: [...new Set(left)] } });
+        page: location.host + location.pathname, left: [...new Set(left)] } }).then(r => {
+        if (!r.ok) panel.querySelector('#solaraFilled').insertAdjacentHTML('beforeend',
+          `<br><span style="color:#F2A6A0">Solara could not be told what was filled: ${esc(r.error)}</span>`); });
     };
   }
 

@@ -28,8 +28,11 @@ def create(cid, keys, user):
     bad = [k for k in keys if k not in st or "consumer" not in st[k]["signers"]
            or st[k]["state"] in ("missing", "blocked")]
     if bad:
-        raise ValueError("not ready to send: " + ", ".join(st[k]["title"] if k in st else k for k in bad))
+        raise ValueError("not ready to send: " + "; ".join(
+            (st[k]["title"] + (f" ({st[k]['note']})" if st[k]["note"] else "")) if k in st else k for k in bad))
     token = secrets.token_urlsafe(18)
+    for k in keys:
+        closeout.save_snapshot(token, k, cid)
     db.ex("""INSERT INTO sign_requests(token,customer_id,docs,created_by,created_at,expires_at,status)
              VALUES(?,?,?,?,?,?,'sent')""",
           (token, cid, json.dumps({k: closeout.doc_hash(k, cid) for k in keys}), user["username"],
@@ -227,7 +230,9 @@ def sign_doc(token: str, key: str, request: Request):
         return stop
     if not verified(request, r) or key not in json.loads(r["docs"]):
         return message("Not available", "उपलब्ध नाही", "Open the link from the start.", 403)
-    return HTMLResponse(closeout.unsigned_html(key, r["customer_id"]))
+    # show the copy kept when the link was sent, so what they read is what they approve
+    shown = closeout.snapshot_html(token, key, r["customer_id"]) or closeout.unsigned_html(key, r["customer_id"])
+    return HTMLResponse(shown)
 
 
 @router.post("/{token}", response_class=HTMLResponse)

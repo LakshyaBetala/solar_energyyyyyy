@@ -238,7 +238,7 @@ def t_agreement(c, d, sig, V):
 supply, installation, commissioning and 5-year comprehensive maintenance of a rooftop solar (RTS)
 project/system along with warranty under PM Surya Ghar: Muft Bijli Yojana</p>
 <p style="text-align:center"><b>Between</b></p>
-<p><b>{e(c['aadhaar_name'])}</b>, having address {e(c['address'])}, {e(c['pin'])}, electricity
+<p><b>{e(c['aadhaar_name'] or c['name'])}</b>, having address {e(c['address'])}, {e(c['pin'])}, electricity
 consumer number {e(c['consumer_no'])} (hereinafter referred to as the first party, i.e.
 consumer / purchaser / owner of the system)</p>
 <p style="text-align:center"><b>And</b></p>
@@ -451,6 +451,54 @@ def approval(cid, key):
                   "ORDER BY id DESC", (cid, key, doc_hash(key, cid)))
 
 
+def snapshot_path(token, key, cid):
+    return DOCS / cid / "esign" / f"{token}_{key}.html"
+
+
+def save_snapshot(token, key, cid):
+    """Keep, encrypted, the exact document the customer was sent to read."""
+    p = snapshot_path(token, key, cid)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    vault.write(p, unsigned_html(key, cid).encode())
+
+
+def snapshot_html(token, key, cid):
+    """The document as the customer saw it, or None if no copy was kept."""
+    p = snapshot_path(token, key, cid)
+    return vault.read(p).decode() if p.exists() else None
+
+
+def verify_agreement(cid):
+    """Is the agreement on file really the one this customer approved? Returns
+    {ok, problems, evidence}. Checks: an approval for the current content, a copy of what was
+    shown that still hashes to the approved value, the customer's own signature from the same
+    signing request, and the company signature."""
+    problems, ev = [], {}
+    a, s = approval(cid, "agreement", ), signature("consumer", cid)
+    if not a:
+        problems.append("the customer has not approved the current version of the agreement")
+    else:
+        req = db.one("SELECT * FROM sign_requests WHERE token=?", (a["request_token"],))
+        snap = snapshot_html(a["request_token"], "agreement", cid)
+        ev = {"approval_id": a["id"], "approved_at": a["ts"], "doc_hash": a["doc_hash"],
+              "token": a["request_token"][:6] + "…", "signer": req and req["signer_name"],
+              "signed_at": req and req["signed_at"], "ip": req and req["ip"],
+              "snapshot_kept": snap is not None}
+        if not req or req["customer_id"] != cid or req["status"] != "signed":
+            problems.append("the signing request is missing or belongs to another customer")
+        if snap is None:
+            problems.append("no copy of the document the customer was shown was kept")
+        elif hashlib.sha256(snap.encode()).hexdigest() != a["doc_hash"]:
+            problems.append("the copy the customer was shown does not match what they approved")
+    if not s:
+        problems.append("the customer's signature is missing")
+    elif s["customer_id"] != cid:
+        problems.append("the signature belongs to another customer")
+    if not signature("vendor"):
+        problems.append("the company signature has not been added")
+    return {"ok": not problems, "problems": problems, "evidence": ev}
+
+
 def signed_html(key, cid):
     c, d = data(cid)
     sig = {}
@@ -483,6 +531,10 @@ def status(cid):
     for key, slot, title, roles, need in DOCS_SPEC:
         miss = [LABEL.get(k, "site photo with GPS" if k == "lat" else k) for k in need if not d.get(k)]
         st, note = "ready", ""
+        if key == "agreement":  # the agreement prints these; a blank must never go to the customer
+            miss += [lbl for lbl, v in (("customer address", c["address"]), ("PIN code", c["pin"]),
+                                        ("consumer number", c["consumer_no"]), ("capacity", c["kw"]))
+                     if not v]
         if miss:
             st, note = "missing", "Missing: " + ", ".join(miss)
         elif key == "site_photo" and not (DOCS / cid / "site_photo.jpg").exists():

@@ -46,7 +46,7 @@ async function api(path, opts = {}) {
   if (r.status === 401) { S.me = null; showGate('Your session expired. Sign in again.'); throw new Error('unauthorised'); }
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : null; } catch { data = txt; }
-  if (!r.ok) throw new Error((data && data.detail) || r.statusText);
+  if (!r.ok) { const err = new Error((data && data.detail) || r.statusText); err.status = r.status; err.data = data; throw err; }
   return data;
 }
 
@@ -592,6 +592,11 @@ VIEWS.reg = () => {
           <input type="text" data-r="${k}" value="${esc(val ?? '')}"${op}></div>`).join('')}</div></div>
     </div>
 
+    ${g.validation.issues.length ? `<div class="card" id="regIssues"><div class="ch"><h3>Before registering</h3><span class="spacer"></span>
+      <span class="pill warn">${g.validation.issues.length} to sort out</span></div>
+      <div class="cb" style="display:grid;gap:6px">${g.validation.issues.map(i => `<div class="fld review"><div class="fk">${esc(i.kind)} &middot; ${esc(i.field)}</div>
+        <div class="fk" style="color:var(--warn);letter-spacing:0;text-transform:none;font-size:11.5px">${esc(i.message)}</div></div>`).join('')}
+        <div class="hint">The co-pilot lists these on the portal too and will not hide them. Correct them here, then fill.</div></div></div>` : ''}
     <div class="card" id="regRead"><div class="ch"><h3>What Solara read</h3><span class="spacer"></span>
       <span class="pill ${!g.fields.length ? 'idle' : flagged.length ? 'warn' : 'ok'}">${!g.fields.length ? 'nothing yet' : flagged.length ? flagged.length + ' to check' : 'all clear'}</span></div>
       <div class="cb" style="display:grid;gap:1px;padding:7px">${g.fields.length ? [...flagged, ...g.fields.filter(f => !flagged.includes(f))].map(fieldRow).join('')
@@ -608,6 +613,8 @@ VIEWS.reg = () => {
           <button class="btn sm" id="regAccepted"${stepDone('registered') && !stepDone('accepted') ? op : ' disabled'}>${stepDone('accepted') ? '&#10003; Accepted' : 'Mark accepted'}</button>
           <button class="btn sm" id="regSign"${stepDone('accepted') && !stepDone('signed') && d.rts_cost ? op : ' disabled'}>Send agreement for e-sign</button>
           <button class="btn sm" id="regUploaded"${stepDone('signed') && !stepDone('uploaded') ? op : ' disabled'}>${stepDone('uploaded') ? '&#10003; Agreement uploaded' : 'Mark agreement uploaded'}</button></div>
+        ${g.agreement.draft ? `<div class="hint" style="color:var(--warn)">The agreement wording is a DRAFT format. The client must approve it before the first real customer signs.</div>` : ''}
+        ${stepDone('signed') ? `<div class="sub" id="regAgrCheck">Signed agreement: ${g.agreement.check.ok ? 'verified (approval, kept copy and signatures match)' : 'NOT verified &mdash; ' + esc(g.agreement.check.problems.join('; '))}</div>` : ''}
         ${g.requests.length ? `<div class="sub">Agreement link: ${g.requests.map(r => `${esc(r.status === 'signed' ? 'signed by ' + r.signer_name : r.status)} (${esc(r.created_at.slice(5, 16).replace('T', ' '))})`).join(' · ')}</div>` : ''}
       </div></div>
   </div></div></div>`;
@@ -1005,9 +1012,16 @@ document.addEventListener('click', async e => {
   }
   if (t.id === 'regCreate') {
     try {
-      const g = await api('/customers', { method: 'POST', body: { name: $('#nName').value, mobile: $('#nMobile').value } });
+      const g = await api('/customers', { method: 'POST', body: { name: $('#nName').value, mobile: $('#nMobile').value,
+        allow_duplicate: t.dataset.force === $('#nName').value + '|' + $('#nMobile').value } });
       closeModal(); await loadReg(g.customer.id); toast('Added. Now upload the bill and the Aadhaar.');
-    } catch (err) { toast(err.message, true); }
+    } catch (err) {
+      if (err.status === 409) {   // looks like someone already on file: open them, or add on purpose
+        t.dataset.force = $('#nName').value + '|' + $('#nMobile').value; t.textContent = 'Add as a new customer anyway';
+        $('#regDupe') || $('#nMobile').closest('.field').insertAdjacentHTML('afterend', `<div id="regDupe" class="hint" style="color:var(--warn)"></div>`);
+        $('#regDupe').innerHTML = esc(err.message) + '<br>' + err.data.duplicates.map(m => `<button class="btn sm" data-reg="${esc(m.id)}" data-close>Open ${esc(m.id)}</button>`).join(' ');
+      } else toast(err.message, true);
+    }
     return;
   }
   if (t.dataset.confirm) {

@@ -33,6 +33,8 @@ jobs:
         run: python tests/closeout.py
       - name: Milestone 1 acceptance (K1)
         run: python tests/milestone1.py
+      - name: K1 completion (duplicates, validation, corrections, agreement evidence, co-pilot safety)
+        run: python tests/k1_complete.py
       - name: Co-pilot on the real portal labels
         run: python tests/real_labels.py
       - name: Longevity (migrations, health, drift, pins)

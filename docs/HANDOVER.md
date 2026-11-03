@@ -201,12 +201,13 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `ui.py` | 38 | every dashboard view in a real browser |
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
+| `k1_complete.py` | 86 | **K1 completion**: duplicates, validation, uploads, mismatches, manual corrections surviving re-reads, Aadhaar privacy, the kept agreement copy and its verification, co-pilot safety on a synthetic portal page, dashboard |
 | `real_labels.py` | 6 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report, installation step 1, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
 | `longevity.py` | 11 | old databases upgrade, dependencies pinned, health check, portal drift reported |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |
 
 `milestone1.py` with `SOLARA_SHOTS=docs/screenshots` saves the four reference screenshots
-(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all seven, plus the linter, on every push.
+(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all eight, plus the linter, on every push.
 
 ### Manual test script (do this 3 times before each client session)
 
@@ -241,6 +242,7 @@ Record each run in a sheet: date, who, steps passed, anything odd, screenshots o
 | The real MSEDCL bill layout is **not yet tested** | `LABELS` in `extract.py` match our sample bill. Real bills may fall back to the AI model (needs the key) or get flagged | Intern B, with real sample bills |
 | Angular Material dropdowns (not native `<select>`) | the co-pilot fills native selects; custom dropdowns are listed as "left for you" | Intern A, if the real portal uses them |
 | Agreement template is a **draft** | it prints a "draft format" footer until the client's wording is in (`closeout.t_agreement`, `TEMPLATE_DRAFT`) | Intern B |
+| The agreement wording is a draft | see `docs/K1_STATUS.md` for what K1 code is done and what only the live portal or the client can settle |
 | Aadhaar QR signature is not verified | the QR data is trusted as printed | later, only if needed |
 | One machine, SQLite | fine for one office; PostgreSQL only if several branches use it | later |
 
