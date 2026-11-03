@@ -197,7 +197,7 @@ def main_http():
     s5 = op.post(f"/api/closeout/{CID}/sign", json={}).json()
     with httpx.Client(timeout=60, follow_redirects=True) as pub:
         for _ in range(5):
-            last = pub.post(s5["url"] + "/verify", data={"digits": "1111"})
+            pub.post(s5["url"] + "/verify", data={"digits": "1111"})
         check("five wrong attempts lock the link", "locked" in pub.get(s5["url"]).text)
     s6 = op.post(f"/api/closeout/{CID}/sign", json={}).json()
     check("re-signing after a price change", "signed" in public_sign(s6["url"], CONSUMER[-4:], s6["docs"]))

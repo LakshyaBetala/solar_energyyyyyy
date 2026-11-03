@@ -241,7 +241,8 @@
         (kept ? ` Kept ${kept} you had typed.` : '') +
         (left.length ? `<br><span style="color:#F2C879">Left for you: ${esc([...new Set(left)].join(', '))}</span>` : '') +
         '<br>Check the page, then press the portal\'s button yourself.</div>';
-      ask({ type: 'report', body: { customer_id: c.customer_id, portal: location.host, attached: filled + attached } });
+      ask({ type: 'report', body: { customer_id: c.customer_id, portal: location.host, attached: filled + attached,
+        page: location.host + location.pathname, left: [...new Set(left)] } });
     };
   }
 

@@ -1,0 +1,4 @@
+﻿# Only rules that catch real bugs (syntax errors, undefined names, unused variables, redefinitions).
+# Style is not enforced; keep the code reading like its neighbours.
+[lint]
+select = ["E9", "F63", "F7", "F82", "F811", "F841"]

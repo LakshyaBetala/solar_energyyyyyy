@@ -136,6 +136,23 @@ tests/                smoke, ui, closeout, milestone1, live_mode, run_all, fixtu
    Real samples live outside the repo; fixtures are synthetic (`tests/fixtures.py`).
 7. **Run `python tests/run_all.py` before every push.** CI runs the same on GitHub; keep it green.
 
+### Keeping it working for years
+
+Solara's advantage is that it keeps working. These are the habits that protect it:
+
+| Risk | The guard | Your habit |
+|---|---|---|
+| A library releases a breaking version | `requirements.txt` pins exact versions; `tests/longevity.py` fails if one is loose | upgrade one line at a time, run every test, push only when green |
+| A live database is older than the code | `db.MIGRATIONS` upgrades any database once, in order (`PRAGMA user_version`) | a schema change is **a new line at the end** of `MIGRATIONS`; never edit or reorder a shipped line; new tables go in `SCHEMA` |
+| A portal renames a field | the co-pilot reports every field it could not fill; **Reports → System health** lists the page and the fields | check System health every Monday; a new entry is a task for Intern A the same week |
+| Backups stop, the key is wrong, the disk fills | System health checks all three | look at it weekly; red is fixed the same day |
+| A small bug slips in | `ruff` (real-bug rules only, `ruff.toml`) and every test run on each push | never merge with CI red |
+| Knowledge leaves with a person | every rule and task is in this file; the PR checklist asks for it to be updated | update HANDOVER.md in the same pull request as the change |
+
+**How changes reach `main`:** work on a branch, open a pull request, fill in the checklist
+(`.github/pull_request_template.md`), CI green, Lakshya reviews (`.github/CODEOWNERS`), then merge.
+Never push straight to `main` once both of you are working.
+
 ---
 
 ## 4. Setup
@@ -185,10 +202,11 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
 | `real_labels.py` | 6 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report, installation step 1, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
+| `longevity.py` | 11 | old databases upgrade, dependencies pinned, health check, portal drift reported |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |
 
 `milestone1.py` with `SOLARA_SHOTS=docs/screenshots` saves the four reference screenshots
-(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all six on every push.
+(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all seven, plus the linter, on every push.
 
 ### Manual test script (do this 3 times before each client session)
 

@@ -123,12 +123,31 @@ def conn() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
-            have = {r[1] for r in _conn.execute("PRAGMA table_info(customers)")}
-            for col in ("workflow", "discom_ref"):
-                if col not in have:
-                    _conn.execute(f"ALTER TABLE customers ADD COLUMN {col} TEXT")
-            _conn.commit()
+            migrate(_conn)
         return _conn
+
+
+# Changes to tables that already exist on a live install. Append only: never edit, reorder or
+# delete a shipped entry. New tables go in SCHEMA (CREATE TABLE IF NOT EXISTS) instead.
+MIGRATIONS = [
+    "ALTER TABLE customers ADD COLUMN workflow TEXT",
+    "ALTER TABLE customers ADD COLUMN discom_ref TEXT",
+]
+
+
+def migrate(c):
+    """Bring any database, however old, up to the current schema. The version is stored in the
+    file itself (PRAGMA user_version), so each step runs once per database."""
+    done = c.execute("PRAGMA user_version").fetchone()[0]
+    for i, sql in enumerate(MIGRATIONS[done:], done + 1):
+        try:
+            c.execute(sql)
+        except sqlite3.OperationalError as e:
+            # databases from before versioning already have these columns
+            if "duplicate column" not in str(e):
+                raise
+        c.execute(f"PRAGMA user_version={i}")
+    c.commit()
 
 
 def q(sql, args=()):

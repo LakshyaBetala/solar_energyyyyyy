@@ -969,6 +969,11 @@ VIEWS.reports = () => {
         for the report, which embeds the run's screenshots.</div>
     </div></div>
   </div>
+  ${S.health ? `<div class="card" id="health"><div class="ch"><h3>System health</h3><span class="spacer"></span>
+    <span class="pill ${S.health.ok ? 'ok' : 'bad'}">${S.health.ok ? 'healthy' : 'needs attention'}</span></div>
+    <div class="cb" style="display:grid;gap:6px">${S.health.checks.map(c => `<div class="row" style="gap:10px">
+      <span class="pill ${c.state === 'ok' ? 'ok' : c.state === 'warn' ? 'warn' : 'bad'}" style="min-width:70px;justify-content:center">${esc(c.key)}</span>
+      <span class="sub">${esc(c.text)}</span></div>`).join('')}</div></div>` : ''}
   <div class="card"><div class="ch"><h3>Runs</h3></div><div class="tscroll"><table>
     <thead><tr><th>Run</th><th>Customer</th><th>Workflow</th><th>Status</th><th>Started</th><th>Reference</th>
       <th>Retries</th><th></th></tr></thead>
@@ -986,7 +991,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') api('/reports').then(r => { S.reports = r; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
 
   /* registration */
   if (t.dataset.reg) { loadReg(t.dataset.reg); return; }

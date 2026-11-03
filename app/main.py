@@ -812,10 +812,54 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
         closeout.mark(cid, user["username"], msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
         db.audit(user["username"], user["role"], "MSEDCL documents uploaded", cid,
                  "all 6 show Verification Pending on the portal")
-    elif body.get("attached"):
+    if body.get("left"):
+        # portal drift: a field the co-pilot used to fill is now unknown; /api/health shows it
+        labels = sorted({str(x)[:60] for x in body["left"]})[:12]
+        db.audit(user["username"], user["role"], "Co-pilot left fields", cid,
+                 f"{str(body.get('page', ''))[:80]}: {', '.join(labels)}")
+    if body.get("attached"):
         db.audit(user["username"], user["role"], "Co-pilot attached files", cid,
                  f"{body['attached']} file(s) on {body.get('portal')}; operator presses Upload")
     return {"ok": True}
+
+
+# ------------------------------- health -------------------------------
+@app.get("/api/health")
+def health(user=Depends(current)):
+    """Everything that breaks slowly, checked in one place: the database, the key, backups, disk,
+    and portal drift (fields the co-pilot could no longer fill)."""
+    import shutil
+    from .config import DATA
+    out = []
+    add = lambda key, ok, text, warn=False: out.append(
+        {"key": key, "state": "ok" if ok else ("warn" if warn else "bad"), "text": text})
+    qc = db.one("PRAGMA quick_check")
+    ver = db.conn().execute("PRAGMA user_version").fetchone()[0]
+    add("database", list(qc.values())[0] == "ok" and ver == len(db.MIGRATIONS),
+        f"integrity {list(qc.values())[0]}, schema {ver}/{len(db.MIGRATIONS)}")
+    doc = db.one("SELECT path FROM documents ORDER BY id DESC")
+    try:
+        if doc:
+            vault.read(Path(doc["path"]))
+        add("key", True, "the vault key opens the documents" if doc else "no documents yet")
+    except Exception as e:
+        add("key", False, f"the vault key does not open the documents ({type(e).__name__})")
+    zips = sorted(backup.BACKUPS.glob("*.zip"), key=lambda p: p.stat().st_mtime) if backup.BACKUPS.exists() else []
+    age = (datetime.now().timestamp() - zips[-1].stat().st_mtime) / 3600 if zips else None
+    add("backups", age is not None and age < 36,
+        f"last backup {age:.0f} h ago" if age is not None else "no backup yet", warn=not live())
+    free = shutil.disk_usage(DATA).free / 1e9
+    add("disk", free > 2, f"{free:.1f} GB free")
+    since = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
+    drift = db.q("""SELECT detail, COUNT(*) k FROM audit WHERE action='Co-pilot left fields' AND ts>?
+                    GROUP BY detail ORDER BY k DESC LIMIT 5""", (since,))
+    add("portals", not drift, "no unfilled fields in 7 days" if not drift else
+        "fields left unfilled: " + "; ".join(f"{d['detail']} ({d['k']}x)" for d in drift), warn=True)
+    llm = extract.llm_status()
+    add("ai", llm["enabled"], f"{llm['provider']} for photos" if llm["enabled"] else
+        "no AI key: photos of bills are flagged for typing", warn=True)
+    return {"ok": all(c["state"] == "ok" for c in out if c["key"] in ("database", "key", "disk")),
+            "checks": out}
 
 
 # ------------------------------- backups -------------------------------
