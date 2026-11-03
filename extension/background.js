@@ -12,25 +12,23 @@ async function handle(msg) {
   const { url, key } = await cfg();
   if (!key) return { ok: false, error: 'Open the Solara co-pilot options and paste your key.' };
   const headers = { 'X-Solara-Key': key };
+  const json = async r => { const data = await r.json().catch(() => ({})); return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText }; };
   if (msg.type === 'lookup' || msg.type === 'pending') {
-    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '' });
-    const r = await fetch(`${url}/api/copilot/${msg.type}?${q}`, { headers });
-    const data = await r.json().catch(() => ({}));
-    return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
+    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '', step: msg.step || '' });
+    return json(await fetch(`${url}/api/copilot/${msg.type}?${q}`, { headers }));
   }
-  if (msg.type === 'file' || msg.type === 'doc') {
-    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `doc/${msg.cid}/${msg.kind}`;
+  if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'xlsx') {
+    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : msg.type === 'doc' ? `doc/${msg.cid}/${msg.kind}` : `xlsx/${msg.cid}`;
     const r = await fetch(`${url}/api/copilot/${path}`, { headers });
-    if (!r.ok) return { ok: false, error: `could not fetch ${msg.key || msg.kind}` };
+    if (!r.ok) return { ok: false, error: `could not fetch ${msg.key || msg.kind || 'the Excel'}` };
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);
     return { ok: true, b64: b64(await r.arrayBuffer()), type: r.headers.get('content-type'),
              name: name ? name[1] : `${msg.cid}_${msg.key || msg.kind}.pdf` };
   }
-  if (msg.type === 'report') {
-    await fetch(`${url}/api/copilot/report`, {
+  if (msg.type === 'report' || msg.type === 'status') {
+    return json(await fetch(`${url}/api/copilot/${msg.type}`, {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(msg.body)
-    });
-    return { ok: true };
+    }));
   }
   return { ok: false, error: 'unknown request' };
 }

@@ -44,7 +44,20 @@ def values(cid):
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
-            "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng")}
+            "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
+            "aadhaar_name": c["aadhaar_name"],
+            # milestone 2 forms: site feasibility, installation, DCR, loan
+            **{k: d.get(k) for k in FILED},
+            "inverter_qty": d.get("inverter_qty") or ("1" if d.get("inverter_make") else None),
+            "module_serials": "\n".join(closeout.serials(d)) or None,
+            "item_type": "Solar Panels", "scheme": "PM Surya Ghar: Muft Bijli Yojana"}
+
+
+# record fields the later portal forms ask for, filled as they are
+FILED = ("location_type", "roof_load_ok", "shadow_free", "roof_area", "site_visited", "visitor_name",
+         "visitor_phone", "phase", "inverter_kw", "inverter_make", "inverter_serial", "module_wp",
+         "module_count", "module_make", "almm_model", "dcr_cert_no", "invoice_no",
+         "protection_checks", "lightning_arrester", "install_date", "loan_bank")
 
 
 def missing(cid):
@@ -144,7 +157,7 @@ def mark(cid, step, user, app_no=None):
     if step == "registered":
         app_no = (app_no or "").strip().upper()
         if not APP_NO.match(app_no):
-            raise ValueError("the application number looks like NP-MHSED26-16165074")
+            raise ValueError("the application number looks like NP-MHSED26-16000001")
         clash = db.one("SELECT id FROM customers WHERE application_no=? AND id<>?", (app_no, cid))
         if clash:
             raise ValueError(f"{app_no} is already on {clash['id']}")

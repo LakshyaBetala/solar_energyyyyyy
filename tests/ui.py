@@ -112,18 +112,23 @@ async def main():
         # ---- viewer ----
         await sign_in(pg, "a.more")
         check("viewer signs in", (await pg.locator("#whoRole").inner_text()) == "viewer")
+        await pg.wait_for_selector("#otherview [data-group=calls]")
+        check("the dashboard opens on Today", "Calls to make" in await pg.locator("#otherview").inner_text())
+        await pg.locator('.navitem[data-view="pipeline"]').click()
+        await pg.wait_for_selector('[data-run="SS-2045"]')
         check("viewer sees Run agent disabled",
               await pg.locator('[data-run="SS-2045"]').is_disabled())
 
         # ---- supervisor walks every view ----
         await sign_in(pg, "r.deshmukh")
-        for view, needle in [("pipeline", "Application pipeline"), ("numbers", "Dedicated number pool"),
+        for view, needle in [("today", "Monthly report"), ("inst", "customers with filing left"),
+                             ("pipeline", "Every customer, by portal stage"), ("numbers", "Dedicated number pool"),
                              ("calls", "Call log"), ("audit", "Append-only audit trail"),
                              ("reports", "Exports"), ("docs", "Documents on file")]:
             await pg.locator(f'.navitem[data-view="{view}"]').click()
             await pg.wait_for_timeout(500)
             body = await pg.locator("#otherview").inner_text()
-            check(f"{view} view renders", needle in body)
+            check(f"{view} view renders", needle in body, "" if needle in body else " ".join(body[:160].split()))
 
         await pg.locator('.navitem[data-view="pipeline"]').click()
         await pg.wait_for_timeout(500)

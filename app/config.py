@@ -38,8 +38,10 @@ def live():
 def portals():
     if live():
         return {"pmsg": "https://pmsuryaghar.gov.in/", "pmsg_vendor": "https://pmsuryaghar.gov.in/",
-                "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/"}
-    return {"pmsg": "/portal/verify", "pmsg_vendor": "/pmsg/vendor/consent", "msedcl": "/msedcl/"}
+                "pmsg_apps": "https://pmsuryaghar.gov.in/", "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/",
+                "dcr": "https://solardcrportal.nise.res.in/", "jansamarth": "https://www.jansamarth.in/"}
+    return {"pmsg": "/portal/verify", "pmsg_vendor": "/pmsg/vendor/consent", "pmsg_apps": "/pmsg/vendor/applications",
+            "msedcl": "/msedcl/", "dcr": "/dcr/", "jansamarth": "/jansamarth/"}
 
 
 def region():

@@ -14,6 +14,8 @@ const STAGES = [
 const stage = k => STAGES.find(s => s[0] === k) || STAGES[0];
 
 const TITLES = {
+  today: ['Today', 'Everything that needs a person today, with the screen to open for each. Worked out live from every customer.'],
+  inst: ['Installation', 'Agreement uploaded to six documents on MSEDCL: feasibility report, loan, field photos and serials, DCR, the 5 installation steps.'],
   pipeline: ['Pipeline', 'Every live application and the stage it is sitting at.'],
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
@@ -26,7 +28,7 @@ const TITLES = {
 };
 
 const S = {
-  view: 'pipeline', me: null, customers: [], numbers: [], calls: [], audit: [], llm: {},
+  view: 'today', me: null, today: null, board: null, inst: [], instCid: null, instData: null, customers: [], numbers: [], calls: [], audit: [], llm: {},
   runs: [], activeRun: null, callSel: 0, showEn: true, docCid: 'SS-2045', extract: null,
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
   headless: true, es: null, lastFrame: null, t0: null,
@@ -80,6 +82,10 @@ async function login(username, password) {
 
 /* ------------------------------ boot ------------------------------ */
 async function boot() {
+  if (!$('#runview')) { // before any request: a click while the data loads must find its containers
+    $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
+    $('#runview').innerHTML = runView();
+  }
   const b = await api('/bootstrap');
   S.me = b.user; S.customers = b.customers; S.numbers = b.numbers; S.calls = b.calls;
   S.audit = b.audit; S.llm = b.llm; S.runs = b.runs; S.activeRun = b.active_run;
@@ -87,6 +93,8 @@ async function boot() {
   S.followups = await api('/followups').catch(() => []);
   S.co = await api('/closeout').catch(() => []);
   S.reg = await api('/registration').catch(() => []);
+  S.inst = await api('/filing').catch(() => []);
+  [S.today, S.board] = await Promise.all([api('/today').catch(() => null), api('/board').catch(() => null)]);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
   $('#llmChip').innerHTML = S.llm.enabled
@@ -96,10 +104,6 @@ async function boot() {
     ? `Extraction also runs through ${S.llm.provider}/${S.llm.model}`
     : 'No API key configured; extraction uses the deterministic parser only';
   counters();
-  if (!$('#runview')) {
-    $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
-    $('#runview').innerHTML = runView();
-  }
   if (S.activeRun) { attachRun(S.activeRun); S.view = 'run'; }
   render();
 }
@@ -114,6 +118,10 @@ function counters() {
   $('#tagAudit').textContent = S.audit.length;
   $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
   $('#tagReg').textContent = S.reg.filter(x => x.done < x.total).length;
+  $('#tagInst').textContent = (S.inst || []).filter(x => x.done < x.total).length;
+  const todo = S.today ? S.today.items.length : 0;
+  $('#tagToday').textContent = todo;
+  $('#tagToday').className = 'tag' + (S.today && S.today.items.some(x => x.sev === 'bad') ? ' hot' : '');
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -121,7 +129,16 @@ function counters() {
 
 /* ------------------------------ render ------------------------------ */
 const VIEWS = {};
+// what the owner has typed but not saved survives any redraw of the same customer's screen
+const drafts = new Map();
+const curCid = () => ({ inst: S.instCid, reg: S.regCid, closeout: S.coCid })[S.view];
+const draftKey = el => { for (const a of ['i', 'r', 'f']) if (el.dataset && el.dataset[a]) return `${S.view}:${curCid()}:${a}:${el.dataset[a]}`; return null; };
+const keepDraft = e => { const k = draftKey(e.target); if (k) drafts.set(k, e.target.value); };
+document.addEventListener('input', keepDraft);
+document.addEventListener('change', keepDraft);
+const clearDrafts = () => { const pre = `${S.view}:${curCid()}:`; [...drafts.keys()].filter(k => k.startsWith(pre)).forEach(k => drafts.set(k, undefined)); };
 function render() {
+  if (!S.me || !$('#otherview')) return;
   $('#crumb').textContent = TITLES[S.view][0];
   $('#crumbsub').textContent = TITLES[S.view][1];
   $$('.navitem').forEach(b => b.setAttribute('aria-current', String(b.dataset.view === S.view)));
@@ -130,6 +147,7 @@ function render() {
   if (S.view === 'run') { runHead(); paintSteps(); paintShots(); paintRunState(); }
   else {
     ov.innerHTML = VIEWS[S.view]();
+    $$('#otherview [data-i],#otherview [data-r],#otherview [data-f]').forEach(el => { const v = drafts.get(draftKey(el)); if (v !== undefined) el.value = v; });
     if (S.view === 'calls') playTranscript(false);
   }
   counters();
@@ -143,7 +161,7 @@ VIEWS.pipeline = () => {
   const counts = STAGES.map(s => [s[1], c.filter(x => x.stage === s[0]).length]);
   const mx = Math.max(1, ...counts.map(x => x[1]));
   const done = S.runs.filter(r => r.status === 'done').length;
-  return `<div class="grid" style="gap:14px">
+  return `<div class="grid" style="gap:14px">${boardCard()}
   <div class="kpis">
     <div class="kpi"><div class="k">Applications live</div><div class="v num">${c.length}</div>
       <div class="d">${filed} filed &middot; ${c.filter(x => x.discom_ref).length} with the DISCOM</div></div>
@@ -528,11 +546,18 @@ async function loadExtract(cid) {
 }
 
 /* ------------------------------ registration (milestone 1) ------------------------------ */
+// the latest request wins: a slower, older answer must not redraw over what the owner is typing
+const seq = {};
+const latest = k => { const n = (seq[k] || 0) + 1; seq[k] = n; return () => seq[k] === n; };
+
 async function loadReg(cid) {
+  const still = latest('reg');
   if (cid) S.regCid = cid;
-  S.reg = await api('/registration');
-  if (!S.regCid || !S.reg.some(x => x.id === S.regCid)) S.regCid = S.reg[0] && S.reg[0].id;
-  S.regData = S.regCid ? await api('/registration/' + S.regCid) : null;
+  const list = await api('/registration');
+  const id = S.regCid && list.some(x => x.id === S.regCid) ? S.regCid : list[0] && list[0].id;
+  const data = id ? await api('/registration/' + id) : null;
+  if (!still()) return;
+  S.reg = list; S.regCid = id; S.regData = data;
   if (S.view === 'reg') render();
 }
 
@@ -660,8 +685,11 @@ const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: 
 const MSEDCL_URL = '/msedcl/'; // sandbox; the live build opens https://rts.mahadiscom.in/RoofTopSolarVendor/
 
 async function loadCo(cid) {
+  const still = latest('co');
   if (cid) S.coCid = cid;
-  [S.co, S.coData] = await Promise.all([api('/closeout'), api('/closeout/' + S.coCid)]);
+  const [list, data] = await Promise.all([api('/closeout'), api('/closeout/' + S.coCid)]);
+  if (!still()) return;
+  S.co = list; S.coData = data;
   if (S.view === 'closeout') render();
 }
 
@@ -780,7 +808,7 @@ async function coUpload(kind, file) {
 
 async function coAct(act) {
   if (act === 'fix') { $('#coForm').scrollIntoView({ behavior: 'smooth' }); return; }
-  if (act === 'upload') { window.open(MSEDCL_URL, '_blank'); toast('On the upload page, press "Attach" in the Solara panel, check, then Upload.'); return; }
+  if (act === 'upload') { window.open((S.coData && S.coData.portals && S.coData.portals.msedcl) || MSEDCL_URL, '_blank'); toast('On the upload page, press "Attach" in the Solara panel, check, then Upload.'); return; }
   if (act === 'vsig') {
     modal('Company signature', 'Drawn once by the authorised signatory. It goes on the vendor line of every document.',
       `<div class="field"><label for="vsName">Name of signatory</label><input type="text" id="vsName" value="${esc(S.me.name)}"></div>
@@ -810,6 +838,213 @@ async function coAct(act) {
       await loadCo();
     } catch (err) { toast(err.message, true); }
   }
+}
+
+/* ------------------------------ today (milestone 3) ------------------------------ */
+const TODAY_GROUPS = [['calls', 'Calls to make', 'OTPs and the customer\'s own approvals'], ['esign', 'E-signs', 'links to send or chase'],
+  ['uploads', 'To file on a portal', 'the co-pilot fills; you press Submit'], ['dealer', 'Waiting for the dealer', 'panels not yet transferred on the DCR portal'],
+  ['field', 'From the field', 'site photos and panel labels'], ['checks', 'To check', 'details, serial numbers, portal mismatches']];
+const thisMonth = () => new Date().toISOString().slice(0, 7);
+
+async function loadToday() {
+  [S.today, S.board] = await Promise.all([api('/today'), api('/board')]);
+  if (S.view === 'today' || S.view === 'pipeline') render();
+}
+
+VIEWS.today = () => {
+  const t = S.today;
+  if (!t) return '<div class="card"><div class="cb hint">Loading…</div></div>';
+  const by = g => t.items.filter(x => x.group === g);
+  return `<div class="grid" style="gap:14px">
+  <div class="kpis">${TODAY_GROUPS.slice(0, 4).map(([g, n, d]) => `<div class="kpi"><div class="k">${n}</div>
+    <div class="v num">${by(g).length}</div><div class="d">${d}</div></div>`).join('')}</div>
+  <div class="two">${TODAY_GROUPS.map(([g, n, d]) => `<div class="card" data-group="${g}"><div class="ch"><h3>${n}</h3><span class="spacer"></span>
+    <span class="hint">${d}</span></div><div class="cb" style="padding:0">${by(g).length ? by(g).map(x => `<div class="todo">
+      <span class="pill ${x.sev === 'bad' ? 'bad' : x.sev === 'warn' ? 'warn' : 'info'} mono">${esc(x.cid)}</span>
+      <div style="min-width:0"><div>${esc(x.title)}</div><div class="sub">${esc(x.name)}${x.detail ? ' · ' + esc(x.detail) : ''}</div></div>
+      <button class="btn sm" data-goto="${esc(x.view)}" data-cid="${esc(x.cid)}" data-gact="${esc(x.act)}">Open</button></div>`).join('')
+    : '<div class="hint" style="padding:12px 14px">Nothing here.</div>'}</div></div>`).join('')}</div>
+  <div class="two">
+    <div class="card"><div class="ch"><h3>Paused</h3><span class="spacer"></span><span class="hint">not on the lists above until resumed</span></div>
+      <div class="cb" style="padding:0">${t.paused.length ? t.paused.map(p => `<div class="todo"><span class="pill idle mono">${esc(p.cid)}</span>
+        <div><div>${esc(p.name)}</div><div class="sub">${esc(p.reason)} · ${esc(p.by)}, ${esc((p.at || '').slice(5, 16).replace('T', ' '))}</div></div>
+        <button class="btn sm" data-goto="inst" data-cid="${esc(p.cid)}">Open</button></div>`).join('') : '<div class="hint" style="padding:12px 14px">No customer is paused.</div>'}</div></div>
+    <div class="card"><div class="ch"><h3>Monthly report</h3></div><div class="cb" style="display:grid;gap:9px">
+      <div class="row"><input type="month" id="month" value="${thisMonth()}" style="width:170px">
+        <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button></div>
+      <div class="hint">Every customer with each step's date and the portal's status, everything filed in the month, and the audit trail.</div></div></div>
+  </div></div>`;
+};
+
+function stageDots(row, stages) {
+  return `<span class="dots" title="${esc(row.stage_name)}">${stages.map((s, i) =>
+    `<i class="${i < row.index ? 'done' : i === row.index ? 'current' : ''}" title="${esc(s.name)}"></i>`).join('')}</span>`;
+}
+
+function boardCard() {
+  const b = S.board;
+  if (!b) return '';
+  return `<div class="card raise" id="board"><div class="ch"><h3>Every customer, by portal stage</h3><span class="spacer"></span>
+    <span class="hint">the portal's own ten stages; the co-pilot reads the status when you open My Application</span></div>
+    <div class="tscroll"><table><thead><tr><th>Ref</th><th>Customer</th><th>Stage</th><th></th><th>Portal says</th><th>Next in Solara</th><th></th></tr></thead>
+    <tbody>${b.rows.map(r => `<tr${r.problems.length ? ' data-sev="warn"' : ''}><td class="mono sub">${esc(r.id)}</td>
+      <td><div class="who2">${esc(r.name)}</div><div class="sub mono">${esc(r.application_no || 'not registered')}</div></td>
+      <td>${stageDots(r, b.stages)}</td><td><span class="pill ${r.paused ? 'idle' : 'live'}">${r.paused ? 'Paused' : esc(r.stage_name)}</span></td>
+      <td class="sub">${r.portal_status ? `${esc(r.portal_status)}<div style="font-size:10.5px">seen ${esc(r.portal_seen.slice(5, 16).replace('T', ' '))}</div>` : '—'}
+        ${r.problems.map(p => `<div style="color:var(--bad);font-size:11px">${esc(p)}</div>`).join('')}</td>
+      <td class="sub">${esc(r.next.label)}</td>
+      <td><button class="btn sm" data-goto="${r.application_no ? 'inst' : 'reg'}" data-cid="${esc(r.id)}">Open</button></td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+/* ------------------------------ installation (milestone 2) ------------------------------ */
+async function loadInst(cid) {
+  const still = latest('inst');
+  if (cid) S.instCid = cid;
+  const list = await api('/filing');
+  const id = S.instCid && list.some(x => x.id === S.instCid) ? S.instCid : list[0] && list[0].id;
+  const data = id ? await api('/filing/' + id) : null;
+  if (!still()) return;
+  S.inst = list; S.instCid = id; S.instData = data;
+  if (S.view === 'inst') render();
+}
+
+const SR_STATE = { read: ['warn', 'to confirm'], confirmed: ['ok', 'confirmed'], clash: ['bad', 'repeat'], unread: ['bad', 'not readable'], repeat: ['idle', 'repeat photo'] };
+const STEP_OPEN = { sfr: 'pmsg_apps', installation: 'pmsg_apps', dcr: 'dcr', loan: 'jansamarth', msedcl: 'msedcl' };
+
+VIEWS.inst = () => {
+  const list = S.inst || [], g = S.instData;
+  const top = `<div class="kpis">
+    <div class="kpi"><div class="k">After the agreement</div><div class="v num">${list.filter(x => x.done < x.total).length}</div><div class="d">customers with filing left</div></div>
+    <div class="kpi"><div class="k">On site now</div><div class="v num">${list.filter(x => ['field', 'wait_field', 'serials'].includes(x.next.act)).length}</div><div class="d">photos and serials coming in</div></div>
+    <div class="kpi"><div class="k">Waiting for the dealer</div><div class="v num">${list.filter(x => x.next.act === 'dealer').length}</div><div class="d">DCR panels not transferred</div></div>
+    <div class="kpi"><div class="k">Milestone 2 done</div><div class="v num">${list.filter(x => x.done === x.total).length}</div><div class="d">six documents on MSEDCL</div></div></div>`;
+  const left = `<div class="card"><div class="ch"><h3>Customers</h3></div>
+    <div class="colist">${list.length ? list.map(x => `<button data-inst="${x.id}" aria-current="${x.id === S.instCid}">
+      <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
+      <div><span class="pill ${x.paused ? 'idle' : x.done === x.total ? 'ok' : ['dealer', 'wait_field', 'ask_accept'].includes(x.next.act) ? 'info' : 'warn'}">${x.paused ? 'Paused' : x.done === x.total ? 'Done' : esc(x.next.label)}</span>
+      <span class="sub">${x.done}/${x.total}</span></div></button>`).join('') : '<div class="cb hint">Customers appear here once registered.</div>'}</div></div>`;
+  if (!g) return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}<div></div></div></div>`;
+  const c = g.customer, d = g.data, op = can('operator') ? '' : ' disabled', fs = g.field;
+  const input = f => {
+    const v = d[f.key] || '';
+    if (g.choices[f.key]) return `<select data-i="${f.key}"${op}><option value=""></option>${g.choices[f.key].map(o => `<option${v === o ? ' selected' : ''}>${o}</option>`).join('')}</select>`;
+    return `<input type="${f.key.endsWith('_date') ? 'date' : 'text'}" data-i="${f.key}" value="${esc(v)}"${op}>`;
+  };
+  const group = (title, keys, extra) => `<div class="card" data-form="${esc(title)}"><div class="ch"><h3>${title}</h3><span class="spacer"></span>
+    <button class="btn sm pri" data-isave${op}>Save</button></div><div class="cb">${extra || ''}<div class="cofields">${g.fields.filter(f => keys.includes(f.key))
+      .map(f => `<div class="field"><label>${esc(f.label)}</label>${input(f)}</div>`).join('')}</div></div></div>`;
+  const receipt = step => g.receipts.find(r => r.step === step);
+  const t = g.times;
+  const when = k => t[k] ? esc(t[k].slice(5, 16).replace('T', ' ')) : '';
+  const mins = s => s == null ? '' : `${Math.floor(s / 60)} min ${s % 60} s`;
+  const steps = g.steps.map((s, i) => `<div class="${s.done ? 'done' : ''}">${s.done ? '&#10003;' : i + 1}. ${esc(s.label)}</div>`).join('');
+  const portal = STEP_OPEN[g.next.act];
+  return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}
+  <div class="grid" style="gap:12px">
+    <div class="card raise"><div class="ch"><div><h3>${esc(c.name)}</h3>
+      <div class="sub mono">${c.id} · ${esc(c.application_no || '—')} · consumer ${esc(c.consumer_no || '—')} · ${c.kw || '—'} kW${g.loan ? ' · loan' : ''}</div></div>
+      <span class="spacer"></span>
+      <button class="btn ${g.next.act && !g.paused ? 'go' : ''}" id="instNext" data-act="${g.next.act}"${g.next.act && !g.paused && (g.next.act === 'vsig' || can('operator')) ? '' : ' disabled'}>${esc(g.paused ? 'Paused' : g.next.label)}</button></div>
+      <div class="cb" style="display:grid;gap:10px">
+        <div class="costeps" style="grid-template-columns:repeat(${g.steps.length},minmax(0,1fr))">${steps}</div>
+        ${g.backlog ? '<div class="hint">Filed on the portals before Solara: only the MSEDCL close-out is left.</div>' : ''}
+        ${g.paused ? `<div class="fu warn"><span class="pill warn">paused</span><div>${esc(g.paused.reason)} <span class="sub">· ${esc(g.paused.by)}, ${esc((g.paused.at || '').slice(5, 16).replace('T', ' '))}</span></div></div>` : ''}
+        <div class="controls">
+          ${portal ? `<a class="btn sm" href="${esc(g.portals[portal])}" target="_blank" rel="noopener">Open ${portal === 'pmsg_apps' ? 'My Application' : portal === 'dcr' ? 'DCR portal' : portal === 'jansamarth' ? 'Jan Samarth' : 'MSEDCL'}</a>` : ''}
+          ${g.paused ? `<button class="btn sm" id="instResume"${op}>Resume</button>` : `<button class="btn sm" id="instPause"${op}>Pause</button>`}
+          <button class="btn sm" id="instReview">Review what will be filed</button>
+          <button class="btn sm" id="instRetry"${op}>Retry a step</button>
+          <a class="btn sm" href="#" data-goto="closeout" data-cid="${esc(c.id)}">Close-out documents</a></div>
+        ${g.post_install_seconds != null ? `<div class="hint">Post-installation (first field photo to all six on MSEDCL): <b class="mono">${mins(g.post_install_seconds)}</b></div>` : t.field_at ? `<div class="hint">Post-installation clock started ${when('field_at')}</div>` : ''}
+        ${g.checks.length ? g.checks.map(x => `<div class="fu ${x.sev === 'bad' ? 'bad' : 'warn'}"><span class="pill ${x.sev === 'bad' ? 'bad' : 'warn'}">${x.sev === 'bad' ? 'fix' : 'check'}</span><div>${esc(x.text)}</div></div>`).join('') : ''}
+      </div></div>
+
+    <div class="card"><div class="ch"><h3>On the national portal</h3><span class="spacer"></span>
+      <span class="hint">${g.timeline.portal ? `portal said “${esc(g.timeline.portal.status)}” on ${esc(g.timeline.portal.seen_at.slice(5, 16).replace('T', ' '))}` : 'open My Application once and the co-pilot reads the status'}</span></div>
+      <div class="cb"><div class="tline">${g.timeline.stages.map(s => `<div class="${s.state}">${esc(s.name)}<small>${esc(s.who)}${/^\d{4}-/.test(s.at || '') ? ' · ' + esc(s.at.slice(8, 10) + '/' + s.at.slice(5, 7)) : s.at ? ' · ' + esc(s.at) : ''}</small></div>`).join('')}</div>
+      ${g.timeline.problems.map(p => `<div class="fu bad" style="margin-top:8px"><span class="pill bad">check</span><div>${esc(p)}</div></div>`).join('')}</div></div>
+
+    ${group('Site visit and feasibility report', ['location_type', 'roof_load_ok', 'shadow_free', 'roof_area', 'site_visited', 'visitor_name', 'visitor_phone', 'loan', 'loan_bank'],
+      `<div class="hint" style="margin-bottom:8px">Filed on PM Surya Ghar with the quotation (made from the cost in the agreement) and the pre-installation roof photo${g.documents.some(x => x.kind === 'roof') ? ' (on file)' : ' (<b>not uploaded yet</b>: Registration → Roof photo)'}.</div>`)}
+
+    <div class="card" id="instField"><div class="ch"><h3>From the site</h3><span class="spacer"></span>
+      <span class="hint">${fs.modules_confirmed} of ${fs.module_count || '?'} panels confirmed${fs.inverter ? ' · inverter ' + esc(fs.inverter) : ''}</span>
+      <button class="btn sm" id="instLink"${op}>${fs.link_open ? 'Send the link again' : 'Send field team the link'}</button>
+      ${fs.to_confirm ? `<button class="btn sm go" id="instConfirmAll"${op}>Confirm all barcode reads</button>` : ''}</div>
+      <div class="cb" style="display:grid;gap:10px">
+        <div class="row" style="gap:12px">${fs.site_photo ? `<img src="/api/closeout/${c.id}/photo.jpg?v=${encodeURIComponent(d.lat)}" alt="Installed system" style="width:150px;height:96px;object-fit:cover;border-radius:var(--r)">
+          <div class="sub">GPS ${esc(d.lat)}, ${esc(d.lng)}<br>${esc(fs.photo_source || '')}</div>` : '<div class="hint">No site photo yet. The field team takes it on the link, with location on.</div>'}</div>
+        <div class="serials">${fs.reads.length ? fs.reads.map(r => `<div class="sr" data-sr="${r.id}">
+          <img src="/api/field/${c.id}/photo/${r.id}.jpg" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+          <div style="min-width:0"><div class="mono">${esc(r.serial || '—')} <span class="sub">${esc(r.kind)}</span></div>
+            <div class="sub"><span class="pill ${(SR_STATE[r.status] || SR_STATE.read)[0]}">${(SR_STATE[r.status] || SR_STATE.read)[1]}</span> ${esc(r.source || '')}${r.note ? ' · ' + esc(r.note) : ''}</div></div>
+          <div class="row" style="gap:5px">${r.status !== 'confirmed' ? `<input type="text" data-srfix="${r.id}" value="${esc(r.serial || '')}" placeholder="type as on the label" style="width:150px"${op}>
+            <button class="btn sm go" data-srdo="confirm" data-srid="${r.id}"${op}>Confirm</button>` : ''}
+            <button class="btn sm" data-srdo="reject" data-srid="${r.id}"${op}>Remove</button></div></div>`).join('')
+          : '<div class="hint">Serial numbers appear here as the field team photographs each panel label. Every one is confirmed against its photo before it reaches a document.</div>'}</div>
+        ${d.module_serials ? `<div class="row"><a class="btn sm" href="/api/filing/${c.id}/dcr.xlsx">DCR Excel of panel numbers</a><span class="sub">${esc(String(d.module_serials).split('\n').length)} in the record</span></div>` : ''}
+      </div></div>
+
+    ${group('Installation details', ['dcr_cert_no', 'invoice_no', 'install_date', 'module_make', 'almm_model', 'module_wp', 'module_count', 'phase', 'inverter_make', 'inverter_kw', 'inverter_qty', 'protection_checks', 'lightning_arrester', 'earth_ohm', 'earthing_count'])}
+
+    <div class="card"><div class="ch"><h3>Receipts</h3><span class="spacer"></span><span class="hint">the portal page, saved when each filing is marked done</span></div>
+      <div class="cb" style="display:grid;gap:6px">${['sfr', 'loan', 'dcr', 'installation', 'agreement_uploaded'].filter(s => s !== 'loan' || g.loan).map(s => {
+        const r = receipt(s);
+        return `<div class="row" style="justify-content:space-between"><span>${esc({ sfr: 'Site feasibility report', loan: 'Loan application', dcr: 'DCR certificate', installation: 'Installation', agreement_uploaded: 'Agreement upload' }[s])}
+          <span class="sub">${r ? esc(r.at.slice(5, 16).replace('T', ' ')) + ' · ' + Math.round(r.bytes / 1024) + ' KB' : ''}</span></span>
+          <span class="row" style="gap:6px">${r ? `<a class="btn sm" href="/files/receipt/${c.id}/${s}" target="_blank">View</a>` : '<span class="pill idle">none yet</span>'}
+          <label class="btn sm">Add by hand<input type="file" data-receipt="${s}" accept=".pdf,image/*" hidden${op}></label></span></div>`; }).join('')}
+        ${g.documents.some(x => x.kind === 'loan_approval') ? `<div class="row" style="justify-content:space-between"><span>Loan in-principle approval letter</span><a class="btn sm" href="/files/receipt/${c.id}/loan_approval" target="_blank">View</a></div>` : ''}
+      </div></div>
+  </div></div></div>`;
+};
+
+async function instPost(path, body) {
+  try { S.instData = await api(`/filing/${S.instCid}${path}`, { method: 'POST', body: body || {} }); S.inst = await api('/filing'); render(); return true; }
+  catch (err) { toast(err.message, true); return false; }
+}
+
+async function instReview(force) {
+  const g = S.instData, step = force || { sfr: 'sfr', loan: 'loan', dcr: 'dcr', installation: 'installation', details: g.steps.find(x => !x.done)?.key }[g.next.act];
+  const pick = ['registration', 'sfr', 'loan', 'dcr', 'installation'].includes(step) ? step : 'installation';
+  const r = await api(`/filing/${S.instCid}/review?step=${pick}`);
+  modal(`Review: ${r.title}`, 'Exactly what the co-pilot puts on this portal form. Blank lines are left for you, or add them here first.',
+    `<div class="field"><label>Form</label><select id="revStep">${['sfr', 'loan', 'dcr', 'installation', 'registration'].map(s => `<option value="${s}"${s === pick ? ' selected' : ''}>${esc({ sfr: 'Site feasibility report', loan: 'Jan Samarth basic details', dcr: 'DCR certificate', installation: 'Installation (5 steps)', registration: 'Registration' }[s])}</option>`).join('')}</select></div>
+     <div class="sumgrid">${r.rows.map(x => `<div><div class="k">${esc(x.label)}</div><div class="v" style="font-size:12.5px;font-family:var(--font-ui);font-weight:500;line-height:1.35;white-space:pre-line;${x.value ? '' : 'color:var(--warn)'}">${esc(x.value || 'blank')}</div></div>`).join('')}</div>
+     ${r.files.length ? `<div class="hint" style="margin-top:10px">Files: ${r.files.map(f => `${esc(f.title)} ${f.ready ? '&#10003;' : '<b style="color:var(--warn)">missing</b>'}`).join(' · ')}</div>` : ''}
+     <div class="hint" style="margin-top:8px">${r.approval ? (r.approval.current ? `Approved by ${esc(r.approval.by)} on ${esc(r.approval.at.slice(5, 16).replace('T', ' '))}.` : `Approved by ${esc(r.approval.by)}, but the values changed since.`) : 'Not approved yet.'}</div>`,
+    `<button class="btn" data-close>Close</button><button class="btn go" id="revApprove" data-step="${pick}"${r.missing.length || !can('supervisor') ? ' disabled' : ''}>${r.missing.length ? 'Fill the blanks to approve' : 'Approve these values'}</button>`);
+}
+
+async function instAct(act) {
+  const g = S.instData;
+  const go = sel => { const el = $(sel); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return el; };
+  if (act === 'details' || act === 'roof') {
+    const el = $$('[data-i]').find(i => !i.value);
+    if (act === 'roof') { S.view = 'reg'; await loadReg(g.customer.id); toast('Upload the pre-installation roof photo under Documents.'); return; }
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } return;
+  }
+  if (act === 'vsig') return coAct('vsig');
+  if (act === 'field' || act === 'wait_field') return $('#instLink').click();
+  if (act === 'serials') { go('#instField'); return; }
+  if (act === 'sfr' || act === 'installation') { window.open(g.portals.pmsg_apps, '_blank'); toast(act === 'sfr' ? 'My Application → Action → Site Feasibility Report. In the Solara panel press Fill, check, Submit, then "mark filed".' : 'My Application → Submit Installation. Press Fill on each of the 5 steps; you press Save & Next and Final Submit.'); return; }
+  if (act === 'dcr') { window.open(g.portals.dcr, '_blank'); toast('DCR → Sell (B2C). Press Fill in the Solara panel. The certificate number is saved when it is issued.'); return; }
+  if (act === 'dealer') {
+    modal('Waiting for the dealer', 'The DCR portal refused panels that the dealer has not transferred to your stock yet.',
+      '<div class="hint">Call the dealer to transfer them. When they confirm, apply again; Solara clears this as soon as the certificate is issued.</div>',
+      `<button class="btn" data-close>Close</button><a class="btn" href="${esc(g.portals.dcr)}" target="_blank" rel="noopener">Open DCR portal</a><button class="btn go" id="instDealerClear">Dealer has transferred them</button>`);
+    return;
+  }
+  if (act === 'loan') { window.open(g.portals.jansamarth, '_blank'); toast('With the customer: the panel fills the basic details and address. The customer types their own Aadhaar number and OTP and picks the bank.'); return; }
+  if (act === 'ask_accept') {
+    const mob = (g.data.mobile || '').replace(/\D/g, '').slice(-10);
+    modal('Customer accepts the installation', 'This is the customer\'s own step on their phone. Send them the three lines below.',
+      `<div class="field"><label>Message</label><textarea id="acceptText" rows="5" readonly>${esc(g.accept_text)}</textarea></div>`,
+      `<button class="btn" data-close>Close</button>${mob.length === 10 ? `<a class="btn" href="https://wa.me/91${mob}?text=${encodeURIComponent(g.accept_text)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
+       <button class="btn go" id="instAccepted">Customer has accepted</button>`);
+    return;
+  }
+  if (act === 'closeout' || act === 'msedcl') { S.view = 'closeout'; await loadCo(g.customer.id); if (act === 'msedcl') coAct('upload'); }
 }
 
 /* ------------------------------ numbers ------------------------------ */
@@ -988,10 +1223,76 @@ VIEWS.reports = () => {
 
 /* ------------------------------ events ------------------------------ */
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button'); if (!t) return;
+  const t = e.target.closest('button,a[data-goto]'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); if (S.view === 'inst') loadInst(); if (S.view === 'today' || S.view === 'pipeline') loadToday(); return; }
+
+  /* today and the board */
+  if (t.dataset.goto) {
+    e.preventDefault();
+    const v = t.dataset.goto, cid = t.dataset.cid, act = t.dataset.gact;
+    S.view = v; render();
+    if (v === 'reg') { await loadReg(cid); if (act) regAct(act); }
+    else if (v === 'inst') { await loadInst(cid); if (act && act !== 'portal') instAct(act); }
+    else if (v === 'closeout') { await loadCo(cid); }
+    return;
+  }
+  if (t.id === 'monthXlsx' || t.id === 'monthPdf') { window.open(`/api/exports/month.${t.id === 'monthXlsx' ? 'xlsx' : 'pdf'}?month=${$('#month').value}`, '_blank'); return; }
+
+  /* installation */
+  if (t.dataset.inst) { loadInst(t.dataset.inst); return; }
+  if (t.id === 'instNext') { instAct(t.dataset.act); return; }
+  if (t.hasAttribute('data-isave')) {
+    const body = Object.fromEntries($$('[data-i]').map(i => [i.dataset.i, i.value]));
+    try { S.instData = await api('/filing/' + S.instCid, { method: 'PUT', body }); clearDrafts(); S.inst = await api('/filing'); render(); toast('Saved'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'instPause') {
+    modal('Pause this customer', 'They leave Today until resumed. Nothing is filed or sent while paused.',
+      '<div class="field"><label for="pauseWhy">Why</label><input type="text" id="pauseWhy" placeholder="e.g. customer away until 12 Nov"></div>',
+      '<button class="btn" data-close>Cancel</button><button class="btn go" id="instPauseGo">Pause</button>');
+    $('#pauseWhy').focus(); return;
+  }
+  if (t.id === 'instPauseGo') { if (await instPost('/pause', { reason: $('#pauseWhy').value })) { closeModal(); toast('Paused'); loadToday(); } return; }
+  if (t.id === 'instResume') { if (await instPost('/resume')) { toast('Resumed'); loadToday(); } return; }
+  if (t.id === 'instReview') { instReview().catch(err => toast(err.message, true)); return; }
+  if (t.id === 'revApprove') {
+    try { await api(`/filing/${S.instCid}/approve`, { method: 'POST', body: { step: t.dataset.step } }); closeModal(); toast('Approved. The co-pilot shows it on that form.'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'instRetry') {
+    const done = S.instData.steps.filter(x => x.done && ['sfr', 'loan', 'dcr', 'installation', 'accepted', 'msedcl'].includes(x.key));
+    modal('Retry a step', 'For a filing the portal rejected or returned: the step shows as to do again and the co-pilot fills it again.',
+      `<div class="field"><label for="retryStep">Step</label><select id="retryStep">${done.map(x => `<option value="${x.key}">${esc(x.label)}</option>`).join('')}</select></div>
+       <div class="field"><label for="retryWhy">What the portal said</label><input type="text" id="retryWhy" placeholder="e.g. plant photo rejected, no coordinates"></div>`,
+      `<button class="btn" data-close>Cancel</button><button class="btn go" id="instRetryGo"${done.length ? '' : ' disabled'}>Reopen it</button>`);
+    return;
+  }
+  if (t.id === 'instRetryGo') { if (await instPost('/retry', { step: $('#retryStep').value, reason: $('#retryWhy').value })) { closeModal(); toast('Reopened. File it again on the portal.'); } return; }
+  if (t.id === 'instLink') {
+    try {
+      const s2 = await api(`/filing/${S.instCid}/field-link`, { method: 'POST' });
+      modal('Link for the field team', 'Valid 3 days. They open it on site: site photo with location on, every panel label, the inverter label.',
+        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s2.url)}" id="signUrl"></div>`,
+        `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
+         <a class="btn" href="${esc(s2.url)}" target="_blank" rel="noopener">Open here</a><a class="btn go" href="${esc(s2.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>`);
+      await loadInst();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'instConfirmAll') { if (await instPost('/serials/confirm-all')) toast('Confirmed every clean barcode read'); return; }
+  if (t.dataset.srdo) {
+    const id = t.dataset.srid, fix = $(`[data-srfix="${id}"]`);
+    const r = (S.instData.field.reads || []).find(x => String(x.id) === id) || {};
+    const action = t.dataset.srdo === 'confirm' && fix && fix.value.trim() && fix.value.trim().toUpperCase() !== (r.serial || '') ? 'correct' : t.dataset.srdo;
+    if (await instPost(`/serial/${id}`, { action, serial: fix ? fix.value : '' })) toast(action === 'reject' ? 'Removed' : 'Confirmed');
+    return;
+  }
+  if (t.id === 'instDealerClear') { closeModal(); if (await instPost('/mark', { step: 'dealer' })) toast('Cleared. Apply for the DCR certificate again.'); return; }
+  if (t.id === 'instAccepted') { closeModal(); if (await instPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
 
   /* registration */
   if (t.dataset.reg) { loadReg(t.dataset.reg); return; }
@@ -1017,7 +1318,7 @@ document.addEventListener('click', async e => {
   }
   if (t.id === 'regSave') {
     const body = Object.fromEntries($$('[data-r]').map(i => [i.dataset.r, i.value]));
-    try { S.regData = await api('/registration/' + S.regCid, { method: 'PUT', body }); S.reg = await api('/registration'); render(); toast('Saved'); }
+    try { S.regData = await api('/registration/' + S.regCid, { method: 'PUT', body }); clearDrafts(); S.reg = await api('/registration'); render(); toast('Saved'); }
     catch (err) { toast(err.message, true); }
     return;
   }
@@ -1032,7 +1333,7 @@ document.addEventListener('click', async e => {
   if (t.id === 'coSign') { coAct('sign'); return; }
   if (t.id === 'coSave') {
     const body = Object.fromEntries($$('[data-f]').map(i => [i.dataset.f, i.value]));
-    try { S.coData = await api('/closeout/' + S.coCid, { method: 'PUT', body }); S.co = await api('/closeout'); render(); toast('Saved'); }
+    try { S.coData = await api('/closeout/' + S.coCid, { method: 'PUT', body }); clearDrafts(); S.co = await api('/closeout'); render(); toast('Saved'); }
     catch (err) { toast(err.message, true); }
     return;
   }
@@ -1199,6 +1500,17 @@ document.addEventListener('change', async e => {
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);
+  if (e.target.dataset.receipt && e.target.files[0]) {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    try {
+      const r = await fetch(`/api/filing/${S.instCid}/receipt?step=${e.target.dataset.receipt}`, { method: 'POST', body: fd });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.instData = j; render(); toast('Receipt saved');
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.id === 'revStep') {
+    closeModal(); instReview(e.target.value).catch(err => toast(err.message, true));
+  }
   if (e.target.id === 'coSheet' && e.target.files[0]) coUpload('datasheet', e.target.files[0]);
 });
 $('#loginForm').addEventListener('submit', e => { e.preventDefault(); login($('#u').value, $('#p').value); });
@@ -1239,7 +1551,7 @@ function liveMode() {
   S.live = true;
   $$('.whoami, [data-demo], .railfoot .hint').forEach(el => { el.hidden = true; }); // hidden, not removed: counters still update them
   $('#u').value = ''; $('#p').value = '';
-  if (['run', 'numbers', 'calls', 'docs'].includes(S.view)) S.view = 'reg';
+  if (['run', 'numbers', 'calls', 'docs'].includes(S.view)) S.view = 'today';
 }
 
 (function init() {

@@ -15,14 +15,22 @@ from .config import SHOTS, EXPORTS, DOCS
 def reset(wipe_files=True):
     for t in ("runs", "run_steps", "run_events", "holds", "screenshots",
               "portal_applications", "portal_requests", "portal_sessions", "sms",
-              "closeout", "sign_requests", "approvals", "msedcl_uploads", "pmsg_vendor"):
+              "closeout", "sign_requests", "approvals", "msedcl_uploads", "pmsg_vendor",
+              "field_links", "serial_reads", "portal_status", "dcr_certs", "dcr_stock", "js_applications",
+              "pmsg_install"):
         db.ex(f"DELETE FROM {t}")
     # the company signature is one-time setup and survives a reset; customers' do not
     db.ex("DELETE FROM signatures WHERE role='consumer'")
-    db.ex("DELETE FROM documents WHERE kind LIKE 'co_%'")
+    db.ex("DELETE FROM documents WHERE kind LIKE 'co_%' OR kind LIKE 'rc_%' OR kind='loan_approval'")
     db.seed_closeout()
-    from . import closeout
+    # photos and receipts made during a rehearsal go; demo_assets puts the seeded site photo back
+    for d in DOCS.iterdir() if DOCS.exists() else []:
+        for sub in ("labels", "receipts"):
+            shutil.rmtree(d / sub, ignore_errors=True)
+        (d / "site_photo.jpg").unlink(missing_ok=True)
+    from . import closeout, dcr
     closeout.demo_assets()
+    dcr.seed_stock()
     # customers added during a rehearsal go; seeded ones come back exactly as seeded
     ids = [c[0] for c in db.CUSTOMERS]
     nos = [p[0] for p in db.PORTAL_CONSUMERS]

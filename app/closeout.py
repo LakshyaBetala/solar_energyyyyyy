@@ -47,6 +47,7 @@ FIELDS = [  # key, label, group
     ("warranty", "Warranty, product + performance (years)", "Modules"),
     ("inverter_make", "Inverter make and model", "Inverter and meter"),
     ("inverter_kw", "Inverter rating (kW)", "Inverter and meter"),
+    ("inverter_qty", "No. of inverters", "Inverter and meter"),
     ("inverter_serial", "Inverter serial no.", "Inverter and meter"),
     ("inverter_year", "Inverter year of manufacture", "Inverter and meter"),
     ("meter_serial", "Generation meter serial no.", "Inverter and meter"),
@@ -54,11 +55,31 @@ FIELDS = [  # key, label, group
     ("earth_ohm", "Earth resistance (ohm)", "Earthing and protection"),
     ("lightning_arrester", "Lightning arrester installed", "Earthing and protection"),
     ("protection_checks", "All earthing and protection checks done", "Earthing and protection"),
+    # the site feasibility report the vendor files after the site visit (national portal)
+    ("location_type", "Type of location", "Site visit"),
+    ("roof_load_ok", "Roof has enough load bearing capacity", "Site visit"),
+    ("shadow_free", "Shadow-free roof available for the RTS", "Site visit"),
+    ("roof_area", "Shadow-free roof area (m²)", "Site visit"),
+    ("site_visited", "Vendor visited the site and did the assessment", "Site visit"),
+    ("visitor_name", "Vendor employee who visited the site", "Site visit"),
+    ("visitor_phone", "That employee's contact number", "Site visit"),
+    # Jan Samarth: the customer's own loan application; Solara only fills the basic details
+    ("loan", "Customer takes a bank loan (Jan Samarth)", "Loan"),
+    ("loan_bank", "Bank the customer prefers", "Loan"),
+    ("loan_ref", "Jan Samarth reference no.", "Loan"),
 ]
+CHOICES = {"phase": ("Single phase", "Three phase"), "location_type": ("Urban", "Rural"),
+           **{k: ("Yes", "No") for k in ("lightning_arrester", "protection_checks", "roof_load_ok",
+                                         "shadow_free", "site_visited", "loan")}}
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
 SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           # pre-installation milestones, stamped when each step is done
-          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at")
+          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at",
+          # post-registration filings (filing.py), each stamped when the owner submits it
+          "sfr_at", "loan_at", "field_at", "serials_at", "dcr_at", "dcr_dealer_wait",
+          "installation_at", "install_accepted_at", "paused_at", "paused_by", "paused_reason",
+          "approved_sfr", "approved_loan", "approved_dcr", "approved_installation",
+          "approved_registration", "approved_msedcl", "photo_source")
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,
@@ -80,6 +101,10 @@ DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, si
     ("datasheet", 5, "Brochure/Datasheet of PV modules and inverter", (),
      ("module_make", "inverter_make")),
     ("site_photo", 6, "Photo of installed PV system with Geo Co-ordinates", (), ("lat",)),
+    # for the national portal and the file, not MSEDCL uploads
+    ("quotation", None, "Quotation", ("vendor",), ("rts_cost",)),
+    ("qc_report", None, "Quality check report", ("vendor",),
+     PLANT + ("install_date", "module_serials", "inverter_serial", "earth_ohm", "protection_checks")),
 ]
 SPEC = {s[0]: s for s in DOCS_SPEC}
 
@@ -115,15 +140,26 @@ def invalidate(cid):
 
 def save(cid, values, user):
     c, d = data(cid)
-    d.update({k: str(v).strip() for k, v in values.items() if k in LABEL})
+    clean = {k: str(v if v is not None else "").strip() for k, v in values.items() if k in LABEL}
+    for k, v in clean.items():
+        if v and k in CHOICES and v not in CHOICES[k]:
+            raise ValueError(f"{LABEL[k]}: choose {' or '.join(CHOICES[k])}")
+    d.update(clean)
     _store(cid, d, user)
     invalidate(cid)
     return d
 
 
 def mark(cid, user, **system):
+    """Stamp system values. None removes one (a step reopened, a customer resumed)."""
     c, d = data(cid)
-    d.update({k: v for k, v in system.items() if k in SYSTEM})
+    for k, v in system.items():
+        if k not in SYSTEM:
+            continue
+        if v is None:
+            d.pop(k, None)
+        else:
+            d[k] = v
     _store(cid, d, user)
 
 
@@ -393,7 +429,41 @@ applicable regulations of the Maharashtra Electricity Regulatory Commission.</li
     return _page("Net metering connection agreement", "Rooftop solar system", body, d)
 
 
-TEMPLATES = {"agreement": t_agreement, "wcr": t_wcr, "annexure1": t_annexure1,
+def t_quotation(c, d, sig, V):
+    cap = capacity(d) or c["kw"]
+    rows = [("Customer", c["aadhaar_name"] or c["name"]), ("Consumer number", c["consumer_no"]),
+            ("Site address", f"{c['address']}, {c['pin']}"),
+            ("Proposed rooftop solar capacity", f"{cap} kW"),
+            ("PV modules", f"{d.get('module_make') or 'DCR, ALMM-listed modules'}"
+                           + (f", {d['module_count']} x {d['module_wp']} Wp" if d.get("module_count") else "")),
+            ("Inverter", d.get("inverter_make") or "Grid-tied inverter, MNRE-compliant"),
+            ("Scheme", "PM Surya Ghar: Muft Bijli Yojana"),
+            ("Total cost of RTS installation, inclusive of taxes and all other charges", f"Rs {d.get('rts_cost')}")]
+    body = f"""{_rows(rows)}
+<p>The price covers design, supply, installation, commissioning, net-metering documentation and five
+years of comprehensive maintenance, as per the scheme guidelines. The central financial assistance
+(subsidy) is credited by the scheme to the customer's bank account after commissioning.</p>
+<div class="sigs">{_sig(f"For {e(V['name'])}", "vendor", sig)}<div class="sig"></div></div>"""
+    return _page("Quotation", f"Rooftop solar system &middot; {e(_date(d.get('agreement_date')) or '')}", body, d)
+
+
+def t_qc_report(c, d, sig, V):
+    sn = serials(d)
+    rows = [("Customer", c["aadhaar_name"] or c["name"]), ("Consumer number", c["consumer_no"]),
+            ("Date of installation", _date(d.get("install_date"))),
+            ("Modules", f"{d.get('module_make')} {d.get('almm_model')}, {len(sn)} x {d.get('module_wp')} Wp"),
+            ("Module serial numbers checked against the labels", f"{len(sn)} of {d.get('module_count')}"),
+            ("Inverter", f"{d.get('inverter_make')}, serial {d.get('inverter_serial')}"),
+            ("Structure and fasteners", "Checked"), ("DC and AC cabling, conduits, MC4 connectors", "Checked"),
+            ("Earth resistance", f"{d.get('earth_ohm')} ohm ({'below 5 ohm' if _below5(d.get('earth_ohm')) else 'CHECK'})"),
+            ("Lightning arrester", d.get("lightning_arrester")),
+            ("All earthing and protection checks", d.get("protection_checks"))]
+    body = f"""{_rows(rows)}
+<div class="sigs">{_sig(f"Checked for {e(V['name'])}", "vendor", sig)}<div class="sig"></div></div>"""
+    return _page("Quality check report", "Rooftop solar installation", body, d)
+
+
+TEMPLATES = {"quotation": t_quotation, "qc_report": t_qc_report, "agreement": t_agreement, "wcr": t_wcr, "annexure1": t_annexure1,
              "dcr_decl": t_dcr_decl, "net_agreement": t_net_agreement}
 
 
@@ -534,23 +604,70 @@ def gps(img):
     return round(deg(g[2], g.get(1, "N")), 6), round(deg(g[4], g.get(3, "E")), 6)
 
 
-def save_photo(cid, raw, user):
+def in_india(lat, lng):
+    return 6 <= lat <= 37.5 and 68 <= lng <= 97.5
+
+
+def jpeg_under(img, kb=MAX_UPLOAD_KB):
+    """Encode as JPEG small enough for any portal upload box (the strictest is 300 KB)."""
+    img = img.convert("RGB")
+    for side, q in ((1600, 80), (1400, 72), (1200, 65), (1000, 58), (800, 50)):
+        im = img.copy()
+        im.thumbnail((side, side))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=q, optimize=True)
+        if buf.tell() <= kb * 1024:
+            return buf.getvalue()
+    return buf.getvalue()
+
+
+def stamp(img, lat, lng, taken):
+    """Print the coordinates and time on the photo, as GPS-camera apps do: the inspector reads
+    them off the picture itself."""
+    from PIL import ImageDraw
+    img = img.convert("RGB")
+    img.thumbnail((1600, 1600))
+    dr = ImageDraw.Draw(img)
+    h = max(44, img.height // 11)
+    dr.rectangle([0, img.height - h, img.width, img.height], fill=(0, 0, 0))
+    txt = f"Lat {lat:.6f}  Long {lng:.6f}   {taken}"
+    try:
+        from PIL import ImageFont
+        font = ImageFont.load_default(size=max(14, h // 2 - 2))
+    except TypeError:  # older Pillow without sized default font
+        font = None
+    dr.text((14, img.height - h + h // 4), txt, fill=(255, 255, 255), font=font)
+    return img
+
+
+def save_photo(cid, raw, user, loc=None):
+    """The installed system's photo. GPS comes from the photo itself, or else from the phone's
+    location at the moment it was taken (the field page asks the browser for it), because many
+    phones strip GPS from photos they hand to a web page."""
     img = Image.open(io.BytesIO(raw))
-    loc = gps(img)
-    if not loc:
+    got, source = gps(img), "photo GPS"
+    if not got and loc:
+        try:
+            lat, lng, acc = float(loc[0]), float(loc[1]), float(loc[2] if len(loc) > 2 else 0)
+        except (TypeError, ValueError):
+            raise ValueError("the phone's location could not be read")
+        if acc > 150:
+            raise ValueError(f"the phone's location is only accurate to {acc:.0f} m. Step outside, "
+                             "wait a few seconds and take the photo again")
+        got, source = (round(lat, 6), round(lng, 6)), f"phone location (±{acc:.0f} m)"
+    if not got:
         raise ValueError("this photo has no GPS location. Take it with location turned on in "
                          "the phone camera, and send the original file, not a WhatsApp copy")
-    taken = img.getexif().get(306) or ""  # DateTime
-    img = img.convert("RGB")
-    img.thumbnail((1400, 1400))
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=72, optimize=True)
+    if not in_india(*got):
+        raise ValueError(f"the location {got[0]}, {got[1]} is not in India; check the phone's GPS")
+    taken = str(img.getexif().get(306) or datetime.now().strftime("%Y:%m:%d %H:%M:%S"))  # DateTime
+    blob = jpeg_under(stamp(img, got[0], got[1], taken))
     path = DOCS / cid / "site_photo.jpg"
     path.parent.mkdir(parents=True, exist_ok=True)
-    vault.write(path, buf.getvalue())
-    mark(cid, user, lat=f"{loc[0]}", lng=f"{loc[1]}", photo_taken=str(taken))
+    vault.write(path, blob)
+    mark(cid, user, lat=f"{got[0]}", lng=f"{got[1]}", photo_taken=taken, photo_source=source)
     invalidate(cid)
-    return loc
+    return got
 
 
 def save_datasheet(cid, raw):

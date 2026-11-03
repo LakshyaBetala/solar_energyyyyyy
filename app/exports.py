@@ -146,3 +146,117 @@ async def run_report_pdf(run_id):
                        header_template="<div></div>")
         await b.close()
     return path
+
+
+# ------------------------------- milestone 2 and 3 -------------------------------
+async def html_pdf(markup, js=False):
+    """Render HTML to PDF with the network cut off: a portal page saved as a receipt can neither
+    run its scripts nor call home from our server."""
+    async with async_playwright() as p:
+        b = await p.chromium.launch()
+        ctx = await b.new_context(java_script_enabled=js)
+        page = await ctx.new_page()
+        await page.route("**/*", lambda route: route.continue_() if route.request.url.startswith("data:")
+                         else route.abort())
+        await page.set_content(markup, wait_until="load")
+        pdf = await page.pdf(format="A4", print_background=True,
+                             margin={"top": "10mm", "bottom": "10mm", "left": "8mm", "right": "8mm"})
+        await b.close()
+    return pdf
+
+
+def receipt_html(snapshot, title, cid, url):
+    """The page the owner had open when they marked a filing done, with a Solara header."""
+    import re
+    body = re.sub(r"(?is)<script.*?</script>|<iframe.*?</iframe>|<link[^>]*>", "", snapshot or "")[:3_000_000]
+    return (f"<!doctype html><meta charset='utf-8'><div style='font:11px Arial;border-bottom:2px solid #123A6B;"
+            f"padding:4px 0;margin-bottom:8px'>Solara receipt &middot; {html.escape(title)} &middot; {html.escape(cid)}"
+            f" &middot; {datetime.now():%d %b %Y %H:%M} &middot; {html.escape(url or '')}</div>{body}")
+
+
+def serials_xlsx(cid, serials):
+    """The DCR portal's upload format: panel numbers in column A from row 2."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Panels"
+    ws.append(["Panel Numbers"])
+    for s in serials:
+        ws.append([s])
+    ws.column_dimensions["A"].width = 26
+    path = EXPORTS / f"{cid}_dcr_panels.xlsx"
+    wb.save(path)
+    return path
+
+
+def _in_month(ts, month):
+    return bool(ts) and str(ts).startswith(month)
+
+
+def month_rows(month):
+    from . import closeout, tracker
+    steps = [("docs_at", "Documents in"), ("registered_at", "Registered"), ("accepted_at", "Accepted by vendor"),
+             ("agreement_uploaded_at", "Agreement uploaded"), ("sfr_at", "Feasibility report"),
+             ("loan_at", "Loan applied"), ("field_at", "Field photos"), ("dcr_at", "DCR certificate"),
+             ("installation_at", "Installation filed"), ("install_accepted_at", "Customer accepted"),
+             ("msedcl_uploaded_at", "On MSEDCL")]
+    customers, filed = [], []
+    for c in db.q("SELECT id FROM customers WHERE workflow='rooftop_registration' ORDER BY id"):
+        cust, d = closeout.data(c["id"])
+        t = tracker.timeline(c["id"])
+        p = t["portal"]
+        mins = lambda a, b: round((datetime.fromisoformat(d[b]) - datetime.fromisoformat(d[a])).total_seconds() / 60, 1) \
+            if d.get(a) and d.get(b) else None
+        customers.append([cust["id"], cust["name"], cust["consumer_no"], cust["application_no"] or "-", cust["kw"],
+                          t["current_name"], p["status"] if p else "-", (p["seen_at"] or "").replace("T", " ") if p else "-",
+                          *[(d.get(k) or "").replace("T", " ") for k, _ in steps],
+                          mins("docs_at", "accepted_at"), mins("field_at", "msedcl_uploaded_at"),
+                          "; ".join(t["problems"]) or "-"])
+        for k, label in steps:
+            if _in_month(d.get(k), month):
+                filed.append([d[k].replace("T", " "), cust["id"], cust["name"], label])
+    filed.sort()
+    head = ["Ref", "Customer", "Consumer no.", "Application no.", "kW", "Stage", "Portal status", "Portal seen",
+            *[label for _, label in steps], "Docs to accepted (min)", "Post-installation (min)", "Check"]
+    return head, customers, filed
+
+
+def month_xlsx(month):
+    head, customers, filed = month_rows(month)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Customers"
+    _sheet(ws, head, customers, [10, 26, 15, 22, 6, 20, 28, 17] + [17] * 11 + [12, 12, 40])
+    ws2 = wb.create_sheet(f"Filed {month}")
+    _sheet(ws2, ["When", "Ref", "Customer", "Step"], filed, [20, 10, 28, 24])
+    ws3 = wb.create_sheet("Audit")
+    _sheet(ws3, ["Timestamp", "Actor", "Role", "Action", "Target", "Detail"],
+           [[a["ts"].replace("T", " "), a["actor"], a["role"], a["action"], a["target"], a["detail"]]
+            for a in db.q("SELECT * FROM audit WHERE ts LIKE ? ORDER BY id", (month + "%",))],
+           [20, 14, 12, 34, 14, 60])
+    path = EXPORTS / f"solara_{month}.xlsx"
+    wb.save(path)
+    return path
+
+
+async def month_pdf(month):
+    head, customers, filed = month_rows(month)
+    esc = html.escape
+    from collections import Counter
+    stages = Counter(r[5] for r in customers)
+    avg = lambda i: (lambda v: f"{sum(v) / len(v):.1f} min" if v else "—")([r[i] for r in customers if r[i] is not None])
+    rows = "".join(f"<tr><td>{esc(str(r[0]))}</td><td>{esc(str(r[1]))}</td><td>{esc(str(r[3]))}</td>"
+                   f"<td>{esc(str(r[5]))}</td><td>{esc(str(r[6]))}</td><td>{esc(str(r[-1]))}</td></tr>" for r in customers)
+    frows = "".join(f"<tr><td>{esc(a)}</td><td>{esc(b)}</td><td>{esc(c)}</td><td>{esc(d)}</td></tr>" for a, b, c, d in filed)
+    markup = f"""<!doctype html><meta charset="utf-8"><style>body{{font:10.5px Arial;color:#1B2128}}h1{{font-size:18px;color:#123A6B}}
+h2{{font-size:11px;text-transform:uppercase;color:#123A6B;border-bottom:1.5px solid #123A6B;margin-top:16px}}
+table{{width:100%;border-collapse:collapse}}td,th{{padding:3px 5px;border-bottom:1px solid #E1E6EC;text-align:left}}
+th{{background:#EEF2F6}}.k{{display:inline-block;margin-right:22px}}.k b{{display:block;font-size:16px}}</style>
+<h1>Solara monthly report &middot; {esc(month)}</h1>
+<div><span class="k"><b>{len(customers)}</b>customers</span><span class="k"><b>{len(filed)}</b>steps filed this month</span>
+<span class="k"><b>{avg(-3)}</b>avg documents to accepted</span><span class="k"><b>{avg(-2)}</b>avg post-installation</span></div>
+<h2>By stage</h2><table>{''.join(f'<tr><td>{esc(k)}</td><td>{v}</td></tr>' for k, v in stages.most_common())}</table>
+<h2>Customers</h2><table><tr><th>Ref</th><th>Customer</th><th>Application</th><th>Stage</th><th>Portal status</th><th>Check</th></tr>{rows}</table>
+<h2>Filed this month</h2><table><tr><th>When</th><th>Ref</th><th>Customer</th><th>Step</th></tr>{frows or '<tr><td colspan=4>None</td></tr>'}</table>"""
+    path = EXPORTS / f"solara_{month}.pdf"
+    path.write_bytes(await html_pdf(markup))
+    return path

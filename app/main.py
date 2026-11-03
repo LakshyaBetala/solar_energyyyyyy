@@ -6,7 +6,7 @@ from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HT
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
-               msedcl, pmsg, registration, reset as resetmod)
+               msedcl, pmsg, registration, filing, field, tracker, dcr, jansamarth, reset as resetmod)
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
 
@@ -16,6 +16,9 @@ app.include_router(discom.router)
 app.include_router(esign.router)
 app.include_router(msedcl.router)
 app.include_router(pmsg.router)
+app.include_router(field.router)
+app.include_router(dcr.router)
+app.include_router(jansamarth.router)
 
 
 @app.on_event("startup")
@@ -47,6 +50,7 @@ async def startup():
     if not db.q("SELECT 1 FROM closeout LIMIT 1"):
         db.seed_closeout()
     closeout.demo_assets()
+    dcr.seed_stock()
     print(f"\n  Solara ready -> http://127.0.0.1:8900   (portal sandbox at {PORTAL_URL})")
     print("  sign in: r.deshmukh / s.kale / a.more   password: demo\n")
 
@@ -527,12 +531,16 @@ def closeout_get(cid: str, user=Depends(current)):
             "docs": [{**s, "bytes": made.get(s["key"])} for s in closeout.status(cid)],
             "capacity": closeout.capacity(d), "serial_count": len(closeout.serials(d)),
             "consumer_signature": bool(closeout.signature("consumer", cid)),
-            "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs}
+            "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs, "portals": portals(),
+            "choices": closeout.CHOICES}
 
 
 @app.put("/api/closeout/{cid}")
 def closeout_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
-    closeout.save(_cid(cid), body, user["username"])
+    try:
+        closeout.save(_cid(cid), body, user["username"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
     db.audit(user["username"], user["role"], "Updated close-out details", cid,
              ", ".join(sorted(k for k in body if k in closeout.LABEL))[:200])
     return closeout_get(cid, user)
@@ -723,10 +731,20 @@ def copilot_key(user=Depends(need("operator"))):
     return {"key": key}
 
 
+PICK = {"sfr": ("sfr",), "loan": ("loan",), "dcr": ("dcr", "dealer"), "installation": ("installation", "details")}
+
+
 @app.get("/api/copilot/pending")
-def copilot_pending(user=Depends(copilot_user)):
-    """Customers ready to be registered: the co-pilot offers these on a blank portal form."""
+def copilot_pending(step: str = "", user=Depends(copilot_user)):
+    """Customers the co-pilot offers on a form that does not say whose it is: for a registration
+    form, those ready to register; for a milestone 2 form, those whose next step it is."""
     out = []
+    if step in PICK:
+        for r in filing.listing():
+            if r["next"]["act"] in PICK[step] and not r["paused"]:
+                c = db.one("SELECT consumer_no FROM customers WHERE id=?", (r["id"],))
+                out.append({"id": r["id"], "name": r["name"], "consumer_no": c["consumer_no"], "next": r["next"]["label"]})
+        return out
     for r in _pre_install():
         c = db.one("SELECT id, name, consumer_no, application_no FROM customers WHERE id=?", (r["id"],))
         if c["consumer_no"] and not c["application_no"]:
@@ -766,21 +784,48 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in registration.values(cid).items() if v},
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
-                                             "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}
+                                             "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]
+                    + (["site_photo"] if (DOCS / cid / "site_photo.jpg").exists() else []),
+            "paused": {"by": d.get("paused_by"), "reason": d.get("paused_reason")} if d.get("paused_at") else None,
+            "approvals": {k: filing.review(cid, k)["approval"] for k in filing.FORMS},
+            "done": {k: bool(d.get(v)) for k, v in (("sfr", "sfr_at"), ("loan", "loan_at"), ("installation", "installation_at"),
+                                                  ("dcr", "dcr_cert_no"), ("agreement_uploaded", "agreement_uploaded_at"))}}
 
 
 @app.get("/api/copilot/doc/{cid}/{kind}")
 def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
     """A customer's own document (bill, Aadhaar...), for a portal's upload box."""
-    d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
-    if not d or kind not in DOC_KINDS:
+    if kind == "site_photo":
+        p = DOCS / _cid(cid) / "site_photo.jpg"
+        if not p.exists():
+            raise HTTPException(404, "no site photo yet")
+        d = {"path": str(p), "filename": f"{cid}_plant_photo_geotagged.jpg"}
+    else:
+        d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
+    if not d or (kind not in DOC_KINDS and kind != "site_photo"):
         raise HTTPException(404, "no such document on file")
-    blob = vault.read(Path(d["path"]))
+    blob = portal_sized(vault.read(Path(d["path"])))
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
-    kind_type = "application/pdf" if blob.startswith(b"%PDF") else \
-        "image/png" if blob.startswith(b"\x89PNG") else "image/jpeg"
-    return Response(blob, media_type=kind_type,
-                    headers={"Content-Disposition": f'attachment; filename="{d["filename"]}"'})
+    pdf = blob.startswith(b"%PDF")
+    name = Path(d["filename"]).stem + (".pdf" if pdf else ".jpg")
+    return Response(blob, media_type="application/pdf" if pdf else "image/jpeg",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+def portal_sized(blob):
+    """Every file the co-pilot hands a portal fits the strictest upload box seen (300 KB): photos
+    are re-encoded as JPEG, PDFs re-rendered only if they are over."""
+    if blob.startswith(b"%PDF"):
+        try:
+            return closeout.fit(blob)
+        except ValueError:
+            return blob
+    import io
+    from PIL import Image
+    try:
+        return closeout.jpeg_under(Image.open(io.BytesIO(blob)))
+    except Exception:
+        return blob
 
 
 @app.get("/api/copilot/file/{cid}/{key}")
@@ -793,20 +838,78 @@ def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
                     headers={"Content-Disposition": f'attachment; filename="{cid}_{key}.pdf"'})
 
 
+async def save_receipt(cid, step, snapshot, url, user):
+    """Keep what the portal showed when the owner marked a filing done, as a PDF in the customer's file."""
+    if not snapshot:
+        return None
+    pdf = closeout.fit(await exports.html_pdf(exports.receipt_html(snapshot, filing.STEP_LABEL.get(step, step), cid, url)))
+    p = DOCS / cid / "receipts" / f"{step}_{datetime.now():%Y%m%d%H%M%S}.pdf"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    vault.write(p, pdf)
+    save_doc(cid, "rc_" + step, p, len(pdf))
+    db.audit(user["username"], user["role"], "Saved portal receipt", cid, f"{step}, {len(pdf) // 1024} KB")
+    return len(pdf)
+
+
+def save_doc(cid, kind, p, size):
+    db.ex("DELETE FROM documents WHERE customer_id=? AND kind=?", (cid, kind))
+    db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
+          (cid, kind, p.name, str(p), size, db.now()))
+
+
 @app.post("/api/copilot/report")
-def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
+async def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
-    if body.get("event") in ("app_no", "agreement_uploaded"):
+    ev = body.get("event")
+    if ev in ("app_no", "agreement_uploaded"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
-        if body["event"] == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
+        if ev == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
             return {"ok": True, "already": True}
         try:
-            registration.mark(cid, "registered" if body["event"] == "app_no" else "agreement_uploaded",
+            registration.mark(cid, "registered" if ev == "app_no" else "agreement_uploaded",
                               user, body.get("app_no"))
         except ValueError as ex:
             raise HTTPException(400, str(ex))
+        if ev == "agreement_uploaded":
+            await save_receipt(cid, "agreement_uploaded", body.get("receipt"), body.get("page"), user)
+        return {"ok": True}
+    if ev in ("filed", "dcr_cert", "loan_ref"):
+        step = {"dcr_cert": "dcr", "loan_ref": "loan"}.get(ev, body.get("step"))
+        if step not in ("sfr", "installation", "loan", "dcr"):
+            raise HTTPException(400, "unknown step")
+        c, d = closeout.data(cid)
+        ref = (body.get("ref") or "").strip() or None
+        already = (step == "dcr" and d.get("dcr_cert_no") == (ref or "").upper()) or \
+                  (step == "loan" and d.get("loan_at") and d.get("loan_ref") == ref) or \
+                  (step in ("sfr", "installation") and d.get(f"{step}_at"))
+        if not already:
+            try:
+                filing.mark(cid, step, user, ref)
+            except ValueError as ex:
+                raise HTTPException(400, str(ex))
+        size = await save_receipt(cid, step, body.get("receipt"), body.get("page"), user)
+        if body.get("letter"):  # the bank's in-principle approval letter, fetched from the page by the co-pilot
+            import base64
+            blob = base64.b64decode(body["letter"])[:5 * 1024 * 1024]
+            if blob.startswith(b"%PDF"):
+                p = DOCS / cid / "loan_approval.pdf"
+                vault.write(p, blob)
+                save_doc(cid, "loan_approval", p, len(blob))
+                db.audit(user["username"], user["role"], "Saved loan approval letter", cid, ref or "")
+        return {"ok": True, "already": bool(already), "receipt_bytes": size}
+    if ev == "dealer_wait":
+        c, d = closeout.data(cid)
+        if not d.get("dcr_dealer_wait"):
+            closeout.mark(cid, user["username"], dcr_dealer_wait=db.now())
+            db.audit(user["username"], user["role"], "DCR: waiting for the dealer", cid, str(body.get("message", ""))[:200])
+        return {"ok": True}
+    if ev == "otp_waiting":
+        recent = db.one("SELECT 1 FROM audit WHERE action='Co-pilot waiting for OTP' AND target=? AND ts>?",
+                        (cid, (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")))
+        if not recent:
+            db.audit(user["username"], user["role"], "Co-pilot waiting for OTP", cid, str(body.get("page", ""))[:80])
         return {"ok": True}
     if body.get("portal") == "msedcl" and msedcl_keys <= uploaded:
         closeout.mark(cid, user["username"], msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
@@ -821,6 +924,228 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
         db.audit(user["username"], user["role"], "Co-pilot attached files", cid,
                  f"{body['attached']} file(s) on {body.get('portal')}; operator presses Upload")
     return {"ok": True}
+
+
+@app.post("/api/copilot/status")
+def copilot_status(body: dict = Body(...), user=Depends(copilot_user)):
+    """Rows the co-pilot read off a portal list the owner opened (read-only, no clicks)."""
+    portal = body.get("portal")
+    if portal not in ("pmsg", "msedcl"):
+        raise HTTPException(400, "unknown portal")
+    return tracker.capture(portal, body.get("rows") or [], user)
+
+
+@app.get("/api/copilot/xlsx/{cid}")
+def copilot_xlsx(cid: str, user=Depends(copilot_user)):
+    """The DCR portal's Excel of panel numbers, for its upload box."""
+    c, d = closeout.data(_cid(cid))
+    sn = closeout.serials(d)
+    if not sn:
+        raise HTTPException(404, "no confirmed serial numbers yet")
+    p = exports.serials_xlsx(cid, sn)
+    return Response(p.read_bytes(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{p.name}"'})
+
+
+# ------------------------------- milestone 2: filing -------------------------------
+FILING_GROUPS = ("Site visit", "Loan", "References", "Modules", "Inverter and meter", "Earthing and protection")
+FILING_EXTRA = ("phase",)  # from the Connection group, asked on the installation form
+
+
+@app.get("/api/filing")
+def filing_list(user=Depends(current)):
+    return filing.listing()
+
+
+@app.get("/api/filing/{cid}")
+def filing_get(cid: str, user=Depends(current)):
+    c, d = closeout.data(_cid(cid))
+    return {"customer": c, "data": d, **filing.status(cid), "timeline": tracker.timeline(cid),
+            "fields": [{"key": k, "label": lbl, "group": g} for k, lbl, g in closeout.FIELDS if g in FILING_GROUPS or k in FILING_EXTRA],
+            "choices": closeout.CHOICES, "portals": portals(), "accept_text": filing.accept_text(cid),
+            "checks": [{"sev": s, "text": t} for s, t in closeout.checks(cid, d)],
+            "documents": db.q("SELECT kind, filename, bytes FROM documents WHERE customer_id=? AND kind IN "
+                              "('roof','loan_approval')", (cid,)),
+            "vendor_signature": bool(closeout.signature("vendor"))}
+
+
+@app.put("/api/filing/{cid}")
+def filing_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    keys = {k for k, _, g in closeout.FIELDS if g in FILING_GROUPS or k in FILING_EXTRA}
+    vals = {k: v for k, v in body.items() if k in keys}
+    if "visitor_phone" in vals and vals["visitor_phone"]:
+        import re
+        vals["visitor_phone"] = re.sub(r"\D", "", vals["visitor_phone"])[-10:]
+        if len(vals["visitor_phone"]) != 10:
+            raise HTTPException(400, "the contact number has 10 digits")
+    if vals.get("roof_area"):
+        try:
+            if float(vals["roof_area"]) <= 0:
+                raise ValueError
+        except ValueError:
+            raise HTTPException(400, "roof area is a number of square metres, e.g. 42")
+    try:
+        closeout.save(_cid(cid), vals, user["username"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    db.audit(user["username"], user["role"], "Updated filing details", cid, ", ".join(sorted(vals))[:200])
+    return filing_get(cid, user)
+
+
+def _act(fn):
+    try:
+        return fn()
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    except KeyError as ex:
+        raise HTTPException(404, str(ex))
+
+
+@app.post("/api/filing/{cid}/mark")
+def filing_mark(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _act(lambda: filing.mark(_cid(cid), body.get("step"), user, body.get("ref")))
+    return filing_get(cid, user)
+
+
+@app.post("/api/filing/{cid}/retry")
+def filing_retry(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _act(lambda: filing.retry(_cid(cid), body.get("step"), user, body.get("reason")))
+    return filing_get(cid, user)
+
+
+@app.post("/api/filing/{cid}/pause")
+def filing_pause(cid: str, body: dict = Body(default={}), user=Depends(need("operator"))):
+    _act(lambda: filing.pause(_cid(cid), user, body.get("reason")))
+    return filing_get(cid, user)
+
+
+@app.post("/api/filing/{cid}/resume")
+def filing_resume(cid: str, user=Depends(need("operator"))):
+    filing.resume(_cid(cid), user)
+    return filing_get(cid, user)
+
+
+@app.get("/api/filing/{cid}/review")
+def filing_review(cid: str, step: str, user=Depends(current)):
+    return _act(lambda: filing.review(_cid(cid), step))
+
+
+@app.post("/api/filing/{cid}/approve")
+def filing_approve(cid: str, body: dict = Body(...), user=Depends(need("supervisor"))):
+    return _act(lambda: filing.approve(_cid(cid), body.get("step"), user))
+
+
+@app.post("/api/filing/{cid}/field-link")
+def filing_field_link(cid: str, request: Request, user=Depends(need("operator"))):
+    token = field.create_link(_cid(cid), user)
+    url = str(request.base_url).rstrip("/") + f"/field/{token}"
+    return {"url": url, **field.share(cid, url)}
+
+
+@app.post("/api/filing/{cid}/serial/{rid}")
+def filing_serial(cid: str, rid: int, body: dict = Body(...), user=Depends(need("operator"))):
+    _act(lambda: field.decide(_cid(cid), rid, body.get("action"), user, body.get("serial")))
+    return filing_get(cid, user)
+
+
+@app.post("/api/filing/{cid}/serials/confirm-all")
+def filing_serials_all(cid: str, user=Depends(need("operator"))):
+    """One tap for every barcode read that has no problem; repeats and unreadable ones stay."""
+    for r in field.reads(_cid(cid)):
+        if r["status"] == "read" and r["source"] == "barcode":
+            _act(lambda: field.decide(cid, r["id"], "confirm", user))
+    return filing_get(cid, user)
+
+
+@app.get("/api/field/{cid}/photo/{rid}.jpg")
+def field_photo_dash(cid: str, rid: int, user=Depends(current)):
+    return field.thumb(_cid(cid), rid)
+
+
+@app.post("/api/filing/{cid}/receipt")
+async def filing_receipt(cid: str, step: str, file: UploadFile = File(...), user=Depends(need("operator"))):
+    """Fallback: the owner saves a portal acknowledgement by hand (PDF or screenshot)."""
+    if step not in filing.STEP_LABEL:
+        raise HTTPException(400, "unknown step")
+    blob = await file.read()
+    if blob.startswith(b"%PDF"):
+        pdf = closeout.fit(blob)
+    else:
+        import io
+        from PIL import Image
+        try:
+            im = Image.open(io.BytesIO(blob)).convert("RGB")
+        except Exception:
+            raise HTTPException(400, "upload a PDF or a screenshot")
+        buf = io.BytesIO()
+        im.save(buf, "PDF", resolution=110)
+        pdf = closeout.fit(buf.getvalue())
+    p = DOCS / _cid(cid) / "receipts" / f"{step}_{datetime.now():%Y%m%d%H%M%S}.pdf"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    vault.write(p, pdf)
+    save_doc(cid, "rc_" + step, p, len(pdf))
+    db.audit(user["username"], user["role"], "Saved portal receipt", cid, f"{step}, uploaded by hand")
+    return filing_get(cid, user)
+
+
+@app.get("/files/receipt/{cid}/{kind}")
+def receipt_file(cid: str, kind: str, user=Depends(current)):
+    k = kind if kind == "loan_approval" else "rc_" + kind
+    d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), k))
+    if not d:
+        raise HTTPException(404, "no receipt")
+    db.audit(user["username"], user["role"], "Viewed receipt", cid, kind)
+    return Response(vault.read(Path(d["path"])), media_type="application/pdf",
+                    headers={"Cache-Control": "private", "Content-Disposition": f'inline; filename="{d["filename"]}"'})
+
+
+@app.get("/api/filing/{cid}/dcr.xlsx")
+def filing_xlsx(cid: str, user=Depends(current)):
+    c, d = closeout.data(_cid(cid))
+    sn = closeout.serials(d)
+    if not sn:
+        raise HTTPException(404, "no confirmed serial numbers yet")
+    p = exports.serials_xlsx(cid, sn)
+    return FileResponse(p, filename=p.name)
+
+
+# ------------------------------- milestone 3: dashboard -------------------------------
+@app.get("/api/today")
+def today_list(user=Depends(current)):
+    return tracker.today()
+
+
+@app.get("/api/board")
+def board(user=Depends(current)):
+    return {"rows": tracker.board(), "stages": [{"key": k, "name": n, "who": w} for k, n, w in tracker.STAGES]}
+
+
+@app.get("/api/tracker/{cid}")
+def tracker_get(cid: str, user=Depends(current)):
+    return tracker.timeline(_cid(cid))
+
+
+def _month(month):
+    import re
+    month = month or datetime.now().strftime("%Y-%m")
+    if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", month):
+        raise HTTPException(400, "month looks like 2026-11")
+    return month
+
+
+@app.get("/api/exports/month.xlsx")
+def month_xlsx(month: str = "", user=Depends(current)):
+    p = exports.month_xlsx(_month(month))
+    db.audit(user["username"], user["role"], "Exported monthly workbook", "", p.name)
+    return FileResponse(p, filename=p.name,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/api/exports/month.pdf")
+async def month_pdf(month: str = "", user=Depends(current)):
+    p = await exports.month_pdf(_month(month))
+    db.audit(user["username"], user["role"], "Exported monthly report", "", p.name)
+    return FileResponse(p, filename=p.name, media_type="application/pdf")
 
 
 # ------------------------------- health -------------------------------

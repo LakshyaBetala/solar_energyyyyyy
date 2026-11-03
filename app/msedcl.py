@@ -21,6 +21,25 @@ APPS = [("79435901", "170031277450", 24), ("79436117", "170036002985", 48),
         ("79434410", "170024518893", 134)]
 SESSIONS = set()
 
+
+def apps():
+    """The seeded list, plus every customer whose record carries an MSEDCL application ID (the
+    DISCOM creates one per rooftop application), pending since installation."""
+    import json
+    from datetime import date
+    out, seen = list(APPS), {a[0] for a in APPS}
+    for r in db.q("SELECT c.consumer_no, o.data FROM closeout o JOIN customers c ON c.id=o.customer_id"):
+        d = json.loads(r["data"])
+        app_id = d.get("msedcl_app_id")
+        if app_id and app_id not in seen and r["consumer_no"] and consumer(r["consumer_no"]):
+            try:
+                days = (date.today() - date.fromisoformat(d.get("install_date", ""))).days
+            except ValueError:
+                days = 0
+            out.append((app_id, r["consumer_no"], max(days, 0)))
+            seen.add(app_id)
+    return out
+
 CSS = """body{margin:0;font:12px Tahoma,Arial,sans-serif;color:#222}
 .top{display:flex;align-items:center;gap:14px;padding:6px 14px;border-bottom:3px solid #1A5DA8}
 .top b{color:#1A3E73;font-size:14px}.top .v{font-size:11px;color:#1A3E73;text-align:center;flex:1}
@@ -78,7 +97,7 @@ def listing(request: Request):
     if not authed(request):
         return RedirectResponse("/msedcl/", 303)
     rows = ""
-    for app_id, no, days in APPS:
+    for app_id, no, days in apps():
         pc = consumer(no)
         n = db.one("SELECT COUNT(DISTINCT slot) k FROM msedcl_uploads WHERE application_id=?",
                    (app_id,))["k"]
@@ -96,7 +115,7 @@ def listing(request: Request):
 def upload_get(request: Request, app: str, error: str = ""):
     if not authed(request):
         return RedirectResponse("/msedcl/", 303)
-    hit = next((a for a in APPS if a[0] == app), None)
+    hit = next((a for a in apps() if a[0] == app), None)
     if not hit:
         return shell('<h2>Application not found</h2>')
     pc = consumer(hit[1])

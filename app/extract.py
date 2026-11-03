@@ -374,6 +374,8 @@ PROMPTS = {
              "(number, kW), meter_no, bill_mobile, address, pin, avg_units"),
     "passbook": ("the first page of an Indian bank passbook or a cancelled cheque",
                  "account_holder, account_no, ifsc"),
+    "serial": ("a photo of the label on a solar PV module or inverter", "serial (the serial number, "
+               "often after S/N or Serial No.)"),
 }
 
 

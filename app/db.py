@@ -113,6 +113,30 @@ CREATE TABLE IF NOT EXISTS pmsg_vendor(
 -- MSEDCL rooftop portal sandbox: files received per application and document slot
 CREATE TABLE IF NOT EXISTS msedcl_uploads(
   application_id TEXT, slot INTEGER, filename TEXT, bytes INTEGER, ts TEXT);
+
+-- Field team's phone page: one link per customer, for photos of the installation and labels
+CREATE TABLE IF NOT EXISTS field_links(
+  token TEXT PRIMARY KEY, customer_id TEXT, created_by TEXT, created_at TEXT, expires_at TEXT);
+-- Serial numbers read off label photos; nothing reaches a document until a person confirms it
+CREATE TABLE IF NOT EXISTS serial_reads(
+  id INTEGER PRIMARY KEY, customer_id TEXT, kind TEXT, serial TEXT, source TEXT, photo TEXT,
+  status TEXT, note TEXT, ts TEXT, confirmed_by TEXT);
+-- What a portal list showed for a customer the last time the owner opened it (read-only capture)
+CREATE TABLE IF NOT EXISTS portal_status(
+  customer_id TEXT, portal TEXT, ref TEXT, status TEXT, stage TEXT, seen_at TEXT, seen_by TEXT,
+  PRIMARY KEY(customer_id, portal));
+
+-- sandbox portals: DCR certificates issued, the dealer's panel credit, Jan Samarth applications
+CREATE TABLE IF NOT EXISTS dcr_stock(serial TEXT PRIMARY KEY, credited_at TEXT, used_by TEXT);
+CREATE TABLE IF NOT EXISTS dcr_certs(
+  cert_no TEXT PRIMARY KEY, application_no TEXT, customer_name TEXT, serials TEXT, invoice TEXT,
+  issued_at TEXT);
+CREATE TABLE IF NOT EXISTS js_applications(
+  ref TEXT PRIMARY KEY, consumer_no TEXT, applicant TEXT, data TEXT, bank TEXT, branch TEXT,
+  submitted_at TEXT);
+CREATE TABLE IF NOT EXISTS pmsg_install(
+  application_no TEXT PRIMARY KEY, sfr TEXT, sfr_at TEXT, install TEXT, install_at TEXT,
+  stage TEXT);
 """
 
 

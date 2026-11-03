@@ -16,7 +16,7 @@ from pypdf import PdfReader
 from playwright.async_api import async_playwright
 sys.path.insert(0, ".")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-from app import db  # noqa: E402
+from app import db, closeout  # noqa: E402
 
 BASE = "http://127.0.0.1:8900"
 EXT = Path(__file__).resolve().parent.parent / "extension"
@@ -150,7 +150,7 @@ def main_http():
     print("\n  -- the MSEDCL pack")
     out = {d["key"]: d for d in op.post(f"/api/closeout/{CID}/build").json()}
     sizes = {k: d["bytes"] for k, d in out.items()}
-    check("all seven documents generated", all(sizes.values()), str(sizes))
+    check("every document generated (agreement, six MSEDCL, quotation, QC report)", all(sizes.values()), str(sizes))
     check("every file is at or under 300 KB", all(v <= 300 * 1024 for v in sizes.values()),
           ", ".join(f"{k} {v // 1024}KB" for k, v in sizes.items()))
     wcr = op.get(f"/files/closeout/{CID}/wcr.pdf").content
@@ -265,8 +265,8 @@ async def main_ui():
         await pg.click("#coNext")
         await pg.wait_for_function("document.querySelector('#coNext').innerText.includes('Open MSEDCL')", timeout=60000)
         sizes = await pg.locator("td.mono:has-text('KB')").all_inner_texts()
-        check("all seven documents show their size, every one under 300 KB",
-              len(sizes) == 7 and all(int(s.split()[0]) <= 300 for s in sizes), ", ".join(sizes))
+        check("every document shows its size, every one under 300 KB",
+              len(sizes) == len(closeout.DOCS_SPEC) and all(int(s.split()[0]) <= 300 for s in sizes), ", ".join(sizes))
         await pg.click("#coKey")
         await pg.wait_for_selector("#mbody input[value^='sk_']")
         check("connect co-pilot shows a key once", True)

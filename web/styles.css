@@ -438,3 +438,27 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1px dashed var(--line)
 #regRead .fld.review{grid-column:1/-1}
 #regRead .fld .fv{font-size:12px}
 [data-demo][hidden],.whoami[hidden],.railfoot .hint[hidden]{display:none!important}
+
+/* milestone 2 and 3: today, installation, stage board */
+.dots{display:flex;gap:3px;align-items:center}
+.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.dots i.done{background:var(--teal)}
+.dots i.current{background:var(--amber);box-shadow:0 0 0 2px var(--amber-soft)}
+.dots i.rejected{background:var(--bad)}
+.tline{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px}
+.tline div{border-top:3px solid var(--line);padding-top:5px;font-size:10.5px;line-height:1.3;color:var(--fg-dim)}
+.tline div.done{border-color:var(--teal);color:var(--fg)}
+.tline div.current{border-color:var(--amber);color:var(--fg);font-weight:600}
+.tline div.rejected{border-color:var(--bad);color:var(--bad)}
+.tline small{display:block;color:var(--fg-faint);font-size:9.5px}
+.todo{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;
+  border-bottom:1px solid var(--line-soft)}
+.todo:last-child{border-bottom:0}
+.serials{display:grid;gap:6px}
+.serials .sr{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:10px;align-items:center;
+  padding:6px;border:1px solid var(--line-soft);border-radius:var(--r)}
+.serials img{width:72px;height:54px;object-fit:cover;border-radius:4px;background:var(--panel-2)}
+.controls{display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:1000px){.tline{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.colist .pill{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}
+.colist .pill{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}

@@ -60,3 +60,49 @@ def passbook_photo():
     buf = io.BytesIO()
     im.save(buf, "JPEG", quality=80)
     return buf.getvalue()
+
+
+def label_photo(serial, kind="module", code=True):
+    """A phone photo of a panel's (or inverter's) rating label: barcode of the serial, printed
+    text, slightly rotated, on the grey back sheet. Synthetic."""
+    import numpy as np
+    import zxingcpp
+    back = Image.new("RGB", (1200, 900), (128, 134, 140))
+    card = Image.new("RGB", (860, 520), (250, 250, 247))
+    d = ImageDraw.Draw(card)
+    d.text((30, 24), ("PV MODULE  550 Wp  MONO PERC (synthetic)" if kind == "module" else "GRID-TIE INVERTER 5 kW (synthetic)"),
+           fill=(0, 0, 0))
+    if code:
+        bc = zxingcpp.create_barcode(serial, zxingcpp.BarcodeFormat.Code128).to_image(scale=4)
+        card.paste(Image.fromarray(np.array(bc)).convert("RGB").resize((760, 170)), (50, 90))
+    d.text((50, 300), f"S/N: {serial}", fill=(0, 0, 0))
+    d.text((50, 340), "Voc 49.8V  Isc 14.0A  Made in India", fill=(0, 0, 0))
+    back.paste(card, (170, 190))
+    photo = back.rotate(4, fillcolor=(120, 126, 132)).filter(ImageFilter.GaussianBlur(0.6))
+    buf = io.BytesIO()
+    photo.save(buf, "JPEG", quality=82)
+    return buf.getvalue()
+
+
+def site_photo_without_gps():
+    """The installed system, as a phone hands it to a web page with GPS stripped."""
+    im = Image.new("RGB", (1600, 1200), (150, 190, 225))
+    d = ImageDraw.Draw(im)
+    d.polygon([(0, 700), (1600, 600), (1600, 1200), (0, 1200)], fill=(160, 105, 75))
+    for k in range(3):
+        d.rectangle([300 + k * 360, 640, 620 + k * 360, 800], fill=(29, 47, 85), outline=(200, 210, 220), width=5)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
+def browser_profile():
+    """A fresh Chrome profile with the password manager off: its "Save password?" prompt, shown
+    after a portal login, takes the tab's mouse input in a headless run."""
+    import json, tempfile
+    from pathlib import Path
+    d = Path(tempfile.mkdtemp())
+    (d / "Default").mkdir()
+    (d / "Default" / "Preferences").write_text(json.dumps(
+        {"credentials_enable_service": False, "profile": {"password_manager_enabled": False}}))
+    return str(d)
