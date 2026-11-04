@@ -512,13 +512,111 @@ async def main():
         check("no JavaScript errors in the dashboard", not errs, "; ".join(errs[:2]))
         await br.close()
 
+    # ============ K. loan approval letter, serial label photos ============
+    print("\n  -- K. loan approval letter and serial-label photos")
+    letter = lambda cid_, blob=None, name="approval.pdf", cl=sup: cl.post(f"/api/k2/{cid_}/document", params={"kind": "loan_approval"},
+                                                                         files={"file": (name, blob if blob is not None else pdf("Sanction letter (synthetic)"), "application/pdf")})
+    check("an approval letter cannot be added for a customer who is not taking a loan", letter(a).status_code == 400)
+    check("a corrupt approval letter is refused", letter(d, b"%PDF-1.4 junk").status_code == 400 and letter(d, b"").status_code == 400)
+    check("a viewer cannot add an approval letter", letter(d, cl=viewer).status_code == 403)
+    r = letter(d)
+    check("the approval letter is saved to the customer, encrypted", r.status_code == 200 and "loan_approval" in sup.get(f"/api/k2/{d}/loan").json()["documents"]
+          and b"Sanction letter" not in Path(db.one("SELECT path FROM documents WHERE customer_id=? AND kind='loan_approval'", (d,))["path"]).read_bytes())
+    check("saving the letter is in the loan's history and does not change its state",
+          any(h["step"] == "loan" and h["status"] == "note" for h in k2.history(d)) and st(d, "loan")["state"] == "filed")
+
+    k = new_customer(sup, "Kiran Labels", "170011100013")
+    put(sup, k, {"module_count": "4"})
+    for n in (1, 2):
+        r = sup.post(f"/api/k2/{k}/document", params={"kind": "serial_label"}, files={"file": (f"label{n}.jpg", fx.passbook_photo(), "image/jpeg")})
+        check(f"label photo {n} is accepted", r.status_code == 200)
+    check("several label photos are kept side by side", db.one("SELECT COUNT(*) n FROM documents WHERE customer_id=? AND kind='serial_label'", (k,))["n"] == 2)
+    check("a viewer cannot read photos", viewer.post(f"/api/k2/{k}/serials/read").status_code == 403)
+    from app import extract
+    r = sup.post(f"/api/k2/{k}/serials/read")
+    check("without the AI key the reading is refused and says how to carry on",
+          extract.llm_status()["enabled"] or (r.status_code == 400 and "AI key" in r.text), r.text[:80])
+    sent = []
+
+    async def fake(kind, st_, text=None, image=None):
+        sent.append(kind)
+        return ({"serial_numbers": {"value": ["SL100001", "SL100002"], "sure": True}} if len(sent) == 1 else
+                {"serial_numbers": {"value": ["sl 100003", "??", "SL100001"], "sure": False}})
+    res = await k2.read_serial_photos(k, "test", reader=fake)
+    rows = [s for p in res["photos"] for s in p["serials"]]
+    by = {s["value"]: s for s in rows}
+    check("only serial-label photos are sent to the model", sent == ["serial_label", "serial_label"])
+    check("clearly read serials are proposed as fine", by["SL100002"]["ok"] and res["expected"] == 4)
+    check("an unsure reading is proposed with a note to check it", not by["SL100003"]["ok"] and any("not sure" in n for n in by["SL100003"]["notes"]))
+    check("a reading that is not a serial number is flagged", any("does not look" in n for n in by["??"]["notes"]))
+    check("the same serial read from two photos is flagged", any("read twice" in n for n in [n for s in rows if s["value"] == "SL100001" for n in s["notes"]]))
+    check("nothing is saved until a person confirms", closeout.serials(closeout.data(k)[1]) == [])
+    big = lambda n: sup.post(f"/api/k2/{k}/serials/add", json={"serials": n})
+    r = big(["SL100001", "SL100002"])
+    check("confirmed serials are added", r.status_code == 200 and r.json()["serial_result"]["count"] == 2 and not r.json()["serial_result"]["matches"])
+    check("a serial confirmed twice is refused", big(["SL100002"]).status_code == 400)
+    check("a serial held by another customer is refused", big([sn("C1", 1)[0]]).status_code == 400)
+    check("an invalid value is refused and nothing changes", big(["??"]).status_code == 400 and len(closeout.serials(closeout.data(k)[1])) == 2)
+    r = big(["SL100003", "SL100004"])
+    check("when all four are confirmed the count matches the modules", r.status_code == 200 and r.json()["serial_result"]["matches"])
+    ph = db.one("SELECT id FROM documents WHERE customer_id=? AND kind='serial_label'", (k,))["id"]
+    check("the photo can be shown beside its reading, to signed-in users only",
+          sup.get(f"/files/k2/{k}/{ph}").status_code == 200 and anon.get(f"/files/k2/{k}/{ph}").status_code == 401
+          and sup.get(f"/files/k2/{g}/{ph}").status_code == 404)
+    check("the audit trail records the photo reading", db.one("SELECT 1 FROM audit WHERE action='Serial label photos read' AND target=?", (k,)))
+    async with async_playwright() as p:
+        br = await p.chromium.launch()
+        dash = await br.new_page(viewport={"width": 1440, "height": 950})
+        await dash.goto(BASE)
+        await dash.click('[data-as="r.deshmukh"]')
+        await dash.wait_for_selector("#runview", state="attached")
+        await dash.click('.navitem[data-view="k2"]')
+        await dash.wait_for_selector(f'[data-k2="{k}"]')
+        await dash.click(f'[data-k2="{k}"]')
+        await dash.wait_for_function("document.querySelector('.card.raise h3') && document.querySelector('.card.raise h3').innerText === 'Kiran Labels'")
+        check("the Filing screen offers label photos and reading them",
+              await dash.locator("#k2SerialRead").count() == 1 and "2 photo(s)" in await dash.inner_text("#k2Serials"))
+        check("reading is switched off when there is no AI key", extract.llm_status()["enabled"] or await dash.locator("#k2SerialRead[disabled]").count() == 1)
+        await dash.click(f'[data-k2="{d}"]')
+        await dash.wait_for_function("document.querySelector('.card.raise h3').innerText === 'Deepa Loan'")
+        check("the loan card shows the approval letter as on file", "on file" in await dash.inner_text("#k2Loan"))
+        # the confirmation dialog, with the model's answer faked so no key is needed
+        kk = new_customer(sup, "Kamal Confirm", "170011100014")
+        put(sup, kk, {"module_count": "4"})
+        sup.post(f"/api/k2/{kk}/document", params={"kind": "serial_label"}, files={"file": ("l.jpg", fx.passbook_photo(), "image/jpeg")})
+        doc_id = db.one("SELECT id FROM documents WHERE customer_id=? AND kind='serial_label'", (kk,))["id"]
+        await dash.route("**/api/k2/*/serials/read", lambda route: route.fulfill(json={"expected": 4, "saved": 0, "photos": [
+            {"doc_id": doc_id, "filename": "l.jpg", "serials": [{"value": "UI100001", "ok": True, "notes": []},
+                                                              {"value": "UI100002", "ok": False, "notes": ["the model was not sure; check it on the photo"]}]}]}))
+        await dash.click('.navitem[data-view="reports"]'); await dash.click('.navitem[data-view="k2"]')
+        await dash.wait_for_selector(f'[data-k2="{kk}"]')
+        await dash.click(f'[data-k2="{kk}"]')
+        await dash.wait_for_function("document.querySelector('.card.raise h3').innerText === 'Kamal Confirm'")
+        await dash.evaluate("S.llm.enabled = true; render()")
+        await dash.click("#k2SerialRead")
+        await dash.wait_for_selector("[data-k2sn]")
+        boxes = await dash.locator("[data-k2pick]").evaluate_all("els => els.map(e => e.checked)")
+        check("in the dialog a clear reading is ticked and an unsure one is not", boxes == [True, False], str(boxes))
+        check("the photo is shown beside what was read", await dash.locator("#mbody img").count() == 1)
+        await dash.fill("[data-k2sn] >> nth=0", "UI100001")
+        await dash.click("#k2PickGo")
+        await dash.wait_for_function("document.querySelector('#k2Serials').innerText.includes('1 on file')")
+        check("only the ticked serial was added", closeout.serials(closeout.data(kk)[1]) == ["UI100001"])
+        await br.close()
+
     # ============ J. rules in the code ============
     print("\n  -- J. rules in the code")
     src = "".join(re.sub(r"//.*", "", (EXT / n).read_text(encoding="utf-8")) for n in ("panel.js", "background.js"))
     check("the extension still never clicks, submits or ticks anything",
           not re.search(r"\.click\(|\.submit\(|requestSubmit|\.checked\s*=|dispatchEvent\(new (Mouse|Pointer)Event", src))
     server = "".join(Path(n).read_text(encoding="utf-8") for n in ("app/k2.py", "app/field.py", "app/k2portal.py"))
-    check("K2 code stores no password or OTP field and calls no AI model", not re.search(r"(?i)password|otp|anthropic|openai|llm_read", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", server)))
+    import inspect
+    fn = inspect.getsource(k2.read_serial_photos)
+    rest = server.replace(fn, "")
+    check("the only model call in K2 reads serial-label photos, never an identity document",
+          "extract.llm_read" in fn and "kind='serial_label'" in fn and "aadhaar" not in fn.lower()
+          and not re.search(r"(?i)anthropic|openai|llm_read", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", rest)))
+    check("K2 code stores no password or OTP field", not re.search(r"(?i)password|otp", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", server)))
 
     print("\n  reset:", client("r.deshmukh").post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

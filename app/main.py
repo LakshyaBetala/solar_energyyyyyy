@@ -1039,6 +1039,32 @@ def k2_serials(cid: str, body: dict = Body(...), user=Depends(need("operator")))
     return {**k2_get(cid, user), "serial_result": res}
 
 
+@app.post("/api/k2/{cid}/serials/read")
+async def k2_serials_read(cid: str, user=Depends(need("operator"))):
+    """Suggestions from the label photos. Nothing is saved until a person confirms each one."""
+    try:
+        return await k2.read_serial_photos(_k2_cid(cid), user["username"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.post("/api/k2/{cid}/serials/add")
+def k2_serials_add(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    res = _k2_do(k2.add_serials, _k2_cid(cid), body.get("serials") or [], user["username"])
+    return {**k2_get(cid, user), "serial_result": res}
+
+
+@app.get("/files/k2/{cid}/{doc_id}")
+def k2_photo(cid: str, doc_id: int, user=Depends(current)):
+    """A customer's serial-label photo, for showing beside what was read from it."""
+    d = db.one("SELECT * FROM documents WHERE id=? AND customer_id=? AND kind='serial_label'", (doc_id, _k2_cid(cid)))
+    if not d:
+        raise HTTPException(404, "no such photo")
+    blob = vault.read(Path(d["path"]))
+    return Response(blob, media_type="image/png" if blob.startswith(b"\x89PNG") else "image/jpeg",
+                    headers={"Cache-Control": "private"})
+
+
 @app.get("/api/k2/{cid}/serials.xlsx")
 def k2_serials_xlsx(cid: str, user=Depends(current)):
     if not closeout.serials(closeout.data(_k2_cid(cid))[1]):

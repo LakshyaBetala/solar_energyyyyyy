@@ -423,6 +423,10 @@ PROMPTS = {
              "(number, kW), meter_no, bill_mobile, address, pin, avg_units"),
     "passbook": ("the first page of an Indian bank passbook or a cancelled cheque",
                  "account_holder, account_no, ifsc"),
+    # a solar panel's rating label: no personal data on it. Never used for Aadhaar or any ID.
+    "serial_label": ("a photo of the rating label of one or more solar panels. Read only the "
+                     "serial number printed on each label", "serial_numbers (one value holding a list "
+                     "of the serial numbers, exactly as printed)"),
 }
 
 

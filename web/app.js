@@ -609,7 +609,10 @@ VIEWS.k2 = () => {
           <div class="row" style="gap:6px"><button class="btn sm go" id="k2SerialSave"${op}>Save typed list</button>
           <label class="btn sm">Upload Excel / CSV<input type="file" data-k2doc="serial_sheet" hidden${op}></label>
           ${g.serial_count ? `<a class="btn sm" href="/api/k2/${g.customer.id}/serials.xlsx">Download for DCR portal</a>` : ''}</div>
-          <div class="hint">All or nothing: a repeated serial, or one already on another customer, stops the whole list.</div></div></div>
+          <div class="row" style="gap:6px"><label class="btn sm">Add a label photo<input type="file" data-k2doc="serial_label" accept="image/*" hidden${op}></label>
+          <button class="btn sm" id="k2SerialRead"${op}${S.llm && S.llm.enabled ? '' : ' disabled title="Needs the AI key in .env"'}>Read label photos</button>
+          <span class="sub">${(g.field_checklist.find(x => x.key === 'serial_label') || {}).count || 0} photo(s)</span></div>
+          <div class="hint">All or nothing: a repeated serial, or one already on another customer, stops the whole list. Photo readings are only suggestions; you tick what is right.</div></div></div>
     </div>
 
     <div class="two">
@@ -621,7 +624,8 @@ VIEWS.k2 = () => {
       <div class="card" id="k2Loan"><div class="ch"><h3>Jan Samarth loan</h3></div><div class="cb" style="display:grid;gap:8px">
         <div class="hint">Set "Customer takes a bank loan" in Close-out. Solara prepares the details; the customer enters their own Aadhaar OTP and any bank login. Nothing is submitted for them.</div>
         <div class="row" style="gap:6px"><button class="btn sm" data-k2loan="submitted"${op}>Submitted</button><button class="btn sm" data-k2loan="sanctioned"${op}>Sanctioned</button>
-        <button class="btn sm" data-k2loan="rejected"${op}>Rejected</button><button class="btn sm" data-k2loan="withdrawn"${op}>Withdrawn</button></div></div></div>
+        <button class="btn sm" data-k2loan="rejected"${op}>Rejected</button><button class="btn sm" data-k2loan="withdrawn"${op}>Withdrawn</button></div>
+        ${upl('loan_approval', 'Approval letter (PDF or photo)')}</div></div>
     </div>
 
     <div class="card" id="k2History"><div class="ch"><h3>History and timings</h3></div><div class="cb">
@@ -1171,6 +1175,26 @@ document.addEventListener('click', async e => {
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
       closeModal(); S.k2Data = j; S.k2 = await api('/k2'); render(); toast('Receipt saved');
     } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'k2SerialRead') {
+    toast('Reading the photos…');
+    try {
+      const r = await api(`/k2/${S.k2Cid}/serials/read`, { method: 'POST', body: {} });
+      const rows = r.photos.map(p => `<div class="fld" style="display:grid;grid-template-columns:120px 1fr;gap:10px">
+        <img src="/files/k2/${S.k2Cid}/${p.doc_id}" alt="Label photo" style="width:120px;border-radius:6px">
+        <div>${p.error ? `<div class="sub" style="color:var(--warn)">${esc(p.error)}</div>` : ''}${p.serials.map(s => `<div class="row" style="gap:6px;align-items:center;margin:3px 0">
+          <input type="checkbox" data-k2pick${s.ok ? ' checked' : ''}><input type="text" data-k2sn value="${esc(s.value)}" style="flex:1">
+          ${s.notes.length ? `<span class="sub" style="color:var(--warn)">${esc(s.notes.join('; '))}</span>` : ''}</div>`).join('') || (p.error ? '' : '<div class="sub">No serial number found on this photo.</div>')}</div></div>`).join('');
+      modal('Serial numbers read from the photos', `${r.saved} saved so far${r.expected ? `, ${r.expected} modules` : ''}. Check each against its photo; only ticked ones are added.`,
+        rows, '<button class="btn" data-close>Cancel</button><button class="btn go" id="k2PickGo">Add ticked serials</button>');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'k2PickGo') {
+    const vals = $$('#mbody .row').filter(r => r.querySelector('[data-k2pick]') && r.querySelector('[data-k2pick]').checked).map(r => r.querySelector('[data-k2sn]').value);
+    if (!vals.length) { toast('Tick at least one', true); return; }
+    if (await k2Post('/serials/add', { serials: vals }, `${vals.length} serial numbers added`)) closeModal();
     return;
   }
   if (t.id === 'k2SerialSave') { await k2Post('/serials', { text: $('#k2SerialText').value }, 'Serial numbers saved'); return; }

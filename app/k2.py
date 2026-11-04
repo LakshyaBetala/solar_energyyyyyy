@@ -33,7 +33,8 @@ INDIA = (6.0, 37.5, 68.0, 97.5)  # lat min/max, lng min/max
 # documents the installation team and the office add per customer (K1's are in main.DOC_KINDS)
 DOC_KINDS = {"dcr_cert": "DCR certificate for the panels", "invoice": "Invoice / e-way bill",
              "serial_sheet": "Panel serial numbers (sheet)", "serial_label": "Serial label photo",
-             "preinstall": "Photo before installation", "install_photo": "Installation photo"}
+             "preinstall": "Photo before installation", "install_photo": "Installation photo",
+             "loan_approval": "Jan Samarth approval letter"}
 MULTI = {"serial_label", "preinstall", "install_photo"}  # kinds that can hold several files
 
 
@@ -163,6 +164,69 @@ def set_serials(cid, serials, user, source="entered"):
              + (f"; the plant has {int(n)} modules" if n and int(n) != len(serials) else ""))
     return {"count": len(serials), "expected": int(n) if n else None,
             "matches": bool(n) and int(n) == len(serials)}
+
+
+def add_serials(cid, new, user, source="photo, confirmed"):
+    """Add confirmed serials to what is already saved. The same all-or-nothing rules apply."""
+    c, d = closeout.data(cid)
+    return set_serials(cid, closeout.serials(d) + [re.sub(r"\s+", "", str(s)).upper() for s in new if str(s).strip()],
+                       user, source)
+
+
+async def read_serial_photos(cid, user, reader=None):
+    """Suggest serial numbers from the customer's serial-label photos, each with checks, for a
+    person to confirm one by one. Nothing is saved here. Only photos of kind serial_label are
+    ever sent to the model; identity documents never are. `reader` is for tests."""
+    from pathlib import Path
+    from PIL import Image
+    from . import extract
+    st = extract.llm_status()
+    if reader is None:
+        if not st["enabled"]:
+            raise ValueError("reading photos needs the AI key (ANTHROPIC_API_KEY in .env). "
+                             "Type the serial numbers or upload the sheet instead")
+        reader = extract.llm_read
+    docs = db.q("SELECT id, filename, path FROM documents WHERE customer_id=? AND kind='serial_label' ORDER BY id", (cid,))
+    if not docs:
+        raise ValueError("no serial label photos on file yet; add them first")
+    c, d = closeout.data(cid)
+    held, seen, out = set(closeout.serials(d)), set(), []
+    for doc in docs:
+        row = {"doc_id": doc["id"], "filename": doc["filename"], "serials": []}
+        out.append(row)
+        try:
+            im = Image.open(io.BytesIO(vault.read(Path(doc["path"])))).convert("RGB")
+        except Exception:
+            row["error"] = "this photo could not be opened"
+            continue
+        try:
+            got = await reader("serial_label", st, image=im)
+        except Exception as ex:
+            row["error"] = f"the model could not read this photo ({type(ex).__name__})"
+            continue
+        v = (got or {}).get("serial_numbers")
+        val, sure = (v.get("value"), bool(v.get("sure"))) if isinstance(v, dict) else (v, False)
+        for raw in (val if isinstance(val, list) else re.split(r"[\s,;]+", str(val or ""))):
+            s = re.sub(r"\s+", "", str(raw)).upper()
+            if not s:
+                continue
+            notes = []
+            if not SERIAL.match(s):
+                notes.append("does not look like a serial number")
+            if s in held:
+                notes.append("already saved for this customer")
+            if s in seen:
+                notes.append("read twice")
+            other = db.one("SELECT customer_id FROM serials WHERE serial=? AND customer_id<>?", (s, cid))
+            if other:
+                notes.append(f"already on {other['customer_id']}")
+            if not sure:
+                notes.append("the model was not sure; check it on the photo")
+            seen.add(s)
+            row["serials"].append({"value": s, "ok": not notes, "notes": notes})
+    db.audit(user, "user", "Serial label photos read", cid, f"{len(docs)} photo(s), {sum(len(r['serials']) for r in out)} suggested")
+    n = _num(d.get("module_count"))
+    return {"photos": out, "expected": int(n) if n else None, "saved": len(held)}
 
 
 def serials_xlsx(cid):
@@ -617,6 +681,8 @@ def store_doc(cid, kind, filename, blob, who):
     """Validate and keep a customer's document, encrypted. PDFs must open; photos must decode."""
     if not kind.startswith("rc_") and kind not in DOC_KINDS:
         raise ValueError("unknown document type")
+    if kind == "loan_approval" and not loan_wanted(cid):
+        raise ValueError("this customer is not taking a loan")
     if not blob:
         raise ValueError("that file is empty; choose it again")
     if len(blob) > 15 * 1024 * 1024:
@@ -645,6 +711,8 @@ def store_doc(cid, kind, filename, blob, who):
     db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
           (cid, kind, name, str(p), size, db.now()))
     db.audit(who, "user", "Uploaded document", cid, f"{kind}: {safe} ({size // 1024} KB, encrypted at rest)")
+    if kind == "loan_approval":
+        track(cid, "loan", "note", who, None, "approval letter saved")
     return {"kind": kind, "filename": name, "bytes": size}
 
 

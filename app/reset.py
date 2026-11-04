@@ -22,7 +22,7 @@ def reset(wipe_files=True):
     db.ex("DELETE FROM signatures WHERE role='consumer'")
     db.ex("DELETE FROM documents WHERE kind LIKE 'co_%' OR kind LIKE 'rc_%'")
     db.ex("DELETE FROM documents WHERE kind IN ('dcr_cert','invoice','serial_sheet','serial_label',"
-          "'preinstall','install_photo')")
+          "'preinstall','install_photo','loan_approval')")
     db.seed_closeout()
     from . import closeout
     closeout.demo_assets()
