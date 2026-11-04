@@ -6,7 +6,7 @@ customers row and the close-out record (closeout.data), so every later document 
 """
 import json, re
 from datetime import datetime
-from . import db, closeout, extract
+from . import db, closeout, extract, k2
 from .config import vendor, region
 
 PRE_STAGES = ("lead", "docs", "register", "feasible")  # before installation
@@ -86,7 +86,8 @@ def values(cid):
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
-            "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng")}
+            "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
+            **k2.portal_values(cid)}
 
 
 def missing(cid):

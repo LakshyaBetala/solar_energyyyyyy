@@ -5,8 +5,8 @@ from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, 
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
-               msedcl, pmsg, registration, reset as resetmod)
+from . import (k2, db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
+               msedcl, pmsg, registration, k2portal, field, reset as resetmod)
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
 
@@ -16,6 +16,8 @@ app.include_router(discom.router)
 app.include_router(esign.router)
 app.include_router(msedcl.router)
 app.include_router(pmsg.router)
+app.include_router(k2portal.router)
+app.include_router(field.router)
 
 
 @app.on_event("startup")
@@ -495,7 +497,7 @@ CLOSE_STAGES = ("install", "netmeter", "claim")  # installed, subsidy not yet pa
 
 def closeout_summary(cid):
     c, d = closeout.data(cid)
-    st, made = closeout.status(cid), closeout.built(cid)
+    st, made = [s for s in closeout.status(cid) if s["key"] not in closeout.K2_ONLY], closeout.built(cid)
     ms = [s for s in st if s["slot"]]
     return {"id": cid, "name": c["name"], "kw": c["kw"], "stage": c["stage"],
             "ready": sum(s["state"] == "ready" for s in ms), "total": len(ms),
@@ -531,7 +533,8 @@ def closeout_get(cid: str, user=Depends(current)):
     return {"customer": c, "data": d,
             "fields": [{"key": k, "label": lbl, "group": g} for k, lbl, g in closeout.FIELDS],
             "checks": [{"sev": s, "text": t} for s, t in closeout.checks(cid, d)],
-            "docs": [{**s, "bytes": made.get(s["key"])} for s in closeout.status(cid)],
+            "docs": [{**s, "bytes": made.get(s["key"])} for s in closeout.status(cid)
+                     if s["key"] not in closeout.K2_ONLY],
             "capacity": closeout.capacity(d), "serial_count": len(closeout.serials(d)),
             "consumer_signature": bool(closeout.signature("consumer", cid)),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs}
@@ -589,7 +592,8 @@ def closeout_sign(cid: str, request: Request, body: dict = Body(default={}),
 
 @app.post("/api/closeout/{cid}/build")
 async def closeout_build(cid: str, user=Depends(need("operator"))):
-    return await closeout.build(_cid(cid), user)
+    rows = await closeout.build(_cid(cid), user)
+    return [r for r in rows if r["key"] not in closeout.K2_ONLY]
 
 
 @app.get("/files/closeout/{cid}/{key}.pdf")
@@ -781,7 +785,7 @@ def copilot_pending(user=Depends(copilot_user)):
 
 
 @app.get("/api/copilot/lookup")
-async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
+async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "", hint: str = "",
                          user=Depends(copilot_user)):
     """Which customer is on the portal page the operator has open, and what Solara has for it."""
     c = db.one("SELECT id FROM customers WHERE id=?", (cid,)) if cid else None
@@ -816,17 +820,47 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in registration.values(cid).items() if v},
-            "issues": registration.validate(cid)["issues"], "build_error": build_error,
+            "issues": page_issues(cid, hint), "build_error": build_error,
+            "k2_step": page_step(hint)[0] if cid_registered(cid) else None,
             "agreement_draft": closeout.TEMPLATE_DRAFT,
-            "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
-                                             "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}
+            "docs": [r["kind"] for r in db.q("SELECT DISTINCT kind FROM documents WHERE customer_id=? AND "
+                                             "kind IN ('bill','aadhaar','passbook','roof','dcr_cert','invoice')", (cid,))]}
+
+
+STEP_HINTS = [("sfr", r"feasib"), ("dcr", r"dcr|nise"), ("loan", r"jan ?samarth|loan"),
+              ("installation", r"install")]
+
+
+def page_step(hint):
+    """Which K2 step the portal page in front of the person belongs to, from its address and title.
+    Returns (step, screen or None)."""
+    import re as _re
+    h = (hint or "").lower()[:300]
+    for step, pat in STEP_HINTS:
+        if _re.search(pat, h):
+            m = _re.search(r"(?:step|screen)\s*([1-5])", h) if step == "installation" else None
+            return step, int(m.group(1)) if m else None
+    return None, None
+
+
+def cid_registered(cid):
+    return k2.registered(cid)
+
+
+def page_issues(cid, hint):
+    """What is wrong or doubtful for the page the person is on: the K2 step's checks on a K2 page,
+    the registration checks before the customer is registered, nothing otherwise."""
+    step, screen = page_step(hint)
+    if step and k2.registered(cid):
+        return k2.screen_issues(cid, screen) if screen else k2.ISSUES[step](cid)
+    return [] if k2.registered(cid) else registration.validate(cid)["issues"]
 
 
 @app.get("/api/copilot/doc/{cid}/{kind}")
 def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
     """A customer's own document (bill, Aadhaar...), for a portal's upload box."""
     d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
-    if not d or kind not in DOC_KINDS:
+    if not d or (kind not in DOC_KINDS and kind not in k2.DOC_KINDS):
         raise HTTPException(404, "no such document on file")
     blob = vault.read(Path(d["path"]))
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
@@ -851,6 +885,19 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
+    if body.get("event") == "receipt":   # the portal's own page showed a reference number
+        try:
+            ref = k2.record_receipt(cid, body.get("step") or "", body.get("ref_no"), user)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        return {"ok": True, "ref_no": ref}
+    if body.get("portal_errors"):   # the portal refused something; keep it so it can be fixed and retried
+        step = body.get("step") if body.get("step") in dict(k2.STEPS) else None
+        msgs = " | ".join(str(m)[:120] for m in body["portal_errors"][:3])
+        if step:
+            k2.track(cid, step, "failed", user["username"], None, "portal said: " + msgs)
+        db.audit(user["username"], user["role"], "Portal showed an error", cid, msgs[:200])
+        return {"ok": True, "tracked": bool(step)}
     if body.get("event") in ("app_no", "agreement_uploaded"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
         if body["event"] == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
@@ -861,8 +908,15 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         return {"ok": True}
+    if body.get("portal") == "msedcl" and (uploaded or body.get("rejected")):
+        closeout.mark(cid, user["username"], msedcl_slots_uploaded=",".join(sorted(uploaded & msedcl_keys)),
+                      msedcl_slots_rejected=",".join(sorted(set(body.get("rejected") or []) & msedcl_keys)))
+        if body.get("rejected"):
+            k2.track(cid, "msedcl", "failed", user["username"], None,
+                     "the MSEDCL page shows rejected: " + ", ".join(sorted(body["rejected"])))
     if body.get("portal") == "msedcl" and msedcl_keys <= uploaded:
         closeout.mark(cid, user["username"], msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
+        k2.track(cid, "msedcl", "filed", user["username"], None, "all 6 show on the MSEDCL list")
         db.audit(user["username"], user["role"], "MSEDCL documents uploaded", cid,
                  "all 6 show Verification Pending on the portal")
     if body.get("left"):
@@ -875,6 +929,156 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
                  f"{body['attached']} file(s) on {body.get('portal')}; operator presses Upload")
     return {"ok": True}
 
+
+
+# ------------------------------- K2: filing, reports, field team -------------------------------
+def _k2_cid(cid):
+    _cid(cid)
+    return cid
+
+
+@app.get("/api/k2")
+def k2_list(user=Depends(current)):
+    rows = db.q("SELECT id FROM customers WHERE workflow='rooftop_registration' AND application_no IS NOT NULL "
+                "AND application_no<>'' ORDER BY id DESC")
+    return [k2.summary(r["id"]) for r in rows]
+
+
+@app.get("/api/k2/{cid}")
+def k2_get(cid: str, user=Depends(current)):
+    cid = _k2_cid(cid)
+    c, d = closeout.data(cid)
+    return {"customer": {"id": cid, "name": c["name"], "kw": c["kw"], "application_no": c["application_no"]},
+            **k2.progress(cid), "history": k2.history(cid)[-60:], "msedcl": k2.msedcl_state(cid),
+            "serial_count": len(closeout.serials(d)),
+            "documents": db.q("SELECT kind, filename, bytes, uploaded_at FROM documents WHERE customer_id=? AND "
+                              "kind NOT LIKE 'co\\_%' ESCAPE '\\'", (cid,)),
+            "field_checklist": k2.field_checklist(cid),
+            "field_links": db.q("SELECT token, created_at, expires_at, status FROM field_links WHERE customer_id=? "
+                                "ORDER BY created_at DESC LIMIT 3", (cid,)) if ROLES[user["role"]] >= 1 else [],
+            "draft": closeout.TEMPLATE_DRAFT, "doc_kinds": k2.DOC_KINDS}
+
+
+def _k2_do(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.post("/api/k2/{cid}/filed")
+def k2_filed(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _k2_do(k2.mark_filed, _k2_cid(cid), body.get("step", ""), user, body.get("ref_no"), body.get("note"))
+    return k2_get(cid, user)
+
+
+@app.post("/api/k2/{cid}/failed")
+def k2_failed(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _k2_do(k2.mark_failed, _k2_cid(cid), body.get("step", ""), user, body.get("note"))
+    return k2_get(cid, user)
+
+
+@app.post("/api/k2/{cid}/retry")
+def k2_retry(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _k2_do(k2.retry, _k2_cid(cid), body.get("step", ""), user)
+    return k2_get(cid, user)
+
+
+@app.post("/api/k2/{cid}/receipt")
+async def k2_receipt(cid: str, step: str, ref_no: str, file: UploadFile = File(None),
+                     user=Depends(need("operator"))):
+    blob = await file.read() if file else None
+    _k2_do(k2.record_receipt, _k2_cid(cid), step, ref_no, user, file.filename if file else None, blob)
+    return k2_get(cid, user)
+
+
+@app.post("/api/k2/{cid}/loan")
+def k2_loan(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    _k2_do(k2.loan_status, _k2_cid(cid), body.get("status", ""), user, body.get("ref_no"), body.get("note"))
+    return k2_get(cid, user)
+
+
+@app.get("/api/k2/{cid}/loan")
+def k2_loan_pack(cid: str, user=Depends(current)):
+    return k2.loan_pack(_k2_cid(cid))
+
+
+@app.post("/api/k2/{cid}/document")
+async def k2_document(cid: str, kind: str, file: UploadFile = File(...), user=Depends(need("operator"))):
+    blob = await file.read()
+    if kind == "site_photo":
+        try:
+            lat, lng, src = k2.site_photo(_k2_cid(cid), blob, user["username"])
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        db.audit(user["username"], user["role"], "Added site photo", cid, f"GPS {lat}, {lng} ({src})")
+        return k2_get(cid, user)
+    if kind == "serial_sheet":
+        return _serial_sheet(_k2_cid(cid), file.filename, blob, user)
+    _k2_do(k2.store_doc, _k2_cid(cid), kind, file.filename, blob, user["username"])
+    return k2_get(cid, user)
+
+
+def _serial_sheet(cid, filename, blob, user):
+    good, bad = _k2_do(k2.parse_serials, filename, blob)
+    if bad:
+        raise HTTPException(400, f"{len(bad)} value(s) in the file are not serial numbers (first: {bad[0][0]}). "
+                                 "Nothing was saved; correct the file and send it again")
+    res = _k2_do(k2.set_serials, cid, good, user["username"], "sheet: " + (filename or "")[:40])
+    return {**k2_get(cid, user), "serial_result": res}
+
+
+@app.post("/api/k2/{cid}/serials")
+def k2_serials(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    """Typed or pasted serial numbers, one per line."""
+    text = body.get("text") or ""
+    good, bad = _k2_do(k2.parse_serials, "typed.txt", text.encode())
+    if bad:
+        raise HTTPException(400, f"not serial numbers: {', '.join(b[0] for b in bad[:3])}. Nothing was saved")
+    res = _k2_do(k2.set_serials, _k2_cid(cid), good, user["username"], "typed")
+    return {**k2_get(cid, user), "serial_result": res}
+
+
+@app.get("/api/k2/{cid}/serials.xlsx")
+def k2_serials_xlsx(cid: str, user=Depends(current)):
+    if not closeout.serials(closeout.data(_k2_cid(cid))[1]):
+        raise HTTPException(404, "no serial numbers on file")
+    db.audit(user["username"], user["role"], "Downloaded serial sheet", cid)
+    return Response(k2.serials_xlsx(cid),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{cid}_panel_serials.xlsx"'})
+
+
+@app.get("/api/copilot/serials/{cid}")
+def copilot_serials(cid: str, user=Depends(copilot_user)):
+    _k2_cid(cid)
+    if not closeout.serials(closeout.data(cid)[1]):
+        raise HTTPException(404, "no serial numbers on file")
+    db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, "serials sheet")
+    return Response(k2.serials_xlsx(cid), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{cid}_panel_serials.xlsx"'})
+
+
+@app.post("/api/k2/{cid}/field-link")
+def k2_field_link(cid: str, request: Request, user=Depends(need("operator"))):
+    tok = k2.field_link(_k2_cid(cid), user)
+    return {"url": str(request.base_url).rstrip("/") + f"/field/{tok}"}
+
+
+@app.delete("/api/k2/{cid}/field-link/{token}")
+def k2_field_link_off(cid: str, token: str, user=Depends(need("operator"))):
+    db.ex("UPDATE field_links SET status='off' WHERE token=? AND customer_id=?", (token, _k2_cid(cid)))
+    db.audit(user["username"], user["role"], "Switched off a field-upload link", cid)
+    return {"ok": True}
+
+
+@app.get("/api/templates")
+def templates(user=Depends(current)):
+    """Every generated document, and whether the client's own wording is in."""
+    return [{"key": s[0], "title": s[2], "slot": s[1], "signed_by": list(s[3]),
+             "approved": not closeout.TEMPLATE_DRAFT,
+             "needs": "client-approved wording" if closeout.TEMPLATE_DRAFT else None}
+            for s in closeout.DOCS_SPEC if s[0] in closeout.TEMPLATES]
 
 # ------------------------------- health -------------------------------
 @app.get("/api/health")

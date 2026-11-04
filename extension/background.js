@@ -19,13 +19,13 @@ async function handle(msg) {
   if (!key) return { ok: false, error: 'Open the Solara co-pilot options and paste your key.' };
   const headers = { 'X-Solara-Key': key };
   if (msg.type === 'lookup' || msg.type === 'pending') {
-    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '' });
+    const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '', hint: msg.hint || '' });
     const r = await call(`${url}/api/copilot/${msg.type}?${q}`, { headers });
     const data = await r.json().catch(() => ({}));
     return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
   }
-  if (msg.type === 'file' || msg.type === 'doc') {
-    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `doc/${msg.cid}/${msg.kind}`;
+  if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'serials') {
+    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : msg.type === 'serials' ? `serials/${msg.cid}` : `doc/${msg.cid}/${msg.kind}`;
     const r = await call(`${url}/api/copilot/${path}`, { headers });
     if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, error: `could not fetch ${msg.key || msg.kind}: ${e.detail || r.statusText}` }; }
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);

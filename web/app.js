@@ -663,7 +663,7 @@ const CO_STATE = {
   needs_approval: ['info', 'Customer to sign'], changed: ['warn', 'Changed, re-approve'],
   needs_vendor_sig: ['warn', 'Company signature']
 };
-const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
+const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'], roof_load_ok: ['Yes', 'No'], dcr_credit: ['Yes', 'No'], loan_needed: ['Yes', 'No'], roof_type: ['RCC', 'Metal sheet', 'Tiled', 'Other'] };
 const MSEDCL_URL = '/msedcl/'; // sandbox; the live build opens https://rts.mahadiscom.in/RoofTopSolarVendor/
 
 async function loadCo(cid) {

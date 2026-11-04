@@ -102,6 +102,22 @@ CREATE TABLE IF NOT EXISTS approvals(
   id INTEGER PRIMARY KEY, customer_id TEXT, doc_key TEXT, doc_hash TEXT,
   request_token TEXT, ts TEXT);
 
+-- K2 tracking. One row per thing that happened to a filing step (append only): prepared, filed
+-- (a person pressed Submit and confirmed), failed, retry, receipt, generated. The latest row per
+-- step is its state; the rows are its history and its timings.
+CREATE TABLE IF NOT EXISTS filings(
+  id INTEGER PRIMARY KEY, customer_id TEXT, step TEXT, status TEXT, ref_no TEXT, note TEXT,
+  by TEXT, ts TEXT);
+CREATE INDEX IF NOT EXISTS filings_cust ON filings(customer_id, step);
+-- Panel serial numbers and who holds each. First holder wins; a second customer claiming the same
+-- serial is a conflict (MNRE rejects repeated serials).
+CREATE TABLE IF NOT EXISTS serials(
+  serial TEXT PRIMARY KEY, customer_id TEXT, source TEXT, added_by TEXT, added_at TEXT);
+-- Links for the installation team: one customer, a few days, upload only
+CREATE TABLE IF NOT EXISTS field_links(
+  token TEXT PRIMARY KEY, customer_id TEXT, created_by TEXT, created_at TEXT, expires_at TEXT,
+  status TEXT, label TEXT);
+
 CREATE TABLE IF NOT EXISTS copilot_keys(
   key_hash TEXT PRIMARY KEY, username TEXT, created_at TEXT);
 

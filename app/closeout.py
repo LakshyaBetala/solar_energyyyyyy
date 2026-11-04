@@ -54,15 +54,37 @@ FIELDS = [  # key, label, group
     ("earth_ohm", "Earth resistance (ohm)", "Earthing and protection"),
     ("lightning_arrester", "Lightning arrester installed", "Earthing and protection"),
     ("protection_checks", "All earthing and protection checks done", "Earthing and protection"),
+    # K2: site feasibility report
+    ("roof_free_area", "Available shadow-free roof area (m2)", "Site feasibility"),
+    ("roof_type", "Roof type (RCC, sheet, ...)", "Site feasibility"),
+    ("roof_load_ok", "Roof load capacity checked (Yes/No)", "Site feasibility"),
+    ("permissible_kw", "Permissible RTS capacity at this site (kW)", "Site feasibility"),
+    ("sfr_visitor", "Vendor employee who visited the site", "Site feasibility"),
+    ("sfr_visitor_phone", "That employee's contact number", "Site feasibility"),
+    ("sfr_date", "Site visit date", "Site feasibility"),
+    # K2: NISE DCR certificate
+    ("dcr_credit", "Panels credited to this dealer on the DCR portal (Yes/No)", "DCR certificate"),
+    # K2: Jan Samarth loan
+    ("loan_needed", "Customer takes a bank loan (Yes/No)", "Loan"),
+    ("loan_bank", "Bank", "Loan"),
+    ("loan_branch", "Branch", "Loan"),
+    ("loan_amount", "Loan amount asked (Rs)", "Loan"),
+    ("loan_ref", "Jan Samarth application reference", "Loan"),
 ]
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
 SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           # pre-installation milestones, stamped when each step is done
-          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at")
+          "gps_source", "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at",
+          # K2: what the MSEDCL page itself has shown, slot by slot (comma separated document keys)
+          "msedcl_slots_uploaded", "msedcl_slots_rejected")
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,
     # needs: every field the document prints, so nothing goes out with a blank in it
+    ("sfr", None, "Site feasibility report (working copy)", ("vendor",),
+     ("roof_free_area", "roof_type", "roof_load_ok", "sfr_visitor", "sfr_visitor_phone", "sfr_date")),
+    ("quotation", None, "Quotation (working copy)", ("vendor",),
+     ("rts_cost", "module_make", "module_wp", "module_count", "inverter_make", "inverter_kw")),
     ("agreement", None, "Vendor-consumer agreement", ("consumer", "vendor"),
      ("agreement_date", "rts_cost", "pmsg_app_no")),
     ("wcr", 1, "Work Completion Report", ("consumer", "vendor"),
@@ -82,6 +104,7 @@ DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, si
     ("site_photo", 6, "Photo of installed PV system with Geo Co-ordinates", (), ("lat",)),
 ]
 SPEC = {s[0]: s for s in DOCS_SPEC}
+K2_ONLY = ("sfr", "quotation")  # filed from the K2 screen; the Close-out screen is about MSEDCL + agreement
 
 
 # ------------------------------- the record -------------------------------
@@ -118,6 +141,9 @@ def save(cid, values, user):
     d.update({k: str(v).strip() for k, v in values.items() if k in LABEL})
     _store(cid, d, user)
     invalidate(cid)
+    if "module_serials" in values:
+        from . import k2
+        k2.sync_registry(cid, d, user)
     return d
 
 
@@ -274,6 +300,40 @@ inspection applications, and upload of the relevant documents.</li>
                  "PM Surya Ghar: Muft Bijli Yojana", body, d)
 
 
+def _name(c):
+    return c["aadhaar_name"] or c["name"]
+
+
+def t_sfr(c, d, sig, V):
+    """The facts the portal's feasibility form asks for, as a record for the file. The portal
+    form itself is the official document; this is not a government format."""
+    body = f"""<p>Site visit record for <b>{e(_name(c))}</b>, consumer number {e(c['consumer_no'])},
+{e(c['address'])}, {e(c['pin'])}.</p>
+{_rows([("PM Surya Ghar application no.", d.get("pmsg_app_no")),
+        ("Proposed capacity", f"{c['kw']} kW"),
+        ("Permissible RTS capacity at this site (kW)", d.get("permissible_kw") or c["kw"]),
+        ("Available shadow-free roof area (m2)", d.get("roof_free_area")),
+        ("Roof type", d.get("roof_type")), ("Roof load capacity checked", d.get("roof_load_ok")),
+        ("Site coordinates", f"{d.get('lat')}, {d.get('lng')}" if d.get("lat") else None),
+        ("Visited by (vendor employee)", d.get("sfr_visitor")),
+        ("Contact number", d.get("sfr_visitor_phone")), ("Date of visit", _date(d.get("sfr_date")))])}
+<div class="sigs">{_sig(f"Vendor &middot; {e(V['name'])}", "vendor", sig)}</div>"""
+    return _page("Site feasibility report", "Working copy of the details entered on the PM Surya Ghar "
+                 "feasibility form", body, d)
+
+
+def t_quotation(c, d, sig, V):
+    """A plain quotation from the record. Replace with the installer's own quotation format."""
+    kw = capacity(d) or c["kw"]
+    body = f"""<p>To <b>{e(_name(c))}</b>, {e(c['address'])}, {e(c['pin'])}. Consumer number {e(c['consumer_no'])}.</p>
+{_rows([("Grid-connected rooftop solar system", f"{kw} kWp"),
+        ("Solar modules", f"{d.get('module_count')} x {d.get('module_wp')} Wp, {d.get('module_make')}"),
+        ("Inverter", f"{d.get('inverter_make')}, {d.get('inverter_kw')} kW"),
+        ("Total cost, inclusive of taxes and all other charges", f"Rs {d.get('rts_cost')}")])}
+<div class="sigs">{_sig(f"For {e(V['name'])}", "vendor", sig)}</div>"""
+    return _page("Quotation", "Rooftop solar system under PM Surya Ghar: Muft Bijli Yojana", body, d)
+
+
 def t_wcr(c, d, sig, V):
     ok = d.get("protection_checks") or "—"
     checks_ = ["Separate earthing provided for lightning arrester",
@@ -393,7 +453,7 @@ applicable regulations of the Maharashtra Electricity Regulatory Commission.</li
     return _page("Net metering connection agreement", "Rooftop solar system", body, d)
 
 
-TEMPLATES = {"agreement": t_agreement, "wcr": t_wcr, "annexure1": t_annexure1,
+TEMPLATES = {"agreement": t_agreement, "sfr": t_sfr, "quotation": t_quotation, "wcr": t_wcr, "annexure1": t_annexure1,
              "dcr_decl": t_dcr_decl, "net_agreement": t_net_agreement}
 
 
@@ -541,7 +601,7 @@ def status(cid):
             st, note = "missing", "Add the site photo (coordinates alone are not enough)"
         elif key == "datasheet" and not (LIBRARY / f"{datasheet_key(d)}.pdf").exists():
             st, note = "missing", f"Upload the datasheet for {d['module_make']} + {d['inverter_make']} once"
-        elif key in TEMPLATES and blocked:
+        elif key in TEMPLATES and blocked and key not in ("sfr", "quotation"):
             st, note = "blocked", "Fix the checks above first"
         elif "consumer" in roles and not approval(cid, key):
             had = db.one("SELECT 1 FROM approvals WHERE customer_id=? AND doc_key=?", (cid, key))
@@ -557,11 +617,26 @@ def status(cid):
 
 # ------------------------------- files -------------------------------
 def fit(pdf, limit_kb=MAX_UPLOAD_KB):
-    """Return the PDF as is if it fits; otherwise re-render its pages as JPEG until it does."""
+    """Return the PDF as is if it fits; otherwise shrink it. See fit_report."""
+    return fit_report(pdf, limit_kb)[0]
+
+
+def fit_report(pdf, limit_kb=MAX_UPLOAD_KB):
+    """(pdf, info). Order of attempts, gentlest first: as is; lossless clean-up (text stays text);
+    then pages re-rendered as JPEG at falling resolution. info says which was used and whether the
+    result is still comfortably readable (>= 90 dpi, or text kept)."""
+    info = {"original_kb": round(len(pdf) / 1024), "method": "unchanged", "dpi": None, "readable": True}
     if len(pdf) <= limit_kb * 1024:
-        return pdf
+        info["final_kb"] = info["original_kb"]
+        return pdf, info
     src = fitz.open(stream=pdf, filetype="pdf")
-    for dpi, q in ((110, 70), (90, 60), (72, 50), (60, 40), (48, 35)):
+    try:
+        clean = src.tobytes(garbage=4, deflate=True, clean=True)
+    except Exception:
+        clean = pdf
+    if len(clean) <= limit_kb * 1024:
+        return clean, {**info, "method": "lossless", "final_kb": round(len(clean) / 1024)}
+    for dpi, q in ((130, 72), (110, 70), (90, 60), (72, 50), (60, 40), (48, 35)):
         out = fitz.open()
         for page in src:
             pix = page.get_pixmap(dpi=dpi)
@@ -572,8 +647,29 @@ def fit(pdf, limit_kb=MAX_UPLOAD_KB):
             pg.insert_image(pg.rect, stream=buf.getvalue())
         blob = out.tobytes(garbage=4, deflate=True)
         if len(blob) <= limit_kb * 1024:
-            return blob
+            return blob, {**info, "method": "re-rendered", "dpi": dpi, "readable": dpi >= 90,
+                          "final_kb": round(len(blob) / 1024)}
     raise ValueError(f"could not bring the file under {limit_kb} KB")
+
+
+def validate_pdf(blob, limit_kb=MAX_UPLOAD_KB):
+    """Problems that would make the MSEDCL page refuse a file; an empty list means it is fine:
+    a real, unencrypted PDF with at least one page, within the size limit."""
+    from pypdf import PdfReader
+    out = []
+    if not blob.startswith(b"%PDF"):
+        return ["not a PDF file"]
+    try:
+        r = PdfReader(io.BytesIO(blob))
+        if r.is_encrypted:
+            out.append("the PDF is password-protected")
+        elif not len(r.pages):
+            out.append("the PDF has no pages")
+    except Exception as ex:
+        out.append(f"the PDF cannot be opened ({type(ex).__name__})")
+    if len(blob) > limit_kb * 1024:
+        out.append(f"{len(blob) // 1024} KB is over the {limit_kb} KB limit")
+    return out
 
 
 def gps(img):
@@ -586,12 +682,15 @@ def gps(img):
     return round(deg(g[2], g.get(1, "N")), 6), round(deg(g[4], g.get(3, "E")), 6)
 
 
-def save_photo(cid, raw, user):
+def save_photo(cid, raw, user, fallback=None):
+    """fallback: (lat, lng) from the phone, used only when the photo carries none and the person agreed"""
     img = Image.open(io.BytesIO(raw))
-    loc = gps(img)
+    loc = gps(img) or fallback
     if not loc:
         raise ValueError("this photo has no GPS location. Take it with location turned on in "
                          "the phone camera, and send the original file, not a WhatsApp copy")
+    if not (6.0 <= loc[0] <= 37.5 and 68.0 <= loc[1] <= 97.5):
+        raise ValueError(f"the location {loc[0]}, {loc[1]} is not in India; check the phone's location setting")
     taken = img.getexif().get(306) or ""  # DateTime
     img = img.convert("RGB")
     img.thumbnail((1400, 1400))
@@ -600,7 +699,8 @@ def save_photo(cid, raw, user):
     path = DOCS / cid / "site_photo.jpg"
     path.parent.mkdir(parents=True, exist_ok=True)
     vault.write(path, buf.getvalue())
-    mark(cid, user, lat=f"{loc[0]}", lng=f"{loc[1]}", photo_taken=str(taken))
+    mark(cid, user, lat=f"{loc[0]}", lng=f"{loc[1]}", photo_taken=str(taken),
+         gps_source="phone location, shared by the person" if fallback and not gps(Image.open(io.BytesIO(raw))) else "photo")
     invalidate(cid)
     return loc
 
@@ -654,7 +754,20 @@ async def build(cid, user):
     for k, s in st.items():
         row = {**s, "bytes": None}
         if k in blobs:
-            pdf = fit(blobs[k])
+            from . import k2
+            try:
+                pdf, info = fit_report(blobs[k])
+                problems = validate_pdf(pdf)
+            except ValueError as ex:
+                pdf, info, problems = None, {}, [str(ex)]
+            if problems:  # never store, or later attach, a file the portal would refuse
+                row["error"] = "; ".join(problems)
+                k2.track(cid, f"report:{k}", "failed", user["username"], note=row["error"])
+                out.append(row)
+                continue
+            row["fit"] = info
+            k2.track(cid, f"report:{k}", "generated", user["username"],
+                     note=f"{info['final_kb']} KB, {info['method']}" + ("" if info["readable"] else ", low resolution"))
             p = path_for(cid, k)
             p.parent.mkdir(parents=True, exist_ok=True)
             vault.write(p, pdf)

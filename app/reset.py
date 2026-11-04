@@ -15,11 +15,14 @@ from .config import SHOTS, EXPORTS, DOCS
 def reset(wipe_files=True):
     for t in ("runs", "run_steps", "run_events", "holds", "screenshots",
               "portal_applications", "portal_requests", "portal_sessions", "sms",
-              "closeout", "sign_requests", "approvals", "msedcl_uploads", "pmsg_vendor"):
+              "closeout", "sign_requests", "approvals", "msedcl_uploads", "pmsg_vendor",
+              "filings", "serials", "field_links"):
         db.ex(f"DELETE FROM {t}")
     # the company signature is one-time setup and survives a reset; customers' do not
     db.ex("DELETE FROM signatures WHERE role='consumer'")
-    db.ex("DELETE FROM documents WHERE kind LIKE 'co_%'")
+    db.ex("DELETE FROM documents WHERE kind LIKE 'co_%' OR kind LIKE 'rc_%'")
+    db.ex("DELETE FROM documents WHERE kind IN ('dcr_cert','invoice','serial_sheet','serial_label',"
+          "'preinstall','install_photo')")
     db.seed_closeout()
     from . import closeout
     closeout.demo_assets()
