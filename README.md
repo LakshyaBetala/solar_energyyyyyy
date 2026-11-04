@@ -36,8 +36,8 @@ the live page, documents are encrypted at rest, and role checks are enforced by 
 - [Limitations](#limitations)
 
 Operations — users, backups, restore, keys — are in **[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
-**Taking over the project? Start with [docs/HANDOVER.md](docs/HANDOVER.md)** (Milestone 1, setup, tests,
-manual test script, rules, who does what).
+**Taking over the project? Start with [docs/HANDOVER.md](docs/HANDOVER.md)** (Milestones 1 to 3, setup,
+tests, manual test scripts, rules, who does what).
 The Phase 1 plan — feasibility, the five phases with KPIs, client pricing, and the 5-minute pre- and
 post-installation targets — is in **[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md)**.
 
@@ -52,6 +52,8 @@ post-installation targets — is in **[docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.m
 | Sanctioned load reduction | DISCOM self-service | OTP, approval |
 | New LT connection | DISCOM self-service | OTP, approval |
 | **Milestone 1: documents → registered → accepted → agreement uploaded** | national portal, consumer and vendor side, through the co-pilot | OTP, CAPTCHA, declaration, every Submit, customer e-sign |
+| **Milestone 2: agreement uploaded → feasibility report → loan → field photos and serials → DCR → installation (5 steps) → six documents on MSEDCL** | national portal, NISE DCR, Jan Samarth, MSEDCL, through the co-pilot | declarations, every Submit, the customer's Aadhaar OTP and acceptance, serials confirmed against photos |
+| **Milestone 3: Today, the stage board, monthly report** | reads the portal status lists (read only) | none: it tells the owner what needs a person |
 | Post-installation close-out | MSEDCL rooftop vendor portal (six documents) | customer e-sign, operator presses Upload |
 
 Around the workflows:
@@ -61,6 +63,17 @@ Around the workflows:
   digits are kept); anything unclear is flagged, never guessed. One next-action button walks the owner
   through registration, vendor acceptance and the e-signed agreement; the co-pilot fills the portal
   forms by their labels, attaches the documents and saves the application number.
+- **Installation (Milestone 2).** After the agreement, one next-action button per customer through the
+  site feasibility report (quotation and roof photo attached), the customer's Jan Samarth loan (basic
+  details filled; the customer types their Aadhaar and OTP), the field team's phone link (site photo
+  with GPS; every panel label read from its barcode on the server, confirmed beside its photo), the DCR
+  certificate (refused panels mark "waiting for the dealer"; the number is saved when issued) and the
+  five installation steps. Each filing is stamped with the portal page kept as its receipt. Pause,
+  Resume, Review, Approve and Retry work per customer.
+- **Today and the board (Milestone 3).** Today lists every OTP call, e-sign, upload, dealer wait, field
+  task and check, each with a button to the right screen. The board shows each customer at the portal's
+  own ten stages; opening My Application lets the co-pilot read every row's status, and any
+  disagreement with what Solara filed is flagged. Monthly Excel and PDF in one click.
 - **Close-out.** Installation details entered once become the agreement, Work Completion Report,
   Annexure-I, DCR declaration, net-metering agreement, datasheet and geotagged site photo, each a
   PDF under MSEDCL's 300 KB limit. Serial numbers are checked for count and repeats, earth
@@ -167,7 +180,9 @@ it, and the refused attempt is written to the audit trail.
 
 | Page | What it shows | Viewer | Operator | Supervisor |
 |---|---|---|---|---|
-| **Pipeline** | every application by stage, the Needs attention list, Excel export | view, export | + start the agent on a row | same as operator |
+| **Today** | everything that needs a person, grouped, with a button per item; monthly Excel and PDF | view, export | view, export | view, export |
+| **Pipeline** | every customer at the portal's ten stages beside the portal's last status; applications, Needs attention, Excel | view, export | + start the agent on a row | same as operator |
+| **Installation** | milestone 2 per customer: steps, next action, portal timeline, site visit, serials, receipts | view | + save details, send the field link, confirm serials, mark filings, pause, resume, retry | + **approve what will be filed** |
 | **Agent Runs** | step plan, live browser, log, screenshots, PDF report | watch, download report | + start, pause, abandon; answer OTP (or resend it), CAPTCHA and corrections | + **approve the final submission** |
 | **Document Intake** | the customer's documents and every extracted field, with confidence | view | + run extraction, upload a document | same as operator |
 | **Number Pool** | dedicated numbers, 90-day retention, inbox | view | + test, assign, release a number | same as operator |
@@ -247,7 +262,7 @@ steps: details, photo and datasheet, customer signed, documents made, on MSEDCL.
    customer's number. At the site, open it on your phone and hand it over.
 3. The customer enters the last 4 digits of their consumer number, reads each document, ticks the
    ones they approve, draws their signature and consents. Next time they only tap Approve.
-4. **Generate the MSEDCL documents** makes all seven PDFs; the sizes are shown, all under 300 KB.
+4. **Generate the MSEDCL documents** makes every PDF (the six, the agreement, the quotation and the QC report); the sizes are shown, all under 300 KB.
 5. **Open MSEDCL and upload**: log in yourself, open the customer, press **Attach** in the Solara
    panel, check the six rows, press the portal's own Upload. Solara marks the customer as done.
 
@@ -342,15 +357,25 @@ app/
   db.py            schema and seed data
   reset.py         returns the demo to its opening state
   registration.py  Milestone 1: new customer, six steps, the next action
-  pmsg.py          sandbox: vendor side of the national portal (consent, upload agreement)
+  filing.py        Milestone 2: the eight steps after the agreement, next action, controls, receipts
+  field.py         the field team's phone page; serials read from label barcodes, confirmed by a person
+  tracker.py       Milestone 3: the portal's ten stages, status capture, mismatches, Today, the board
+  dcr.py           sandbox: NISE DCR B2C certificate, with the dealer's panel credit
+  jansamarth.py    sandbox: stand-in for the Jan Samarth loan journey
+  pmsg.py          sandbox: vendor side of the national portal (consent, agreement, feasibility
+                   report, 5-step installation, later stages)
   users.py         add and remove people, set passwords (python -m app.users)
 web/               console — plain HTML, CSS and JavaScript, no build step
 extension/         the co-pilot Chrome extension (Manifest V3, no build step)
 tests/
   smoke.py         61 checks through the HTTP API, asserting on the database and the disk
-  ui.py            38 checks driving the console in a real browser
+  ui.py            41 checks driving the console in a real browser
   closeout.py      59 checks: close-out, e-sign consent rules, 300 KB pack, the extension
   milestone1.py    44 checks: Milestone 1 end to end with the co-pilot, plus failure paths
+  milestone2.py    78 checks: Milestone 2 end to end with the co-pilot on five sandbox portals
+  milestone3.py    39 checks: ten customers' stages read off the portal, Today, controls, monthly report
+  real_labels.py   7 checks: the co-pilot on the real field labels of the client's screens
+  longevity.py     11 checks: migrations, pinned versions, health, portal drift
   live_mode.py     7 checks: a fresh live install
   run_all.py       runs every suite with one summary
 docs/              OPERATIONS.md and the screenshots used here
@@ -402,7 +427,7 @@ python tests/smoke.py     # 61 checks: access control, encryption, extraction, r
                           # rooftop runs (an OTP resend, the stale code refused, a real portal
                           # rejection), the resend cap, all three DISCOM workflows, follow-ups,
                           # exports, backups, pause, abandon
-python tests/ui.py        # 38 checks: every view, runs started from the pipeline, Resend OTP from
+python tests/ui.py        # 41 checks: Today and every view, runs started from the pipeline, Resend OTP from
                           # the dialog, a refused approval, a DISCOM run, dismissable checkpoints,
                           # light theme, phone width
 python tests/closeout.py  # 59 checks: the close-out screen, GPS and serial checks, company and
@@ -411,6 +436,13 @@ python tests/closeout.py  # 59 checks: the close-out screen, GPS and serial chec
                           # screen, and the extension attaching six files on the MSEDCL sandbox
 python tests/milestone1.py # 44 checks: Milestone 1 (K1) end to end with the co-pilot loaded, plus
                           # unreadable documents, wrong formats and steps out of order
+python tests/milestone2.py # 78 checks: Milestone 2 (K2): feasibility report, Jan Samarth, the field
+                          # phone page and barcode serials, DCR with a dealer wait, 5 installation
+                          # steps, e-sign, MSEDCL; receipts free of OTP and Aadhaar
+python tests/milestone3.py # 39 checks: Milestone 3 (K3): 10 of 10 stages match the portal, Today,
+                          # Start/Pause/Resume/Review/Approve/Retry, monthly Excel and PDF
+python tests/real_labels.py # 7 checks: the co-pilot on the client's real portal labels
+python tests/longevity.py  # 11 checks: old databases upgrade, versions pinned, health, drift
 python tests/live_mode.py  # 7 checks: its own live server on port 8911
 python tests/run_all.py    # all of the above, one summary (CI runs this on every push)
 ```

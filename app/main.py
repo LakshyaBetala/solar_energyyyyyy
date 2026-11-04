@@ -504,6 +504,13 @@ def closeout_summary(cid):
             "uploaded": bool(d.get("msedcl_uploaded")), "msedcl_app_id": d.get("msedcl_app_id")}
 
 
+def public_base(request):
+    """The address customers and installers open links on. Behind the HTTPS proxy the request
+    arrives on 127.0.0.1, so a live install sets SOLARA_PUBLIC_URL (e.g. https://solara.example.in)."""
+    import os
+    return (os.environ.get("SOLARA_PUBLIC_URL") or str(request.base_url)).rstrip("/")
+
+
 def _cid(cid):
     if not db.one("SELECT 1 FROM customers WHERE id=?", (cid,)):
         raise HTTPException(404, "unknown customer")
@@ -583,7 +590,7 @@ def closeout_sign(cid: str, request: Request, body: dict = Body(default={}),
         token, keys = esign.create(_cid(cid), body.get("docs"), user)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
-    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
+    url = public_base(request) + f"/sign/{token}"
     return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url),
             "docs": keys}
 
@@ -708,7 +715,7 @@ def registration_agreement(cid: str, request: Request, user=Depends(need("operat
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     closeout.mark(cid, user["username"], agreement_sent_at=db.now())
-    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
+    url = public_base(request) + f"/sign/{token}"
     return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url)}
 
 
@@ -1038,7 +1045,7 @@ def filing_approve(cid: str, body: dict = Body(...), user=Depends(need("supervis
 @app.post("/api/filing/{cid}/field-link")
 def filing_field_link(cid: str, request: Request, user=Depends(need("operator"))):
     token = field.create_link(_cid(cid), user)
-    url = str(request.base_url).rstrip("/") + f"/field/{token}"
+    url = public_base(request) + f"/field/{token}"
     return {"url": url, **field.share(cid, url)}
 
 

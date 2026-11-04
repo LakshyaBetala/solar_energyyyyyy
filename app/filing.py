@@ -43,7 +43,7 @@ FORMS = {
                      "inverter_make", "inverter_serial", "module_wp", "module_count", "module_make",
                      "module_serials", "dcr_cert_no", "protection_checks", "lightning_arrester"),
 }
-FILES = {"sfr": ["quotation", "roof"], "installation": ["site_photo", "agreement"], "dcr": [],
+FILES = {"sfr": ["quotation", "roof"], "installation": ["site_photo"], "dcr": [],  # the agreement is already on the portal by then
          "loan": [], "registration": ["bill", "aadhaar", "passbook", "roof"], "msedcl": MSEDCL_KEYS}
 STEP_LABEL = {"sfr": "Site feasibility report", "loan": "Loan application", "field": "Photos and serials",
               "dcr": "DCR certificate", "installation": "Installation on PM Surya Ghar",

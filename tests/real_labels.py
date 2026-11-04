@@ -175,6 +175,8 @@ async def main():
             check(f"{name} ({src})", not wrong, "; ".join(wrong) or f"{sum(1 for w in expect.values() if w)} filled, "
                   f"{sum(1 for w in expect.values() if w is None)} left alone")
         await ctx.close()
+    calls = [x for x in sup.get("/api/today").json()["items"] if x["cid"] == CID and "waiting for" in x["title"]]
+    check("the owner's own login OTP does not put a customer call on Today", not calls, str(calls))
     print("\n  reset:", sup.post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
     sys.exit(1 if FAIL else 0)

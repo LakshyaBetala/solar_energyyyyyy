@@ -462,7 +462,9 @@
       [...t.querySelectorAll('button,a')].some(b => visible(b) && /add serial/i.test(b.innerText)) &&
       ![...t.querySelectorAll('textarea,input')].some(x => visible(x) && /serial/.test(labelOf(x))));
     const ready = new Set(c.files.map(f => f.key));
-    const otpBox = els.find(el => /otp/.test(labelOf(el)) && !el.value);
+    // the customer's OTP (registration, Aadhaar) goes on Today as a call; the owner's own login OTP does not
+    const ownLogin = root.querySelector('input[type=password]') || els.some(el => /user ?id|username|register email|login/.test(labelOf(el)));
+    const otpBox = !ownLogin && els.find(el => /otp/.test(labelOf(el)) && !el.value);
     if (otpBox) ask({ type: 'report', body: { customer_id: c.customer_id, event: 'otp_waiting', page: location.host + location.pathname } });
     const ap = step && c.approvals && c.approvals[step];
     const apNote = ap ? (ap.current ? note(`&#10003; Reviewed and approved by ${esc(ap.by)}`, '#5FD3A8')

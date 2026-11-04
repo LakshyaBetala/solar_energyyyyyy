@@ -24,7 +24,7 @@ WORDS = [(r"disburs", "subsidy_disbursal"), (r"subsidy|claim", "subsidy_request"
 LEGACY = {"registration": "register", "application": "register", "feasibility": "feasible",
           "vendor_selection": "feasible", "agreement": "feasible", "installation": "install",
           "inspection": "netmeter", "commissioning": "netmeter", "subsidy_request": "claim",
-          "subsidy_disbursal": "disbursed"}
+          "subsidy_disbursal": "claim"}  # "disbursed" only once the portal shows it Completed
 ORDER = ["lead", "docs", "register", "feasible", "install", "netmeter", "claim", "disbursed"]
 
 
@@ -32,7 +32,7 @@ def parse(text):
     """'Installation (Pending)' -> ('installation', 'pending'). Unknown wording -> (None, ...)."""
     t = " ".join((text or "").lower().split())
     state = "rejected" if re.search(r"reject|return|revert", t) else "done" if re.search(r"complet|approved|disbursed$", t) \
-        else "pending"
+        else "accepting" if re.search(r"(consumer|customer) acceptance", t) else "pending"  # accepting: vendor's part filed
     for rx, key in WORDS:
         if re.search(rx, t):
             return key, state
@@ -113,8 +113,8 @@ def solara_done(cid):
         out["vendor_selection"] = d["accepted_at"]
     if d.get("agreement_uploaded_at"):
         out["agreement"] = d["agreement_uploaded_at"]
-    if d.get("installation_at"):
-        out["installation"] = d["installation_at"]
+    if d.get("install_accepted_at"):  # the stage ends when the customer accepts what the vendor filed
+        out["installation"] = d["install_accepted_at"]
     return out
 
 
@@ -127,15 +127,20 @@ def timeline(cid):
     for i, (k, name, who) in enumerate(STAGES):
         by_portal = pi > i or (pi == i and p_state == "done")
         here = pi == i and p_state != "done"
-        state = "done" if (k in mine or by_portal) else "current" if here else "pending"
-        if here and p_state == "rejected":
-            state = "rejected"
+        if here and p_state == "accepting":
+            name = f"{name} (customer to accept)"
+        # where the portal says the application sits wins; Solara being ahead is flagged below
+        state = ("rejected" if p_state == "rejected" else "current") if here else \
+            "done" if (k in mine or by_portal) else "pending"
         rows.append({"key": k, "name": name, "who": who, "state": state, "at": mine.get(k),
                      "source": "Solara" if k in mine else ("portal" if by_portal or here else "")})
-        if k in mine and p_stage and pi <= i and not by_portal:
+        if k in mine and p_stage and pi <= i and not by_portal and not (pi == i and p_state == "accepting"):
             problems.append(f"Solara has {name.lower()} done, the portal still shows {p['status']}")
     if p_state == "rejected":
         problems.append(f"The portal shows {p['status']}: open it and file again (Retry)")
+    d = closeout.data(cid)[1]
+    if d.get("installation_at") and p_stage == "installation" and p_state == "pending":
+        problems.append(f"Solara has the installation filed, the portal still shows {p['status']}: check it went through")
     if p and not p_stage:
         problems.append(f"The portal shows a status Solara does not know: {p['status']}")
     cur = next((r for r in rows if r["state"] != "done"), None)
