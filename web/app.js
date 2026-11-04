@@ -19,6 +19,7 @@ const TITLES = {
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
   reg: ['Registration', 'New customer to registered, accepted and agreement uploaded. Upload the documents once; the co-pilot fills PM Surya Ghar.'],
   closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
+  k2: ['Filing', 'After registration: site feasibility, installation, DCR, MSEDCL and the loan. Solara checks and prepares; you press every Submit.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],
   audit: ['Audit Trail', 'Who did what, and when. Append-only, written by the server.'],
@@ -31,7 +32,7 @@ const S = {
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
   headless: true, es: null, lastFrame: null, t0: null,
   runCid: 'SS-2045', runWf: null, runKw: null, workflows: [], followups: [],
-  co: [], coCid: 'SS-2042', coData: null, reg: [], regCid: null, regData: null
+  co: [], coCid: 'SS-2042', coData: null, reg: [], regCid: null, regData: null, k2: [], k2Cid: null, k2Data: null
 };
 
 const can = lvl => S.me && ROLES[S.me.role] >= ROLES[lvl];
@@ -87,6 +88,7 @@ async function boot() {
   S.followups = await api('/followups').catch(() => []);
   S.co = await api('/closeout').catch(() => []);
   S.reg = await api('/registration').catch(() => []);
+  S.k2 = await api('/k2').catch(() => []);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
   $('#llmChip').innerHTML = S.llm.enabled
@@ -114,6 +116,7 @@ function counters() {
   $('#tagAudit').textContent = S.audit.length;
   $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
   $('#tagReg').textContent = S.reg.filter(x => x.done < x.total).length;
+  $('#tagK2').textContent = S.k2.filter(x => x.done < x.total).length;
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -126,6 +129,7 @@ function render() {
   $('#crumbsub').textContent = TITLES[S.view][1];
   $$('.navitem').forEach(b => b.setAttribute('aria-current', String(b.dataset.view === S.view)));
   const rv = $('#runview'), ov = $('#otherview');
+  if (!rv || !ov) return;   // a click before the first load has finished; bootstrap renders when it is done
   rv.hidden = S.view !== 'run'; ov.hidden = S.view === 'run';
   if (S.view === 'run') { runHead(); paintSteps(); paintShots(); paintRunState(); }
   else {
@@ -534,6 +538,104 @@ async function loadReg(cid) {
   if (!S.regCid || !S.reg.some(x => x.id === S.regCid)) S.regCid = S.reg[0] && S.reg[0].id;
   S.regData = S.regCid ? await api('/registration/' + S.regCid) : null;
   if (S.view === 'reg') render();
+}
+
+
+/* ------------------------------ K2: filing, reports, field team ------------------------------ */
+async function loadK2(cid) {
+  if (cid) S.k2Cid = cid;
+  S.k2 = await api('/k2').catch(() => []);
+  if (!S.k2Cid || !S.k2.some(x => x.id === S.k2Cid)) S.k2Cid = S.k2[0] && S.k2[0].id;
+  S.k2Data = S.k2Cid ? await api('/k2/' + S.k2Cid) : null;
+  if (S.view === 'k2') render();
+}
+const K2_PILL = { filed: ['ok', 'Filed'], ready: ['live', 'Ready to file'], not_ready: ['warn', 'Not ready'],
+  failed: ['bad', 'Failed: retry'], waiting: ['info', 'Waiting for dealer'], 'n/a': ['idle', 'Not needed'] };
+const k2pill = s => { const p = K2_PILL[s] || ['idle', s]; return `<span class="pill ${p[0]}">${p[1]}</span>`; };
+const k2when = t => t ? esc(t.slice(5, 16).replace('T', ' ')) : '';
+
+VIEWS.k2 = () => {
+  const list = S.k2 || [], g = S.k2Data, op = can('operator') ? '' : ' disabled';
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="k">Registered customers</div><div class="v num">${list.length}</div><div class="d">with an application number</div></div>
+    <div class="kpi"><div class="k">Ready to file</div><div class="v num">${list.reduce((a, x) => a + x.pending_portal.length, 0)}</div><div class="d">steps checked, waiting for you to press Submit</div></div>
+    <div class="kpi"><div class="k">Failed: retry</div><div class="v num">${list.reduce((a, x) => a + x.failed.length, 0)}</div><div class="d">a portal refused something or an upload was rejected</div></div>
+    <div class="kpi"><div class="k">Missing items</div><div class="v num">${list.reduce((a, x) => a + x.missing, 0)}</div><div class="d">across all open steps</div></div></div>`;
+  const left = `<div class="card"><div class="ch"><h3>Customers</h3></div><div class="colist">${list.length ? list.map(x =>
+    `<button data-k2="${x.id}" aria-current="${x.id === S.k2Cid}"><div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
+     <div>${x.failed.length ? '<span class="pill bad">Failed: retry</span>' : x.missing ? `<span class="pill warn">${x.missing} missing</span>` : x.pending_portal.length ? '<span class="pill live">Ready to file</span>' : x.done === x.total ? '<span class="pill ok">All filed</span>' : '<span class="pill idle">Waiting</span>'}
+     <span class="sub">${x.done} of ${x.total} steps</span></div></button>`).join('') : '<div class="hint" style="padding:14px">A customer appears here once registered on PM Surya Ghar.</div>'}</div></div>`;
+  if (!g) return `<div class="grid" style="gap:14px">${kpis}<div class="cowrap">${left}<div class="card"><div class="cb hint">Nothing registered yet.</div></div></div></div>`;
+  const stepRow = s => {
+    const acts = s.key === 'msedcl' ? '<span class="hint">marked only when the MSEDCL list shows the documents</span>' :
+      s.key === 'installation' ? '' : `<span class="row" style="gap:6px">
+        ${s.state === 'ready' || s.state === 'failed' ? `<button class="btn sm go" data-k2filed="${s.key}"${op}>I pressed Submit</button>` : ''}
+        ${s.state !== 'filed' && s.state !== 'n/a' ? `<button class="btn sm" data-k2fail="${s.key}"${op}>Portal refused</button>` : ''}
+        ${s.state === 'failed' ? `<button class="btn sm" data-k2retry="${s.key}"${op}>Retry</button>` : ''}
+        <button class="btn sm" data-k2rc="${s.key}"${op}>Save receipt</button></span>`;
+    const iss = s.issues.length ? `<details><summary class="sub" style="cursor:pointer">${s.issues.length} note${s.issues.length > 1 ? 's' : ''}</summary>${s.issues.map(i =>
+      `<div class="fk" style="color:${i.kind === 'warning' ? 'var(--fg-dim)' : 'var(--warn)'};letter-spacing:0;text-transform:none;font-size:11.5px">${esc(i.kind)} &middot; ${esc(i.message)}</div>`).join('')}</details>` : '';
+    const screens = s.screens ? s.screens.map(p => `<div class="row" style="gap:8px;margin:4px 0 0 18px;align-items:center">
+      <span class="pill ${p.filed ? 'ok' : p.failed ? 'bad' : p.issues.some(i => i.kind === 'missing' || i.kind === 'invalid') ? 'warn' : 'live'}">${p.filed ? 'Filed' : p.failed ? 'Failed' : p.issues.some(i => i.kind === 'missing' || i.kind === 'invalid') ? 'Not ready' : 'Ready'}</span>
+      <span>Screen ${p.n}: ${esc(p.title)}${p.verified_labels ? '' : ' <span class="sub">(labels not yet checked on the real portal)</span>'}</span><span class="spacer"></span>
+      ${p.filed ? '' : `<button class="btn sm go" data-k2filed="installation:${p.n}"${op}>I pressed Submit</button><button class="btn sm" data-k2fail="installation:${p.n}"${op}>Portal refused</button>${p.failed ? `<button class="btn sm" data-k2retry="installation:${p.n}"${op}>Retry</button>` : ''}`}</div>
+      ${p.filed ? '' : p.issues.filter(i => i.kind !== 'warning').slice(0, 3).map(i => `<div class="sub" style="margin-left:18px;color:var(--warn)">${esc(i.message)}</div>`).join('')}`).join('') : '';
+    return `<div class="fld" data-step="${s.key}"><div class="row" style="justify-content:space-between;align-items:center;gap:8px">
+      <b>${esc(s.label)}</b>${k2pill(s.state)}<span class="mono sub">${esc(s.ref || '')}</span>
+      <span class="sub">${s.minutes != null ? s.minutes + ' min' : ''}${s.receipt ? ' &middot; receipt saved' : ''}</span><span class="spacer"></span>${acts}</div>
+      ${s.last && s.state === 'failed' ? `<div class="sub" style="color:var(--warn)">${esc(s.last.note)}</div>` : ''}${screens}${iss}</div>`;
+  };
+  const ms = g.msedcl;
+  const msTable = `<table class="tbl" style="width:100%"><tbody>${ms.documents.map(r => `<tr><td>${r.slot}. ${esc(r.title)}</td>
+    <td class="mono">${r.bytes ? Math.round(r.bytes / 1024) + ' KB' : '&mdash;'}</td>
+    <td>${r.rejected ? '<span class="pill bad">Rejected by MSEDCL</span>' : r.on_portal ? '<span class="pill ok">On MSEDCL</span>' : r.problems.length ? `<span class="pill bad">${esc(r.problems[0])}</span>` : r.bytes ? '<span class="pill live">Ready</span>' : `<span class="pill warn">${esc(r.note || r.state)}</span>`}</td></tr>`).join('')}</tbody></table>`;
+  const docs = Object.fromEntries(g.documents.map(d => [d.kind, d]));
+  const have = k => !!docs[k] || !!(g.field_checklist.find(x => x.key === k) || {}).done;
+  const upl = (kind, label) => `<div class="docrow"><span class="pill ${have(kind) ? 'ok' : 'idle'}">${have(kind) ? 'on file' : 'none'}</span>
+    <span class="nm">${esc(label)}</span><label class="btn sm">${have(kind) ? 'Replace' : 'Upload'}<input type="file" data-k2doc="${kind}" hidden${op}></label></div>`;
+  const chk = g.field_checklist.map(x => `<div class="sub">${x.done ? '&#10003;' : x.required ? '&#9675; needed:' : '&#9675; optional:'} ${esc(x.label)}${x.count > 1 ? ` (${x.count})` : ''}</div>`).join('');
+  return `<div class="grid" style="gap:14px">${kpis}<div class="cowrap">${left}
+  <div class="grid" style="gap:12px">
+    <div class="card raise"><div class="ch"><div><h3>${esc(g.customer.name)}</h3>
+      <div class="sub mono">${g.customer.id} &middot; ${g.customer.kw || '—'} kW &middot; application ${esc(g.application_no || '—')}</div></div><span class="spacer"></span>
+      <span class="pill ${g.failed.length ? 'bad' : g.missing ? 'warn' : 'live'}" id="k2Next">${esc(g.next.label)}</span></div>
+      ${g.draft ? '<div class="cb hint" style="color:var(--warn)">The site feasibility report, quotation, agreement and MSEDCL documents use Solara\'s draft layout until the client\'s own wording is added.</div>' : ''}
+      <div class="cb" style="display:grid;gap:8px" id="k2Steps">${g.steps.map(stepRow).join('')}</div></div>
+
+    <div class="two">
+      <div class="card" id="k2Ms"><div class="ch"><h3>MSEDCL documents</h3><span class="spacer"></span><span class="hint">PDF, 300 KB each; shown on MSEDCL only when its own list says so</span></div><div class="cb">${msTable}</div></div>
+      <div class="card" id="k2Serials"><div class="ch"><h3>Panel serial numbers</h3><span class="spacer"></span><span class="pill ${g.serial_count ? 'ok' : 'idle'}">${g.serial_count} on file</span></div>
+        <div class="cb" style="display:grid;gap:8px"><textarea id="k2SerialText" rows="4" placeholder="One serial number per line"${op}></textarea>
+          <div class="row" style="gap:6px"><button class="btn sm go" id="k2SerialSave"${op}>Save typed list</button>
+          <label class="btn sm">Upload Excel / CSV<input type="file" data-k2doc="serial_sheet" hidden${op}></label>
+          ${g.serial_count ? `<a class="btn sm" href="/api/k2/${g.customer.id}/serials.xlsx">Download for DCR portal</a>` : ''}</div>
+          <div class="hint">All or nothing: a repeated serial, or one already on another customer, stops the whole list.</div></div></div>
+    </div>
+
+    <div class="two">
+      <div class="card" id="k2Files"><div class="ch"><h3>Documents and photos</h3></div><div class="cb" style="display:grid;gap:8px">
+        ${upl('dcr_cert', 'DCR certificate for the panels')}${upl('invoice', 'Invoice / e-way bill')}${upl('site_photo', 'Photo of installed system (with GPS)')}${upl('preinstall', 'Photo before installation')}
+        <div class="row"><button class="btn sm" id="k2Field"${op}>Link for the installation team</button></div>
+        ${g.field_links.filter(l => l.status === 'open').map(l => `<div class="sub">Link open until ${k2when(l.expires_at)} <button class="btn sm" data-k2off="${esc(l.token)}"${op}>Switch off</button></div>`).join('')}
+        <div class="hint">What the team still has to send:</div>${chk}</div></div>
+      <div class="card" id="k2Loan"><div class="ch"><h3>Jan Samarth loan</h3></div><div class="cb" style="display:grid;gap:8px">
+        <div class="hint">Set "Customer takes a bank loan" in Close-out. Solara prepares the details; the customer enters their own Aadhaar OTP and any bank login. Nothing is submitted for them.</div>
+        <div class="row" style="gap:6px"><button class="btn sm" data-k2loan="submitted"${op}>Submitted</button><button class="btn sm" data-k2loan="sanctioned"${op}>Sanctioned</button>
+        <button class="btn sm" data-k2loan="rejected"${op}>Rejected</button><button class="btn sm" data-k2loan="withdrawn"${op}>Withdrawn</button></div></div></div>
+    </div>
+
+    <div class="card" id="k2History"><div class="ch"><h3>History and timings</h3></div><div class="cb">
+      ${g.durations.length ? `<div class="sub">${g.durations.map(d => `${esc(d.stage)}${d.minutes_since_previous != null ? ` (+${d.minutes_since_previous} min)` : ''}`).join(' &rarr; ')}</div>` : ''}
+      <div style="max-height:230px;overflow:auto;margin-top:6px">${g.history.slice().reverse().map(h => `<div class="sub"><span class="mono">${k2when(h.ts)}</span> &middot; ${esc(h.step)} &middot; <b>${esc(h.status)}</b>${h.ref_no ? ' &middot; ' + esc(h.ref_no) : ''}${h.note ? ' &middot; ' + esc(h.note) : ''} <span style="opacity:.6">${esc(h.by || '')}</span></div>`).join('') || '<div class="hint">Nothing recorded yet.</div>'}</div></div></div>
+  </div></div></div>`;
+};
+
+async function k2Post(path, body, ok) {
+  try { S.k2Data = await api(`/k2/${S.k2Cid}${path}`, { method: 'POST', body }); S.k2 = await api('/k2'); render(); if (ok) toast(ok); return true; }
+  catch (err) { toast(err.message, true); return false; }
+}
+function k2Ask(title, sub, field, doneId, onGo) {
+  modal(title, sub, field, `<button class="btn" data-close>Cancel</button><button class="btn go" id="${doneId}">Save</button>`);
 }
 
 const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
@@ -998,7 +1100,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); if (S.view === 'k2') loadK2(); return; }
 
   /* registration */
   if (t.dataset.reg) { loadReg(t.dataset.reg); return; }
@@ -1039,6 +1141,57 @@ document.addEventListener('click', async e => {
   if (t.id === 'regAccepted' || t.id === 'regAcceptedModal') { closeModal(); if (await regPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
   if (t.id === 'regSign') { regSendAgreement(); return; }
   if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Milestone 1 done for this customer.'); return; }
+
+  /* K2 filing */
+  if (t.dataset.k2) { loadK2(t.dataset.k2); return; }
+  if (t.dataset.k2filed) {
+    const step = t.dataset.k2filed;
+    k2Ask('I pressed Submit', 'Only press this after you pressed Submit on the portal yourself. Add the reference the portal showed, if it showed one.',
+      `<div class="field"><label for="k2Ref">Reference number (optional)</label><input type="text" id="k2Ref" autocomplete="off"></div>`, 'k2FiledGo');
+    $('#k2FiledGo').dataset.step = step; return;
+  }
+  if (t.id === 'k2FiledGo') { const ref = $('#k2Ref').value.trim(); closeModal(); await k2Post('/filed', { step: t.dataset.step, ref_no: ref || null }, 'Marked filed'); return; }
+  if (t.dataset.k2fail) {
+    k2Ask('The portal refused it', 'Write what the portal said, so it can be fixed and tried again.',
+      `<div class="field"><label for="k2Note">What happened</label><input type="text" id="k2Note" autocomplete="off"></div>`, 'k2FailGo');
+    $('#k2FailGo').dataset.step = t.dataset.k2fail; return;
+  }
+  if (t.id === 'k2FailGo') { const note = $('#k2Note').value; closeModal(); await k2Post('/failed', { step: t.dataset.step, note }, 'Noted. Fix it, then press Retry.'); return; }
+  if (t.dataset.k2retry) { await k2Post('/retry', { step: t.dataset.k2retry }, 'Retry started'); return; }
+  if (t.dataset.k2rc) {
+    k2Ask('Save the receipt', 'The reference exactly as the portal shows it. You can attach its acknowledgement page or PDF.',
+      `<div class="field"><label for="k2RcRef">Reference</label><input type="text" id="k2RcRef" autocomplete="off"></div>
+       <div class="field"><label for="k2RcFile">Acknowledgement (optional)</label><input type="file" id="k2RcFile"></div>`, 'k2RcGo');
+    $('#k2RcGo').dataset.step = t.dataset.k2rc; return;
+  }
+  if (t.id === 'k2RcGo') {
+    const fd = new FormData(); const f = $('#k2RcFile').files[0]; if (f) fd.append('file', f);
+    try {
+      const r = await fetch(`/api/k2/${S.k2Cid}/receipt?step=${encodeURIComponent(t.dataset.step)}&ref_no=${encodeURIComponent($('#k2RcRef').value)}`, { method: 'POST', body: fd });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+      closeModal(); S.k2Data = j; S.k2 = await api('/k2'); render(); toast('Receipt saved');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'k2SerialSave') { await k2Post('/serials', { text: $('#k2SerialText').value }, 'Serial numbers saved'); return; }
+  if (t.dataset.k2loan) {
+    const st = t.dataset.k2loan;
+    k2Ask('Loan: ' + st, 'Add the Jan Samarth reference if the portal showed one.',
+      `<div class="field"><label for="k2LoanRef">Reference (optional)</label><input type="text" id="k2LoanRef" autocomplete="off"></div>`, 'k2LoanGo');
+    $('#k2LoanGo').dataset.st = st; return;
+  }
+  if (t.id === 'k2LoanGo') { const ref = $('#k2LoanRef').value.trim(); closeModal(); await k2Post('/loan', { status: t.dataset.st, ref_no: ref || null }, 'Loan status saved'); return; }
+  if (t.id === 'k2Field') {
+    try {
+      const s = await api(`/k2/${S.k2Cid}/field-link`, { method: 'POST', body: {} });
+      modal('Link for the installation team', 'Opens on a phone. It can only add files for this one customer, for 3 days.',
+        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="fieldUrl"></div>`,
+        `<button class="btn" data-close>Close</button><a class="btn go" href="https://wa.me/?text=${encodeURIComponent('Please upload the installation photos and files here: ' + s.url)}" target="_blank" rel="noopener">Send on WhatsApp</a>`);
+      await loadK2();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.k2off) { await api(`/k2/${S.k2Cid}/field-link/${t.dataset.k2off}`, { method: 'DELETE' }); await loadK2(); toast('Link switched off'); return; }
 
   /* close-out */
   if (t.dataset.co) { loadCo(t.dataset.co); return; }
@@ -1210,6 +1363,15 @@ document.addEventListener('change', async e => {
       S.regData = j; S.reg = await api('/registration'); render();
       const n = j.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key)).length;
       toast(n ? `Read. ${n} detail${n > 1 ? 's' : ''} to check.` : 'Read. Nothing to check.');
+    } catch (err) { toast(err.message, true); }
+  }
+  if (e.target.dataset.k2doc && e.target.files[0]) {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    try {
+      const r = await fetch(`/api/k2/${S.k2Cid}/document?kind=${e.target.dataset.k2doc}`, { method: 'POST', body: fd });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.k2Data = j; S.k2 = await api('/k2'); render();
+      toast(j.serial_result ? `${j.serial_result.count} serial numbers saved` + (j.serial_result.matches ? '' : j.serial_result.expected ? ` (the plant has ${j.serial_result.expected} modules)` : '') : 'Uploaded');
     } catch (err) { toast(err.message, true); }
   }
   if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);

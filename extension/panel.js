@@ -166,9 +166,12 @@
       !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password'].includes(el.type));
     let cid = '';
     if (!consumer && !app) {
-      if (!fields.length) { say('<span style="color:#8FA3B2">Nothing to do on this page.</span>'); return; }
       cid = await recalled();
-      if (!cid) return pick();
+      if (!fields.length) {
+        // a confirmation page has no form, but may show the reference the portal just gave
+        const showsRef = cid && REF_LABELS.some(l => labelled(l, root, /^[A-Za-z0-9][A-Za-z0-9\/_-]{3,39}$/));
+        if (!showsRef) { say('<span style="color:#8FA3B2">Nothing to do on this page.</span>'); return; }
+      } else if (!cid) return pick();
     }
     say('Looking up this customer…');
     const hint = `${location.host}${location.pathname} ${document.title} ${(document.querySelector('h1,h2,h3') || {}).innerText || ''}`.slice(0, 280);

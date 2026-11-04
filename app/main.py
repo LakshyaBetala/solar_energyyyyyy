@@ -827,7 +827,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                                              "kind IN ('bill','aadhaar','passbook','roof','dcr_cert','invoice')", (cid,))]}
 
 
-STEP_HINTS = [("sfr", r"feasib"), ("dcr", r"dcr|nise"), ("loan", r"jan ?samarth|loan"),
+STEP_HINTS = [("sfr", r"feasib|sfr"), ("dcr", r"dcr|nise"), ("loan", r"jan ?samarth|loan"),
               ("installation", r"install")]
 
 
@@ -838,7 +838,7 @@ def page_step(hint):
     h = (hint or "").lower()[:300]
     for step, pat in STEP_HINTS:
         if _re.search(pat, h):
-            m = _re.search(r"(?:step|screen)\s*([1-5])", h) if step == "installation" else None
+            m = _re.search(r"(?:step|screen|install/)\s*([1-5])", h) if step == "installation" else None
             return step, int(m.group(1)) if m else None
     return None, None
 

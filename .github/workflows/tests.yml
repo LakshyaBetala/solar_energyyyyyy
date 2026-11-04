@@ -35,6 +35,8 @@ jobs:
         run: python tests/milestone1.py
       - name: K1 completion (duplicates, validation, corrections, agreement evidence, co-pilot safety)
         run: python tests/k1_complete.py
+      - name: K2 (filing, DCR serials, field team, MSEDCL evidence, co-pilot on sandbox K2 pages)
+        run: python tests/k2_complete.py
       - name: Co-pilot on the real portal labels
         run: python tests/real_labels.py
       - name: Longevity (migrations, health, drift, pins)
