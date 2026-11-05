@@ -26,6 +26,11 @@ SCREENS = {1: "Location and vendor", 2: "Modules and serial numbers", 3: "Invert
 # Only screen 1's labels have been seen on the real portal (tests/real_labels.py). The grouping of
 # the rest follows the fields the client's documents ask for and must be checked on the portal.
 SCREENS_VERIFIED = {1}
+# every filing that gets an acknowledgement: the two K1 filings and the five K2 steps
+RECEIPT_STEPS = ("registration", "sfr", "installation", "dcr", "msedcl", "loan", "agreement")
+RECEIPT_LABEL = {"registration": "Registration (application)", "sfr": "Site feasibility report",
+                 "installation": "Installation", "dcr": "DCR certificate", "msedcl": "MSEDCL documents",
+                 "loan": "Jan Samarth loan", "agreement": "Agreement upload"}
 REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9/_\-]{3,39}$")
 SERIAL = re.compile(r"^[A-Z0-9][A-Z0-9\-/.]{5,31}$")
 MOBILE = re.compile(r"^[6-9]\d{9}$")
@@ -529,7 +534,39 @@ def progress(cid):
             "failed": [s["key"] for s in steps if s["state"] == "failed"],
             "missing": sum(s["blocking"] for s in steps if s["state"] not in ("filed", "n/a")),
             "refs": {s["key"]: s["ref"] for s in steps if s["ref"]},
-            "durations": durations(cid)}
+            "durations": durations(cid), "post_install": post_install(cid),
+            "receipts": (rc := receipts(cid, steps)),
+            "missing_receipts": [k for k, v in rc.items() if v["filed"] and not v["file"]]}
+
+
+def post_install(cid):
+    """From the installation team's first upload to the six documents showing on MSEDCL. This is
+    elapsed time, not the owner's effort; the 5-minute KPI is measured with a stopwatch."""
+    c, d = closeout.data(cid)
+    first = db.one("SELECT ts FROM filings WHERE customer_id=? AND step='field' AND status='uploaded' "
+                   "ORDER BY id LIMIT 1", (cid,))
+    if not first:
+        return None
+    end = d.get("msedcl_uploaded_at") if d.get("msedcl_uploaded") else None
+    ag = d.get("agreement_uploaded_at")
+    return {"started": first["ts"], "finished": end, "done": bool(end),
+            "minutes": _minutes(first["ts"], end or db.now()),
+            "since_agreement_minutes": _minutes(ag, end) if ag and end else None}
+
+
+def receipts(cid, steps):
+    """For each filing: is it filed, what reference, and is the acknowledgement kept in the file."""
+    c, d = closeout.data(cid)
+    filed = {"registration": bool(c["application_no"]), "agreement": bool(d.get("agreement_uploaded_at")),
+             **{s["key"]: s["state"] == "filed" for s in steps}}
+    refs = {"registration": c["application_no"], **{s["key"]: s["ref"] for s in steps}}
+    out = {}
+    for k in RECEIPT_STEPS:
+        row = db.one("SELECT ref_no FROM filings WHERE customer_id=? AND step=? AND status='receipt' "
+                     "ORDER BY id DESC", (cid, k))
+        out[k] = {"label": RECEIPT_LABEL[k], "filed": filed.get(k, False), "ref": (row and row["ref_no"]) or refs.get(k),
+                  "file": has_doc(cid, f"rc_{k}"), "saved": bool(row)}
+    return out
 
 
 def durations(cid):
@@ -653,9 +690,15 @@ def loan_status(cid, status, user, ref=None, note=None):
 
 def record_receipt(cid, step, ref_no, user, filename=None, blob=None):
     """Save the reference the portal gave, and optionally its acknowledgement page or PDF."""
-    if step not in dict(STEPS):
+    if step not in RECEIPT_STEPS:
         raise ValueError("unknown step; a receipt belongs to a whole step, not one installation screen")
     ref = _ref_ok(cid, step, ref_no)
+    if step == "registration":
+        on_file = closeout.data(cid)[0]["application_no"]
+        if not on_file:
+            raise ValueError("register the customer first; there is no application number yet")
+        if ref.upper() != on_file:
+            raise ValueError(f"{ref} is not the application number on file ({on_file}); check the acknowledgement")
     if blob is not None:
         store_doc(cid, f"rc_{step.replace(':', '_')}", filename, blob, user["username"])
     track(cid, step, "receipt", user["username"], ref, "receipt saved" + (" with file" if blob else ""))

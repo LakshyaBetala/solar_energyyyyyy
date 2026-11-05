@@ -26,7 +26,8 @@ PAGES = {
         ("qa", "Quotation Amount(Rs.):*", "text", 1, "REAL"),
         ("qd", "Quotation Document:*", "file", 1, "REAL"),
         ("emp", "Name of vendor employee visited the project site:*", "text", 1, "REAL"),
-        ("cnum", "Contact Number:*", "text", 1, "REAL")], True),
+        ("cnum", "Contact Number:*", "text", 1, "REAL"),
+        ("pre", "Pre-installation photo", "file", 0, "GUESS")], True),
     "install/1": ("Submit Installation: step 1", [
         ("vn", "Name of Vendor:*", "text", 1, "REAL"), ("lat", "Latitude:*", "text", 1, "REAL"),
         ("lng", "Enter longitude:*", "text", 1, "REAL")], False),
@@ -52,7 +53,17 @@ PAGES = {
         ("cmob", "Consumer Mobile", "text", 1, "REAL"), ("caddr", "Customer Address", "textarea", 1, "REAL"),
         ("cpin", "Customer Pin Code", "text", 1, "REAL"), ("inv", "Invoice Number / E-Way Bill", "text", 1, "REAL"),
         ("pan", "Panel Numbers (Enter Or Upload Via Excel)", "textarea", 1, "REAL"),
-        ("cert", "Certificate file", "file", 1, "REAL")], True),
+        ("cert", "Certificate file", "file", 1, "REAL"),
+        ("xl", "Upload Excel of panel numbers", "file", 0, "GUESS")], True),
+    # The loan portal's labels are not known. The customer's own Aadhaar number and OTP, and the bank
+    # and branch they pick, are here so the test can prove the co-pilot leaves them alone.
+    "jansamarth": ("Jan Samarth loan application", [
+        ("jn", "Applicant Name", "text", 1, "GUESS"), ("jm", "Mobile Number", "text", 1, "GUESS"),
+        ("je", "Email ID", "text", 0, "GUESS"), ("ja", "Address", "textarea", 1, "GUESS"),
+        ("jp", "Pin Code", "text", 1, "GUESS"), ("jd", "District", "text", 1, "GUESS"),
+        ("jl", "Loan Amount Required (Rs)", "text", 1, "GUESS"),
+        ("jaa", "Aadhaar Number", "text", 1, "GUESS"), ("jo", "Aadhaar OTP", "text", 1, "GUESS"),
+        ("sb", "Select Bank", "select", 1, "GUESS"), ("sbr", "Select Branch", "select", 1, "GUESS")], True),
 }
 CSS = """body{font:14px system-ui,Arial;margin:0;color:#222}.top{background:#1A3E73;color:#fff;padding:10px 16px}
 .wrap{max-width:640px;margin:16px auto;padding:0 14px}.fg{margin:10px 0}label{display:block;font-weight:600}
@@ -71,6 +82,8 @@ def form(key, errors=()):
     rows = ""
     for i, label, kind, req, src in fields:
         ctl = (f'<input type="file" id="{i}" name="{i}">' if kind == "file" else
+               f'<select id="{i}" name="{i}"><option value="">Select</option><option>Bank of Maharashtra</option>'
+               f'<option>Manchar branch</option></select>' if kind == "select" else
                f'<textarea id="{i}" name="{i}" rows="3"></textarea>' if kind == "textarea" else
                f'<input type="text" id="{i}" name="{i}">')
         rows += f'<div class="fg"><label for="{i}">{e(label)}</label>{ctl}<span class="src">{src}</span></div>'

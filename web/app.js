@@ -600,6 +600,9 @@ VIEWS.k2 = () => {
       <div class="sub mono">${g.customer.id} &middot; ${g.customer.kw || '—'} kW &middot; application ${esc(g.application_no || '—')}</div></div><span class="spacer"></span>
       <span class="pill ${g.failed.length ? 'bad' : g.missing ? 'warn' : 'live'}" id="k2Next">${esc(g.next.label)}</span></div>
       ${g.draft ? '<div class="cb hint" style="color:var(--warn)">The site feasibility report, quotation, agreement and MSEDCL documents use Solara\'s draft layout until the client\'s own wording is added.</div>' : ''}
+      ${g.post_install ? `<div class="cb hint" id="k2Timer">Post-installation: <b class="mono">${g.post_install.minutes} min</b> ${g.post_install.done
+        ? `from the team's first upload to the six documents on MSEDCL${g.post_install.since_agreement_minutes != null ? `; ${g.post_install.since_agreement_minutes} min after the agreement upload` : ''}`
+        : 'since the first upload (still running)'}. Elapsed time, not your effort.</div>` : ''}
       <div class="cb" style="display:grid;gap:8px" id="k2Steps">${g.steps.map(stepRow).join('')}</div></div>
 
     <div class="two">
@@ -628,6 +631,13 @@ VIEWS.k2 = () => {
         ${upl('loan_approval', 'Approval letter (PDF or photo)')}</div></div>
     </div>
 
+    <div class="card" id="k2Receipts"><div class="ch"><h3>Receipts</h3><span class="spacer"></span>
+      <span class="pill ${g.missing_receipts.length ? 'warn' : 'ok'}">${g.missing_receipts.length ? g.missing_receipts.length + ' without a receipt file' : 'every filing has its receipt'}</span></div>
+      <div class="cb" style="display:grid;gap:6px">${Object.entries(g.receipts).map(([k, r]) => `<div class="row" style="gap:8px;align-items:center" data-rc="${k}">
+        <span class="pill ${r.filed ? (r.file ? 'ok' : 'warn') : 'idle'}">${r.filed ? (r.file ? 'Receipt kept' : 'Filed, no receipt file') : 'Not filed'}</span>
+        <span>${esc(r.label)}</span><span class="mono sub">${esc(r.ref || '')}</span><span class="spacer"></span>
+        ${r.file ? `<a class="btn sm" href="/api/k2/${g.customer.id}/receipt/${k}" target="_blank" rel="noopener">Open</a>` : ''}
+        ${r.filed ? `<button class="btn sm" data-k2rc="${k}"${op}>${r.file ? 'Replace' : 'Save receipt'}</button>` : ''}</div>`).join('')}</div></div>
     <div class="card" id="k2History"><div class="ch"><h3>History and timings</h3></div><div class="cb">
       ${g.durations.length ? `<div class="sub">${g.durations.map(d => `${esc(d.stage)}${d.minutes_since_previous != null ? ` (+${d.minutes_since_previous} min)` : ''}`).join(' &rarr; ')}</div>` : ''}
       <div style="max-height:230px;overflow:auto;margin-top:6px">${g.history.slice().reverse().map(h => `<div class="sub"><span class="mono">${k2when(h.ts)}</span> &middot; ${esc(h.step)} &middot; <b>${esc(h.status)}</b>${h.ref_no ? ' &middot; ' + esc(h.ref_no) : ''}${h.note ? ' &middot; ' + esc(h.note) : ''} <span style="opacity:.6">${esc(h.by || '')}</span></div>`).join('') || '<div class="hint">Nothing recorded yet.</div>'}</div></div></div>

@@ -202,7 +202,7 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
 | `k1_complete.py` | 86 | **K1 completion**: duplicates, validation, uploads, mismatches, manual corrections surviving re-reads, Aadhaar privacy, the kept agreement copy and its verification, co-pilot safety on a synthetic portal page, dashboard |
-| `k2_complete.py` | 168 | **K2**: SFR, five installation screens, DCR serials, Jan Samarth preparation, MSEDCL evidence and PDFs, field-team uploads and GPS, tracking and receipts, access control, co-pilot on the sandbox K2 pages, Filing screen |
+| `k2_complete.py` | 192 | **K2**: SFR, five installation screens, DCR serials, Jan Samarth preparation, MSEDCL evidence and PDFs, field-team uploads and GPS, tracking and receipts, access control, co-pilot on the sandbox K2 pages, Filing screen |
 | `real_labels.py` | 6 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report, installation step 1, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
 | `longevity.py` | 11 | old databases upgrade, dependencies pinned, health check, portal drift reported |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |

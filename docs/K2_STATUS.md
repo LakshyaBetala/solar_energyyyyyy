@@ -23,6 +23,13 @@ customers) needs live customers and is **not** claimed.
 | H. Tracking, receipts, history, timings, failed/retry | Implemented and tested | `filings` table (append only), receipts with optional file, per-stage minutes |
 | Dashboard (Filing screen) | Implemented and tested | steps, pending documents, failed, missing, references, next action, history |
 
+## Added after the first review against the K2 row and task list
+- **Photos on the portal pages**: the pre-installation photo (SFR page), the DCR certificate (installation screen 4, DCR page), the geotagged site photo (installation screen 5) and the serial-number Excel (DCR page) are attached by the co-pilot, and a customer who lacks one is told "not on file". Tested on the sandbox pages only; the real pages' upload-box labels are still unverified.
+- **Jan Samarth sandbox page + co-pilot test**: name, mobile, email, address, PIN, district and loan amount are filled; the customer's Aadhaar number, OTP, bank and branch are never touched. A customer not marked as taking a loan gets a warning.
+- **Post-installation timer**: first upload by the team (or office) to the six documents showing on MSEDCL, plus minutes since the agreement upload. It is elapsed time, not owner effort; the 5-minute KPI still needs a stopwatch.
+- **Receipts for every filing**: now also the K1 registration (must carry the application number on file) and agreement upload; the Filing screen lists all seven and flags any filed step without its acknowledgement file.
+- Still open: a QC report template does not exist (needs the client's file); real-page checks.
+
 ## Added on this branch
 - `app/k2.py` (logic), `app/field.py` (field page), `app/k2portal.py` (sandbox pages), K2 routes in `app/main.py`.
 - Tables (in `SCHEMA`, `CREATE IF NOT EXISTS`, no ALTERs, so every older database upgrades by just starting): `filings`, `serials`, `field_links`.

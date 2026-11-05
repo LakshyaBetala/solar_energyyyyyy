@@ -824,7 +824,9 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "k2_step": page_step(hint)[0] if cid_registered(cid) else None,
             "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT DISTINCT kind FROM documents WHERE customer_id=? AND "
-                                             "kind IN ('bill','aadhaar','passbook','roof','dcr_cert','invoice')", (cid,))]}
+                                             "kind IN ('bill','aadhaar','passbook','roof','dcr_cert','invoice','preinstall',"
+                                             "'install_photo')", (cid,))]
+            + (["site_photo"] if (DOCS / cid / "site_photo.jpg").exists() else [])}
 
 
 STEP_HINTS = [("sfr", r"feasib|sfr"), ("dcr", r"dcr|nise"), ("loan", r"jan ?samarth|loan"),
@@ -851,6 +853,8 @@ def page_issues(cid, hint):
     """What is wrong or doubtful for the page the person is on: the K2 step's checks on a K2 page,
     the registration checks before the customer is registered, nothing otherwise."""
     step, screen = page_step(hint)
+    if step == "loan" and k2.registered(cid) and not k2.loan_wanted(cid):
+        return [{"kind": "warning", "field": "loan", "message": "this customer is not marked as taking a loan (Close-out)"}]
     if step and k2.registered(cid):
         return k2.screen_issues(cid, screen) if screen else k2.ISSUES[step](cid)
     return [] if k2.registered(cid) else registration.validate(cid)["issues"]
@@ -859,8 +863,12 @@ def page_issues(cid, hint):
 @app.get("/api/copilot/doc/{cid}/{kind}")
 def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
     """A customer's own document (bill, Aadhaar...), for a portal's upload box."""
-    d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
-    if not d or (kind not in DOC_KINDS and kind not in k2.DOC_KINDS):
+    if kind == "site_photo":   # the geotagged photo is kept beside the close-out, not in the documents table
+        p = DOCS / _cid(cid) / "site_photo.jpg"
+        d = {"filename": "site_photo.jpg", "path": str(p)} if p.exists() else None
+    else:   # several photos can share a kind; the newest is the one offered
+        d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=? ORDER BY id DESC", (_cid(cid), kind))
+    if not d or (kind not in DOC_KINDS and kind not in k2.DOC_KINDS and kind != "site_photo"):
         raise HTTPException(404, "no such document on file")
     blob = vault.read(Path(d["path"]))
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
@@ -1012,10 +1020,15 @@ async def k2_document(cid: str, kind: str, file: UploadFile = File(...), user=De
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         db.audit(user["username"], user["role"], "Added site photo", cid, f"GPS {lat}, {lng} ({src})")
+        k2.track(cid, "field", "uploaded", user["username"], None, "site_photo")
         return k2_get(cid, user)
     if kind == "serial_sheet":
-        return _serial_sheet(_k2_cid(cid), file.filename, blob, user)
+        out = _serial_sheet(_k2_cid(cid), file.filename, blob, user)
+        k2.track(cid, "field", "uploaded", user["username"], None, "serial_sheet")
+        return out
     _k2_do(k2.store_doc, _k2_cid(cid), kind, file.filename, blob, user["username"])
+    if kind in ("dcr_cert", "invoice", "serial_label", "preinstall", "install_photo"):
+        k2.track(cid, "field", "uploaded", user["username"], None, kind)
     return k2_get(cid, user)
 
 
@@ -1063,6 +1076,19 @@ def k2_photo(cid: str, doc_id: int, user=Depends(current)):
     blob = vault.read(Path(d["path"]))
     return Response(blob, media_type="image/png" if blob.startswith(b"\x89PNG") else "image/jpeg",
                     headers={"Cache-Control": "private"})
+
+
+@app.get("/api/k2/{cid}/receipt/{step}")
+def k2_receipt_file(cid: str, step: str, user=Depends(current)):
+    """The acknowledgement kept for a filing."""
+    d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_k2_cid(cid), "rc_" + step.replace(":", "_")))
+    if step not in k2.RECEIPT_STEPS or not d:
+        raise HTTPException(404, "no receipt file kept for this step")
+    blob = vault.read(Path(d["path"]))
+    db.audit(user["username"], user["role"], "Viewed receipt", cid, step)
+    return Response(blob, media_type="application/pdf" if blob.startswith(b"%PDF") else
+                    "image/png" if blob.startswith(b"\x89PNG") else "image/jpeg",
+                    headers={"Cache-Control": "private", "Content-Disposition": f'inline; filename="{d["filename"]}"'})
 
 
 @app.get("/api/k2/{cid}/serials.xlsx")

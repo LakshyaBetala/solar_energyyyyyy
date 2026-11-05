@@ -604,6 +604,122 @@ async def main():
         check("only the ticked serial was added", closeout.serials(closeout.data(kk)[1]) == ["UI100001"])
         await br.close()
 
+    # ============ L. the four additions: photos, Jan Samarth page, timer, receipts ============
+    print("\n  -- L. photos on the portal pages, Jan Samarth page, post-installation timer, receipts")
+    ph = new_customer(sup, "Pooja Photos", "170011100015")
+    put(sup, ph, {**SFR_OK, **PLANT, "module_serials": "\n".join(sn("P1", 6))})
+    sup.post(f"/api/k2/{ph}/document", params={"kind": "dcr_cert"}, files={"file": ("c.pdf", pdf(), "application/pdf")})
+    sup.post(f"/api/k2/{ph}/document", params={"kind": "preinstall"}, files={"file": ("pre.jpg", closeout._demo_photo(1, 1), "image/jpeg")})
+    sup.post(f"/api/k2/{ph}/document", params={"kind": "site_photo"}, files={"file": ("s.jpg", closeout._demo_photo(19.953214, 73.837105), "image/jpeg")})
+    bare = new_customer(sup, "Bare Nophotos", "170011100016")
+    put(sup, bare, {**SFR_OK, **PLANT})
+    jl = new_customer(sup, "Jaya Loan", "170011100017")
+    sup.put(f"/api/registration/{jl}", json={"email": "jaya@example.test"})
+    put(sup, jl, {"loan_needed": "Yes", "loan_bank": "Bank of Maharashtra", "loan_branch": "Manchar", "loan_amount": "150000"})
+    plain = new_customer(sup, "Plain Noloan", "170011100018")
+
+    async with async_playwright() as p:
+        ctx = await p.chromium.launch_persistent_context(
+            tempfile.mkdtemp(), channel="chromium", headless=True, viewport={"width": 1300, "height": 950},
+            args=[f"--disable-extensions-except={EXT}", f"--load-extension={EXT}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else await ctx.wait_for_event("serviceworker")
+
+        async def visit(cid_, path, fill=True):
+            await sw.evaluate(f"chrome.storage.local.set({{url: '{BASE}', key: '{key}', current: {{cid: '{cid_}', at: Date.now()}}}})")
+            pg = await ctx.new_page()
+            await pg.goto(BASE + path)
+            await pg.wait_for_selector("#solaraFill", timeout=30000)
+            if fill:
+                await pg.click("#solaraFill")
+                await pg.wait_for_selector("#solaraFilled")
+            return pg
+        nfiles = lambda pg, sel: pg.evaluate(f"document.querySelector('{sel}').files.length")
+        fname = lambda pg, sel: pg.evaluate(f"document.querySelector('{sel}').files[0] && document.querySelector('{sel}').files[0].name")
+
+        pg = await visit(ph, "/k2portal/sfr")
+        check("SFR page: the pre-installation photo is attached with the quotation", await nfiles(pg, "#pre") == 1 and await nfiles(pg, "#qd") == 1)
+        pg = await visit(ph, "/k2portal/install/4")
+        check("installation screen 4: the DCR certificate is attached", await nfiles(pg, "#df") == 1)
+        pg = await visit(ph, "/k2portal/install/5")
+        check("installation screen 5: the geotagged site photo is attached", await nfiles(pg, "#ph") == 1 and await fname(pg, "#ph") == "site_photo.jpg")
+        pg = await visit(ph, "/k2portal/dcr")
+        check("DCR page: the serial-number Excel is attached to the upload box",
+              await nfiles(pg, "#xl") == 1 and str(await fname(pg, "#xl")).endswith("panel_serials.xlsx")
+              and await pg.evaluate("document.querySelector('#xl').files[0].arrayBuffer().then(b => b.byteLength)") > 1000)
+        check("DCR page: the certificate is attached too", await nfiles(pg, "#cert") == 1)
+        pg = await visit(bare, "/k2portal/install/5")
+        txt = await pg.inner_text("#solaraFilled")
+        check("a customer with no site photo gets a clear 'not on file', and nothing is attached",
+              await nfiles(pg, "#ph") == 0 and "not on file" in txt, txt.replace("\n", " ")[:120])
+
+        pg = await visit(jl, "/k2portal/jansamarth")
+        v = {k_: await pg.input_value(s_) for k_, s_ in (("n", "#jn"), ("m", "#jm"), ("e", "#je"), ("a", "#ja"), ("p", "#jp"), ("d", "#jd"), ("l", "#jl"))}
+        check("Jan Samarth page: name, mobile, email, address, PIN, district and loan amount are filled",
+              v["n"] == "JAYA LOAN" and v["m"] == "9811100017" and v["e"] == "jaya@example.test"
+              and v["a"].startswith("B-12 Sai") and v["p"] == "410503" and v["d"] == "Pune" and v["l"] == "150000", str(v))
+        left = [await pg.input_value(s_) for s_ in ("#jaa", "#jo", "#sb", "#sbr")]
+        check("the customer's own Aadhaar number, OTP, bank and branch are left for the customer", left == ["", "", "", ""], str(left))
+        check("nothing on the loan page is ticked or submitted", not await pg.is_checked("#declaration") and "Reference Number" not in await pg.inner_text("body"))
+        pg = await visit(plain, "/k2portal/jansamarth", fill=False)
+        check("a customer not taking a loan gets a warning on the loan page", "not marked as taking a loan" in await pg.inner_text("#solaraPanel"))
+        await ctx.close()
+
+    # timer
+    tm = new_customer(sup, "Tara Timer", "170011100019")
+    put(sup, tm, {**SFR_OK, **PLANT})
+    check("there is no post-installation timer before the team uploads anything", sup.get(f"/api/k2/{tm}").json()["post_install"] is None)
+    sup.post(f"/api/k2/{tm}/document", params={"kind": "dcr_cert"}, files={"file": ("c.pdf", pdf(), "application/pdf")})
+    from datetime import datetime
+    ago = lambda m: (datetime.now() - timedelta(minutes=m)).isoformat(timespec="seconds")
+    db.ex("UPDATE filings SET ts=? WHERE customer_id=? AND step='field'", (ago(12), tm))
+    pi = sup.get(f"/api/k2/{tm}").json()["post_install"]
+    check("the timer starts at the first upload and is running", pi and not pi["done"] and 11.5 <= pi["minutes"] <= 14, str(pi))
+    closeout.mark(tm, "test", agreement_uploaded_at=ago(30))
+    pil.post("/api/copilot/report", json={"customer_id": tm, "portal": "msedcl", "uploaded": keys}).raise_for_status()
+    pi = sup.get(f"/api/k2/{tm}").json()["post_install"]
+    check("it stops when the six documents show on MSEDCL, and says how long", pi["done"] and 11.5 <= pi["minutes"] <= 14, str(pi))
+    check("it also gives the time since the agreement upload", pi["since_agreement_minutes"] is not None and 29 <= pi["since_agreement_minutes"] <= 32)
+
+    # receipts for every filing
+    rcpt = new_customer(sup, "Rina Receipts", "170011100020")
+    appn = closeout.data(rcpt)[0]["application_no"]
+    closeout.mark(rcpt, "test", agreement_uploaded_at=db.now())
+    pr = sup.get(f"/api/k2/{rcpt}").json()
+    check("the K1 filings count as filings that need a receipt", pr["receipts"]["registration"]["filed"] and pr["receipts"]["agreement"]["filed"]
+          and set(pr["missing_receipts"]) >= {"registration", "agreement"})
+    check("a receipt for registration must carry the application number on file",
+          sup.post(f"/api/k2/{rcpt}/receipt", params={"step": "registration", "ref_no": "NP-WRONG-1234567"}, files={"file": ("a.pdf", pdf("ack"), "application/pdf")}).status_code == 400)
+    check("a registration receipt cannot be saved for an unregistered customer",
+          sup.post(f"/api/k2/{un}/receipt", params={"step": "registration", "ref_no": appn}).status_code == 400)
+    r = sup.post(f"/api/k2/{rcpt}/receipt", params={"step": "registration", "ref_no": appn}, files={"file": ("a.pdf", pdf("Registration acknowledgement"), "application/pdf")})
+    check("the registration acknowledgement is saved with its reference", r.status_code == 200 and r.json()["receipts"]["registration"]["file"])
+    r = sup.post(f"/api/k2/{rcpt}/receipt", params={"step": "agreement", "ref_no": "AGR-REF-0001"}, files={"file": ("g.pdf", pdf("Agreement acknowledgement"), "application/pdf")})
+    check("the agreement acknowledgement is saved with its reference", r.status_code == 200 and r.json()["receipts"]["agreement"]["ref"] == "AGR-REF-0001")
+    check("once both are saved nothing is missing a receipt", r.json()["missing_receipts"] == [])
+    got = sup.get(f"/api/k2/{rcpt}/receipt/registration")
+    check("the receipt file opens for signed-in users and is stored encrypted",
+          got.status_code == 200 and got.content.startswith(b"%PDF") and viewer.get(f"/api/k2/{rcpt}/receipt/registration").status_code == 200
+          and b"Registration acknowledgement" not in Path(db.one("SELECT path FROM documents WHERE customer_id=? AND kind='rc_registration'", (rcpt,))["path"]).read_bytes())
+    check("a receipt file is private to its customer and to signed-in users",
+          anon.get(f"/api/k2/{rcpt}/receipt/registration").status_code == 401 and sup.get(f"/api/k2/{h}/receipt/registration").status_code == 404
+          and sup.get(f"/api/k2/{rcpt}/receipt/nonsense").status_code == 404)
+    async with async_playwright() as p:
+        br = await p.chromium.launch()
+        dash = await br.new_page(viewport={"width": 1440, "height": 950})
+        await dash.goto(BASE)
+        await dash.click('[data-as="r.deshmukh"]')
+        await dash.wait_for_selector("#runview", state="attached")
+        await dash.click('.navitem[data-view="k2"]')
+        await dash.wait_for_selector(f'[data-k2="{tm}"]')
+        await dash.click(f'[data-k2="{tm}"]')
+        await dash.wait_for_function("document.querySelector('.card.raise h3').innerText === 'Tara Timer'")
+        check("the Filing screen shows the post-installation time", "Post-installation" in await dash.inner_text("#k2Timer"))
+        await dash.click(f'[data-k2="{rcpt}"]')
+        await dash.wait_for_function("document.querySelector('.card.raise h3').innerText === 'Rina Receipts'")
+        txt = await dash.inner_text("#k2Receipts")
+        check("the Filing screen lists a receipt line for every filing", "Registration" in txt and "Agreement upload" in txt and "every filing has its receipt" in txt)
+        await br.close()
+
     # ============ J. rules in the code ============
     print("\n  -- J. rules in the code")
     src = "".join(re.sub(r"//.*", "", (EXT / n).read_text(encoding="utf-8")) for n in ("panel.js", "background.js"))
@@ -616,7 +732,7 @@ async def main():
     check("the only model call in K2 reads serial-label photos, never an identity document",
           "extract.llm_read" in fn and "kind='serial_label'" in fn and "aadhaar" not in fn.lower()
           and not re.search(r"(?i)anthropic|openai|llm_read", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", rest)))
-    check("K2 code stores no password or OTP field", not re.search(r"(?i)password|otp", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", server)))
+    check("K2 code (outside the sandbox pages) stores no password or OTP field", not re.search(r"(?i)password|otp", re.sub(r"#.*|\"\"\"[\s\S]*?\"\"\"", "", server.replace(Path("app/k2portal.py").read_text(encoding="utf-8"), ""))))
 
     print("\n  reset:", client("r.deshmukh").post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
