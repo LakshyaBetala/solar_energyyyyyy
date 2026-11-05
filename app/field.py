@@ -37,7 +37,7 @@ def create_link(cid, user):
 
 def share(cid, url):
     c, d = closeout.data(cid)
-    text = (f"Site photos for {c['name']} ({c['address'] or c['place'] or ''}): open {url} on site. "
+    text = (f"Site photos for {(c['name'] or '').split()[0]} (consumer no. ...{(c['consumer_no'] or '')[-4:]}): open {url} on site. "
             "1) photo of the installed panels with location on, 2) the label of every panel, "
             "3) the inverter label.")
     return {"text": text, "whatsapp": "https://wa.me/?text=" + quote(text)}
@@ -260,7 +260,7 @@ def page(cid, token):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Site photos</title><style>{CSS}</style></head>
 <body><div class="wrap"><div class="hd">{e(vendor()['name'])} &middot; site photos</div>
-<div class="card"><h1>{e(c['name'])}</h1><div class="small">{e(c['address'] or '')} &middot; {e(d.get('module_count') or '?')} panels</div></div>
+<div class="card"><h1>{e((c['name'] or '').split()[0] if c['name'] else '')}</h1><div class="small">consumer no. &hellip;{e((c['consumer_no'] or '')[-4:])} &middot; {e(d.get('module_count') or '?')} panels</div></div>
 <div class="card"><h2>1. Photo of the installed panels</h2>
 <div class="small">Stand where the panels and the roof are visible. Location must be on: the office needs the GPS.</div>
 <div id="siteState" class="small {'ok' if s['site_photo'] else ''}">{'&#10003; Saved. ' + e(d.get('lat', '')) + ', ' + e(d.get('lng', '')) if s['site_photo'] else 'Not taken yet.'}</div>

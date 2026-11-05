@@ -162,6 +162,8 @@ async def main():
     check("the installation cannot be marked before the DCR certificate",
           sup.post(f"/api/filing/{cid}/mark", json={"step": "installation"}).status_code == 400)
     check("a DCR number must look like one", sup.post(f"/api/filing/{cid}/mark", json={"step": "dcr", "ref": "12"}).status_code == 400)
+    r = sup.post(f"/api/filing/{cid}/mark", json={"step": "dcr", "ref": "7201-5530-1188-2042"})   # SS-2042's certificate
+    check("a DCR certificate already on another customer is refused", r.status_code == 400 and "SS-2042" in r.json()["detail"])
     check("approving needs a supervisor", op.post(f"/api/filing/{cid}/approve", json={"step": "sfr"}).status_code == 403)
     check("approval is refused while the form has blanks", sup.post(f"/api/filing/{cid}/approve", json={"step": "sfr"}).status_code == 400)
     key = sup.post("/api/copilot/key").json()["key"]
@@ -311,6 +313,9 @@ async def main():
         await phone.set_viewport_size({"width": 390, "height": 844})
         await phone.goto(link)
         check("the field page fits a phone (no sideways scroll)", await phone.evaluate("document.documentElement.scrollWidth <= 392"))
+        body = await phone.inner_text("body")
+        check("a forwarded field link shows only the first name and the last 4 of the consumer no., not the address",
+              "Priya" in body and "Kulkarni" not in body and fx.NEW["consumer_no"][-4:] in body and "SAI SHRADDHA" not in body.upper())
         (tmp / "site.jpg").write_bytes(fx.site_photo_without_gps())
         await phone.set_input_files('input[data-kind="site"]', str(tmp / "site.jpg"))
         await phone.wait_for_selector("#siteState.ok", timeout=30000)

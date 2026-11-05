@@ -235,5 +235,18 @@ def board():
                     "index": KEYS.index(t["current"]) if t["current"] in KEYS else len(KEYS),
                     "next": nxt, "paused": bool(d.get("paused_at")),
                     "portal_status": p["status"] if p else None, "portal_seen": p["seen_at"] if p else None,
-                    "problems": t["problems"], "serials": field.summary(cid)["modules_confirmed"]})
+                    "problems": t["problems"], "serials": field.summary(cid)["modules_confirmed"],
+                    "others": others(cid, c, d)})
     return out
+
+
+def others(cid, c, d):
+    """The other three portals in a word each: the loan, the DCR certificate, MSEDCL."""
+    ms = portal_row(cid, "msedcl")
+    loan = None
+    if d.get("loan") == "Yes":
+        loan = f"applied {d['loan_ref']}" if d.get("loan_at") and d.get("loan_ref") else "applied" if d.get("loan_at") \
+            else "to apply"
+    dcr = d.get("dcr_cert_no") or ("waiting for the dealer" if d.get("dcr_dealer_wait") else None)
+    msedcl = "all six on MSEDCL" if d.get("msedcl_uploaded") else (ms["status"] if ms else None)
+    return {"loan": loan, "dcr": dcr, "msedcl": msedcl}

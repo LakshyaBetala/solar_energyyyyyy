@@ -199,6 +199,10 @@ def mark(cid, step, user, ref=None):
         cert = (ref or "").strip().upper()
         if len([ch for ch in cert if ch.isalnum()]) < 6:
             raise ValueError("enter the DCR certificate number as shown on the portal")
+        other = next((r["customer_id"] for r in db.q("SELECT customer_id, data FROM closeout WHERE customer_id<>?", (cid,))
+                      if json.loads(r["data"]).get("dcr_cert_no", "").upper() == cert), None)
+        if other:
+            raise ValueError(f"DCR certificate {cert} is already on {other}; one certificate covers one customer's panels")
         closeout.save(cid, {"dcr_cert_no": cert}, who)
         closeout.mark(cid, who, dcr_at=db.now(), dcr_dealer_wait=None)
     elif step == "dealer":

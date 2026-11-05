@@ -205,6 +205,18 @@ async def main():
         t = sup.get("/api/today").json()
         check("waiting for the dealer: the customer whose panels are not transferred",
               any(x["cid"] == F and x["group"] == "dealer" for x in t["items"]))
+        closeout.save(E, {"loan": "Yes"}, "test")
+        closeout.mark(C, "test", msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
+        other = {r["id"]: r["others"] for r in sup.get("/api/board").json()["rows"]}
+        check("the board shows the other three portals too: DCR number, dealer wait, loan, MSEDCL",
+              other[A]["dcr"] == "NISE-B2C-26-009901" and other[F]["dcr"] == "waiting for the dealer" and
+              other[E]["loan"] == "to apply" and other[C]["msedcl"] == "all six on MSEDCL" and other["SS-2043"]["loan"] is None,
+              str({k: other[k] for k in (A, F, E, C)}))
+        await dash.click('.navitem[data-view="pipeline"]')
+        await dash.wait_for_function(f"[...document.querySelectorAll('#board tbody tr')].some(r => r.cells[0].innerText.trim() === '{F}' && r.innerText.includes('dealer'))", timeout=20000)
+        cells = await dash.evaluate("Object.fromEntries([...document.querySelectorAll('#board tbody tr')].map(r => [r.cells[0].innerText.trim(), r.querySelector('[data-others]').innerText]))")
+        check("and on the screen, beside the national portal's status",
+              "waiting for the dealer" in cells.get(F, "") and "to apply" in cells.get(E, ""), str(cells.get(F)))
         await dash.click('.navitem[data-view="today"]')
         await dash.wait_for_selector(f'[data-group=dealer] [data-cid="{F}"]')
         await dash.click(f'[data-group=dealer] [data-cid="{F}"]')

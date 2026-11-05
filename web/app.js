@@ -886,12 +886,14 @@ function boardCard() {
   if (!b) return '';
   return `<div class="card raise" id="board"><div class="ch"><h3>Every customer, by portal stage</h3><span class="spacer"></span>
     <span class="hint">the portal's own ten stages; the co-pilot reads the status when you open My Application</span></div>
-    <div class="tscroll"><table><thead><tr><th>Ref</th><th>Customer</th><th>Stage</th><th></th><th>Portal says</th><th>Next in Solara</th><th></th></tr></thead>
+    <div class="tscroll"><table><thead><tr><th>Ref</th><th>Customer</th><th>Stage</th><th></th><th>Portal says</th><th>Loan · DCR · MSEDCL</th><th>Next in Solara</th><th></th></tr></thead>
     <tbody>${b.rows.map(r => `<tr${r.problems.length ? ' data-sev="warn"' : ''}><td class="mono sub">${esc(r.id)}</td>
       <td><div class="who2">${esc(r.name)}</div><div class="sub mono">${esc(r.application_no || 'not registered')}</div></td>
       <td>${stageDots(r, b.stages)}</td><td><span class="pill ${r.paused ? 'idle' : 'live'}">${r.paused ? 'Paused' : esc(r.stage_name)}</span></td>
       <td class="sub">${r.portal_status ? `${esc(r.portal_status)}<div style="font-size:10.5px">seen ${esc(r.portal_seen.slice(5, 16).replace('T', ' '))}</div>` : '—'}
         ${r.problems.map(p => `<div style="color:var(--bad);font-size:11px">${esc(p)}</div>`).join('')}</td>
+      <td class="sub" data-others>${[['Loan', r.others.loan], ['DCR', r.others.dcr], ['MSEDCL', r.others.msedcl]].filter(x => x[1])
+        .map(([k, v]) => `<div><b>${k}</b> ${esc(v)}</div>`).join('') || '—'}</td>
       <td class="sub">${esc(r.next.label)}</td>
       <td><button class="btn sm" data-goto="${r.application_no ? 'inst' : 'reg'}" data-cid="${esc(r.id)}">Open</button></td></tr>`).join('')}</tbody></table></div></div>`;
 }
