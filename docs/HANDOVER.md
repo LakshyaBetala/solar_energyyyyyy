@@ -36,8 +36,8 @@ customer stands and what to do next.
 | # | Milestone | Final result the client sees | Planned | Status |
 |---|---|---|---|---|
 | **K1** | Documents → registration and agreement | a new customer registered, accepted in the vendor login, agreement e-signed and uploaded — in ≤ 5 min of owner's time | week 1 | **built; prove on real portals** |
-| **K2** | Portal filing, reports, loan and tracking | all post-installation paperwork closed the same day (DCR, installation, six MSEDCL documents), plus the feasibility report and the Jan Samarth application | weeks 2–3 | **built and passing in the sandbox** (`milestone2.py`, 78 checks); prove on real portals |
-| **K3** | Dashboard | one screen with every customer's stage and today's to-do list | week 4 | **built and passing in the sandbox** (`milestone3.py`, 39 checks); prove on 10 live customers |
+| **K2** | Portal filing, reports, loan and tracking | all post-installation paperwork closed the same day (DCR, installation, six MSEDCL documents), plus the feasibility report and the Jan Samarth application | weeks 2–3 | **built and passing in the sandbox** (`milestone2.py`, 79 checks); prove on real portals |
+| **K3** | Dashboard | one screen with every customer's stage and today's to-do list | week 4 | **built and passing in the sandbox** (`milestone3.py`, 40 checks); prove on 10 live customers |
 | **K4** | OTP, security and problem cases | 8 common problems handled without filing anything twice or wrong | week 5 | partly built; to finish and demonstrate |
 | **K5** | Live testing and handover | the client's team runs Solara on real customers for 2 weeks | weeks 5–6 | — |
 
@@ -262,9 +262,9 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `ui.py` | 41 | every dashboard view in a real browser, Today first |
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
-| `milestone2.py` | 78 | **K2 end to end**: feasibility report, Jan Samarth, field phone page and barcode serials (repeat, clash, unreadable), DCR with a dealer wait, 5 installation steps, acceptance, e-sign, MSEDCL; receipts free of OTP and Aadhaar |
-| `milestone3.py` | 39 | **K3**: ten customers at ten portal statuses, 10/10 stages match, mismatches flagged, Today groups and buttons, every control, monthly Excel and PDF |
-| `real_labels.py` | 7 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report with its Yes/No questions, installation steps 1 and 2 with the inverter and module tables, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
+| `milestone2.py` | 79 | **K2 end to end**: feasibility report, Jan Samarth, field phone page and barcode serials (repeat, clash, unreadable), DCR with a dealer wait, 5 installation steps, acceptance, e-sign, MSEDCL; receipts free of OTP and Aadhaar |
+| `milestone3.py` | 40 | **K3**: ten customers at ten portal statuses, 10/10 stages match, mismatches flagged, Today groups and buttons, every control, monthly Excel and PDF |
+| `real_labels.py` | 10 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report with its Yes/No questions, installation steps 1 and 2 with the inverter and module tables, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
 | `longevity.py` | 11 | old databases upgrade, dependencies pinned, health check, portal drift reported |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |
 
@@ -390,7 +390,7 @@ post-installation ≤ 5 min of owner's time each (customer's e-sign not counted)
 automatically, 0 files rejected for size or format · Jan Samarth application submitted up to bank and
 branch for 2 loan customers, basic details filled by Solara (the customer enters their own Aadhaar OTP).
 
-**Built and passing in the sandbox** (`tests/milestone2.py`, 78 checks; section 2a): every step below
+**Built and passing in the sandbox** (`tests/milestone2.py`, 79 checks; section 2a): every step below
 in code. What is left is **proving each on the real portal with the owner** and fixing what the real
 pages do differently. A task is done when the "Done when" column is seen on a real customer.
 

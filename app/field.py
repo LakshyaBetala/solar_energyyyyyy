@@ -145,8 +145,13 @@ def _save_thumb(cid, rid, blob):
     db.ex("UPDATE serial_reads SET photo=? WHERE id=?", (str(p), rid))
 
 
+def typed(serial):
+    """A serial typed by a person: the label's spacing ("PE55026A 318500") is not part of it."""
+    return pick_serial(re.sub(r"\s+", "", serial or ""))
+
+
 def add_typed(cid, kind, serial, who):
-    s = pick_serial(serial)
+    s = typed(serial)
     if not s:
         raise ValueError("a serial number has at least 8 letters and digits, with 4 or more digits")
     if db.one("SELECT 1 FROM serial_reads WHERE customer_id=? AND serial=? AND status<>'rejected'", (cid, s)):
@@ -201,7 +206,7 @@ def decide(cid, rid, action, user, serial=None):
     if action == "reject":
         db.ex("UPDATE serial_reads SET status='rejected' WHERE id=?", (rid,))
     elif action in ("confirm", "correct"):
-        s = pick_serial(serial) if action == "correct" else r["serial"]
+        s = typed(serial) if action == "correct" else r["serial"]
         if not s:
             raise ValueError("type the serial number exactly as on the label")
         other = _owner(s, cid)
@@ -225,17 +230,14 @@ def sync(cid, who):
     vals = {}
     mods = [r["serial"] for r in s["reads"] if r["kind"] == "module" and r["status"] == "confirmed"]
     pending = s["to_confirm"] + s["clash"] + s["unread"]
-    # all in and nothing left to check; with the panel count known, exactly that many
-    if mods and not pending and (not s["module_count"] or len(mods) == s["module_count"]):
-        if mods != closeout.serials(d):
-            vals["module_serials"] = "\n".join(mods)
-        if not d.get("module_count"):
-            vals["module_count"] = str(len(mods))
+    # only with the panel count known can "all in" be told from "the first few in"
+    if mods and not pending and len(mods) == s["module_count"] and mods != closeout.serials(d):
+        vals["module_serials"] = "\n".join(mods)
     if s["inverter"] and s["inverter"] != d.get("inverter_serial"):
         vals["inverter_serial"] = s["inverter"]
     if vals:
         closeout.save(cid, vals, who)
-    done = bool(mods) and not pending and closeout.serials({**d, **vals}) == mods
+    done = bool(mods) and not pending and len(mods) == s["module_count"] and closeout.serials({**d, **vals}) == mods
     closeout.mark(cid, who, serials_at=(d.get("serials_at") or db.now()) if done else None)
 
 

@@ -51,8 +51,9 @@ def capture(portal, rows, user):
         if not c and portal == "msedcl" and ref:
             c = next(({"id": x["customer_id"]} for x in db.q("SELECT customer_id, data FROM closeout")
                       if json.loads(x["data"]).get("msedcl_app_id") == ref), None)
-        if not c and cons:
-            c = db.one("SELECT id, stage FROM customers WHERE consumer_no=?", (cons,))
+        if not c and cons:  # an old application of the same consumer must not overwrite their current one
+            c = db.one("SELECT id, stage FROM customers WHERE consumer_no=? AND (application_no IS NULL OR ?='')",
+                       (cons, ref if portal == "pmsg" else ""))
         if not c:
             unknown.append(ref or cons)
             continue

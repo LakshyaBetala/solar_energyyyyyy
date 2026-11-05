@@ -1020,7 +1020,7 @@ async function instAct(act) {
   const g = S.instData;
   const go = sel => { const el = $(sel); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return el; };
   if (act === 'details' || act === 'roof') {
-    const el = $$('[data-i]').find(i => !i.value);
+    const el = (/number of panels/.test(g.next.label) && $('[data-i="module_count"]')) || $$('[data-i]').find(i => !i.value);
     if (act === 'roof') { S.view = 'reg'; await loadReg(g.customer.id); toast('Upload the pre-installation roof photo under Documents.'); return; }
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } return;
   }
@@ -1244,7 +1244,8 @@ document.addEventListener('click', async e => {
   if (t.dataset.inst) { loadInst(t.dataset.inst); return; }
   if (t.id === 'instNext') { instAct(t.dataset.act); return; }
   if (t.hasAttribute('data-isave')) {
-    const body = Object.fromEntries($$('[data-i]').map(i => [i.dataset.i, i.value]));
+    // only what was changed here: the co-pilot or the field page may have saved other values meanwhile
+    const body = Object.fromEntries($$('[data-i]').filter(i => i.value !== String(S.instData.data[i.dataset.i] ?? '')).map(i => [i.dataset.i, i.value]));
     try { S.instData = await api('/filing/' + S.instCid, { method: 'PUT', body }); clearDrafts(); S.inst = await api('/filing'); render(); toast('Saved'); }
     catch (err) { toast(err.message, true); }
     return;
@@ -1332,7 +1333,7 @@ document.addEventListener('click', async e => {
   if (t.id === 'coNext') { coAct(t.dataset.act); return; }
   if (t.id === 'coSign') { coAct('sign'); return; }
   if (t.id === 'coSave') {
-    const body = Object.fromEntries($$('[data-f]').map(i => [i.dataset.f, i.value]));
+    const body = Object.fromEntries($$('[data-f]').filter(i => i.value !== String(S.coData.data[i.dataset.f] ?? '')).map(i => [i.dataset.f, i.value]));
     try { S.coData = await api('/closeout/' + S.coCid, { method: 'PUT', body }); clearDrafts(); S.co = await api('/closeout'); render(); toast('Saved'); }
     catch (err) { toast(err.message, true); }
     return;

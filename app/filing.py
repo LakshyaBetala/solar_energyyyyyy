@@ -107,9 +107,13 @@ def status(cid):
             nxt = ("field", "Send the field team the photo link")
         elif fs["to_confirm"] or fs["clash"]:
             nxt = ("serials", f"Confirm {fs['to_confirm'] + fs['clash']} serial number(s) against the photos")
+        elif fs["unread"]:
+            nxt = ("serials", f"Type {fs['unread']} unreadable label(s) from the photo, or remove them")
         elif not fs["site_photo"]:
             nxt = ("wait_field", "Waiting for the site photo from the field")
-        elif fs["module_count"] and fs["modules_confirmed"] < fs["module_count"]:
+        elif not fs["module_count"]:
+            nxt = ("details", "Add the number of panels installed")
+        elif fs["modules_confirmed"] < fs["module_count"]:
             nxt = ("wait_field", f"{fs['modules_confirmed']} of {fs['module_count']} panel labels in; waiting for the rest")
         else:
             nxt = ("serials", "Confirm the serial numbers")
@@ -215,7 +219,8 @@ def mark(cid, step, user, ref=None):
     db.audit(who, user["role"], f"Filed: {STEP_LABEL.get(step, step)}", cid, ref or "")
 
 
-REOPEN = {"sfr": ("sfr_at",), "loan": ("loan_at",), "dcr": ("dcr_at",), "installation": ("installation_at",),
+REOPEN = {"sfr": ("sfr_at",), "loan": ("loan_at",), "dcr": ("dcr_at",),
+          "installation": ("installation_at", "install_accepted_at"),  # re-filed: the customer accepts again
           "accepted": ("install_accepted_at",), "msedcl": ("msedcl_uploaded", "msedcl_uploaded_at"),
           "agreement_uploaded": ("agreement_uploaded_at",)}
 

@@ -123,6 +123,8 @@ async def main():
     closeout.mark(E, "test", sfr_at=db.now())                               # E: next is the field team
     db.ex("UPDATE customers SET stage='feasible' WHERE id=?", (E,))
     put_on_portal("NP-MHSED26-16199999", "170099999999", "Not In Solara", 3, "Installation (Pending)")
+    # an old, rejected application of a customer who has a current one: it must not overwrite theirs
+    put_on_portal("NP-MHSED25-15100777", seeded["SS-2042"]["consumer_no"], seeded["SS-2042"]["name"], 5, "Installation (Rejected)")
     print(f"  ten customers on the sandbox portal: {', '.join(want)}")
     key = sup.post("/api/copilot/key").json()["key"]
     before = json.dumps([db.q("SELECT * FROM pmsg_install ORDER BY application_no"),
@@ -142,8 +144,8 @@ async def main():
         await pm.goto(f"{BASE}/pmsg/vendor/applications")
         await pm.wait_for_function("(document.querySelector('#solaraPanel') || {innerText: ''}).innerText.includes('updated in Solara')", timeout=30000)
         panel = await pm.inner_text("#solaraPanel")
-        check("the co-pilot reads all 11 rows; 10 updated in Solara, 1 not in Solara",
-              "Read 11 statuses" in panel and "10" in panel and "1 not in Solara" in panel, " ".join(panel.split())[:120])
+        check("the co-pilot reads all 12 rows; 10 updated, 2 not in Solara (an unknown one, an old one)",
+              "Read 12 statuses" in panel and "10" in panel and "2 not in Solara" in panel, " ".join(panel.split())[:120])
         after = json.dumps([db.q("SELECT * FROM pmsg_install ORDER BY application_no"),
                             db.q("SELECT application_no, consented_at, agreement_at FROM pmsg_vendor ORDER BY application_no")])
         check("reading the list changed nothing on the portal (read only, no clicks)", before == after)
@@ -259,6 +261,7 @@ async def main():
         await dash.click("#instResume")                                                      # Resume
         await dash.wait_for_selector("#instPause")
         check("resumed: back on Today where it stopped", any(x["cid"] == A for x in sup.get("/api/today").json()["items"]))
+        closeout.mark(D, "test", install_accepted_at=db.now())   # D had been accepted before the portal returned it
         await dash.click(f'[data-inst="{D}"]')
         await dash.wait_for_selector("#instRetry")
         await dash.click("#instRetry")                                                       # Retry
@@ -268,6 +271,7 @@ async def main():
         await dash.wait_for_function("document.querySelector('#instNext').innerText.includes('Submit the installation')")
         g = sup.get(f"/api/filing/{D}").json()
         check("Retry reopens the rejected step: next is submitting the installation again", g["next"]["act"] == "installation")
+        check("and the customer's old acceptance is cleared: they accept the re-filed one", not g["times"]["install_accepted_at"])
         sup.post(f"/api/filing/{A}/mark", json={"step": "installation"}).raise_for_status()
         check("an installation Solara has filed but the portal still shows pending is flagged",
               any("went through" in x for x in sup.get(f"/api/tracker/{A}").json()["problems"]))

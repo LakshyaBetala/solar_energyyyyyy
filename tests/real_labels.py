@@ -104,6 +104,15 @@ PAGES = {
         '<p>User Id <input type="text" id="userIdField" name="username"></p>',
         '<p>Password <input type="password" id="pw" name="password"></p>'],
         {"userIdField": None}),
+    "owner-chose": ("a dropdown the owner already set differs from the record", [
+        '<div class="fg"><label for="cst2">Customer State</label><select id="cst2"><option value="">Select</option>'
+        '<option>Maharashtra</option><option selected>Gujarat</option></select></div>', field("cn2", "Customer Name")],
+        {"cst2": "=Gujarat", "cn2": "name"}),
+    "add-serial-submits": ("an Add Serial button with no type, which would submit its form", [
+        '<h3>Solar PV Modules Details</h3><table><tr><th>S.No.</th><th>Quantity of Solar PV Module</th><th>Action</th></tr>'
+        '<tr><td>1</td><td><input type="text" id="mq9"></td><td><button>+ Add Serial Number</button>'
+        '<textarea id="sn9" aria-label="Serial Numbers" hidden></textarea></td></tr></table>'],
+        {"mq9": "module_count", "sn9": None}),
 }
 
 
@@ -142,7 +151,7 @@ async def main():
             await pg.wait_for_selector("#solaraPanel")
             # the screen changes under the panel, as on a single-page portal; then ↻ re-reads it
             await pg.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
-                document.body.insertAdjacentHTML('afterbegin', h); }""", html(src, fields))
+                document.body.insertAdjacentHTML('afterbegin', h); window.__stay = 1; }""", html(src, fields))
             await pg.click("#solaraRescan")
             try:
                 await pg.wait_for_function("/Vaishali|Nothing to do/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
@@ -151,27 +160,33 @@ async def main():
             if await pg.locator("#solaraFill").count():
                 await pg.click("#solaraFill")
                 await pg.wait_for_selector("#solaraFilled")
-            wrong = []
-            for fid, want in expect.items():
-                if fid.startswith("radio:"):
-                    got = await pg.evaluate(f"(document.querySelector('input[name={fid[6:]}]:checked') || {{}}).value || ''")
-                    if got != want:
-                        wrong.append(f"{fid} expected {want}, got '{got}'")
-                    continue
-                got = await pg.input_value(f"#{fid}")
-                if want == "only":  # the one option there is
-                    if not got:
-                        wrong.append(f"{fid} should take its only option")
-                    continue
-                if fid == "ph":  # the portal's wording for the record's "Single phase"
-                    want_v = "Single Phase"
-                    if got != want_v:
-                        wrong.append(f"ph expected {want_v}, got '{got}'")
-                    continue
-                if want is None and got:
-                    wrong.append(f"{fid} should stay empty, got '{got}'")
-                elif want and (got or "").strip() != str(values[want]).strip():
-                    wrong.append(f"{fid} expected '{values[want]}', got '{got}'")
+            await pg.wait_for_timeout(300)
+            wrong = [] if await pg.evaluate("window.__stay === 1") else ["the co-pilot submitted the page"]
+            if not wrong:
+                for fid, want in expect.items():
+                    if fid.startswith("radio:"):
+                        got = await pg.evaluate(f"(document.querySelector('input[name={fid[6:]}]:checked') || {{}}).value || ''")
+                        if got != want:
+                            wrong.append(f"{fid} expected {want}, got '{got}'")
+                        continue
+                    got = await pg.input_value(f"#{fid}")
+                    if want == "only":  # the one option there is
+                        if not got:
+                            wrong.append(f"{fid} should take its only option")
+                        continue
+                    if fid == "ph":  # the portal's wording for the record's "Single phase"
+                        want_v = "Single Phase"
+                        if got != want_v:
+                            wrong.append(f"ph expected {want_v}, got '{got}'")
+                        continue
+                    if want and want.startswith("="):  # the owner's own choice, kept
+                        if got != want[1:]:
+                            wrong.append(f"{fid} should keep '{want[1:]}', got '{got}'")
+                        continue
+                    if want is None and got:
+                        wrong.append(f"{fid} should stay empty, got '{got}'")
+                    elif want and (got or "").strip() != str(values[want]).strip():
+                        wrong.append(f"{fid} expected '{values[want]}', got '{got}'")
             check(f"{name} ({src})", not wrong, "; ".join(wrong) or f"{sum(1 for w in expect.values() if w)} filled, "
                   f"{sum(1 for w in expect.values() if w is None)} left alone")
         await ctx.close()

@@ -357,17 +357,22 @@ async def main():
         await dash.click(f'[data-srdo="reject"][data-srid="{clash}"]')
         await dash.wait_for_function(f"!document.querySelector('[data-sr=\"{clash}\"]')")
         unread = next(r for r in reads["reads"] if r["status"] == "unread")
-        await dash.fill(f'[data-srfix="{unread["id"]}"]', SERIALS[5].lower())          # typed off the photo
+        typed = SERIALS[5][:8].lower() + " " + SERIALS[5][8:]                          # typed off the photo, label spacing and all
+        await dash.fill(f'[data-srfix="{unread["id"]}"]', typed)
         await dash.click(f'[data-srdo="confirm"][data-srid="{unread["id"]}"]')
         await dash.wait_for_function(f"!document.querySelector('[data-srfix=\"{unread['id']}\"]')")
         inv_read = next(r for r in sup.get(f"/api/filing/{cid}").json()["field"]["reads"] if r["kind"] == "inverter")
         if inv_read["status"] != "confirmed":
             sup.post(f"/api/filing/{cid}/serial/{inv_read['id']}", json={"action": "confirm"}).raise_for_status()
         g = sup.get(f"/api/filing/{cid}").json()
-        check("six serials confirmed into the record, in order, typed one upper-cased",
+        check("with the panel count not yet known, confirmed serials wait: the first few are not taken for all",
+              not g["data"].get("module_serials") and not g["steps"][2]["done"] and g["next"]["label"] == "Add the number of panels installed",
+              g["next"]["label"])
+        sup.put(f"/api/filing/{cid}", json={"module_count": "6"}).raise_for_status()   # from the order
+        g = sup.get(f"/api/filing/{cid}").json()
+        check("six serials confirmed into the record once the count is in, in order; the typed one spaced and lower-case",
               g["data"].get("module_serials", "").split("\n") == SERIALS, g["data"].get("module_serials", "").replace("\n", " "))
-        check("module count and inverter serial come from the site", g["data"].get("module_count") == "6" and
-              g["data"].get("inverter_serial") == "PSIS3K26A04411")
+        check("the inverter serial comes from the site", g["data"].get("inverter_serial") == "PSIS3K26A04411")
         check("the field step is done and the post-installation clock started", g["steps"][2]["done"] and bool(g["times"]["field_at"]))
         await shot(dash, "4-serials-confirmed")
 

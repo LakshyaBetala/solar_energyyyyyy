@@ -548,6 +548,8 @@ def closeout_put(cid: str, body: dict = Body(...), user=Depends(need("operator")
         closeout.save(_cid(cid), body, user["username"])
     except ValueError as ex:
         raise HTTPException(400, str(ex))
+    if "module_count" in body:
+        field.sync(cid, user["username"])
     db.audit(user["username"], user["role"], "Updated close-out details", cid,
              ", ".join(sorted(k for k in body if k in closeout.LABEL))[:200])
     return closeout_get(cid, user)
@@ -845,11 +847,19 @@ def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
                     headers={"Content-Disposition": f'attachment; filename="{cid}_{key}.pdf"'})
 
 
+def receipt_sized(pdf):
+    """Small when it can be; a receipt is never uploaded anywhere, so a long one is kept whole."""
+    try:
+        return closeout.fit(pdf)
+    except ValueError:
+        return pdf
+
+
 async def save_receipt(cid, step, snapshot, url, user):
     """Keep what the portal showed when the owner marked a filing done, as a PDF in the customer's file."""
     if not snapshot:
         return None
-    pdf = closeout.fit(await exports.html_pdf(exports.receipt_html(snapshot, filing.STEP_LABEL.get(step, step), cid, url)))
+    pdf = receipt_sized(await exports.html_pdf(exports.receipt_html(snapshot, filing.STEP_LABEL.get(step, step), cid, url)))
     p = DOCS / cid / "receipts" / f"{step}_{datetime.now():%Y%m%d%H%M%S}.pdf"
     p.parent.mkdir(parents=True, exist_ok=True)
     vault.write(p, pdf)
@@ -995,6 +1005,8 @@ def filing_put(cid: str, body: dict = Body(...), user=Depends(need("operator")))
         closeout.save(_cid(cid), vals, user["username"])
     except ValueError as ex:
         raise HTTPException(400, str(ex))
+    if "module_count" in vals:  # serials already confirmed may now be all of them
+        field.sync(cid, user["username"])
     db.audit(user["username"], user["role"], "Updated filing details", cid, ", ".join(sorted(vals))[:200])
     return filing_get(cid, user)
 
@@ -1076,7 +1088,7 @@ async def filing_receipt(cid: str, step: str, file: UploadFile = File(...), user
         raise HTTPException(400, "unknown step")
     blob = await file.read()
     if blob.startswith(b"%PDF"):
-        pdf = closeout.fit(blob)
+        pdf = receipt_sized(blob)
     else:
         import io
         from PIL import Image
@@ -1086,7 +1098,7 @@ async def filing_receipt(cid: str, step: str, file: UploadFile = File(...), user
             raise HTTPException(400, "upload a PDF or a screenshot")
         buf = io.BytesIO()
         im.save(buf, "PDF", resolution=110)
-        pdf = closeout.fit(buf.getvalue())
+        pdf = receipt_sized(buf.getvalue())
     p = DOCS / _cid(cid) / "receipts" / f"{step}_{datetime.now():%Y%m%d%H%M%S}.pdf"
     p.parent.mkdir(parents=True, exist_ok=True)
     vault.write(p, pdf)

@@ -16,6 +16,8 @@
                   ['site_photo', /photo of installed/i]];
   // first match wins; null means "never touch". A third element limits a rule to pages whose text
   // matches it. Labels are the client's real screens (tests/real_labels.py checks every one).
+  // boxes whose value never leaves the browser: not read, not filled, blanked in every receipt
+  const SECRET = /otp|captcha|human check|password|security code|verification code|aadha?ar (no|number|card)|\buid\b|virtual id/;
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
     [/aadha?ar (no|number|card number)|\buid\b|virtual id/, null],    // the customer types their own Aadhaar
@@ -86,7 +88,8 @@
     .filter(visible).pop() || document.body;
   // the portal's own examples ("e.g. NP-RJJOV25-5119272", "format: NP-...") are not this customer's number
   const noExamples = t => String(t || '').replace(/(e\.?\s?g\.?|example|format)[:\s]*\(?NP-[A-Z0-9-]+/gi, ' ');
-  const textOf = root => noExamples(root.innerText + ' ' + [...root.querySelectorAll('input')].map(i => i.value).join(' '));
+  const secretField = el => el.type === 'password' || SECRET.test(labelOf(el));
+  const textOf = root => noExamples(root.innerText + ' ' + [...root.querySelectorAll('input')].filter(i => !secretField(i)).map(i => i.value).join(' '));
   const one = (re, root) => { const all = new Set(textOf(root).match(re) || []); return all.size === 1 ? [...all][0] : ''; };
   const zeroish = v => /^\s*0+([.,]0+)?\s*$/.test(v || '');
 
@@ -200,7 +203,7 @@
     const dst = [...clone.querySelectorAll('input,select,textarea')];
     src.forEach((el, i) => {
       const d = dst[i]; if (!d) return;
-      const lab = labelOf(el), secret = el.type === 'password' || /otp|captcha|password|aadha?ar (no|number)|human check/.test(lab);
+      const secret = secretField(el);
       if (el.tagName === 'SELECT') [...d.options].forEach((o, j) => j === el.selectedIndex ? o.setAttribute('selected', '') : o.removeAttribute('selected'));
       else if (el.type === 'checkbox' || el.type === 'radio') el.checked ? d.setAttribute('checked', '') : d.removeAttribute('checked');
       else if (el.type === 'file') d.replaceWith(Object.assign(document.createElement('b'), { textContent: [...(el.files || [])].map(f => f.name).join(', ') || '(no file)' }));
@@ -307,12 +310,13 @@
     if (panel.contains(e.target)) return;
     for (let p = e.target; p && p !== document.body; p = p.parentElement) {
       const m = new Set(noExamples((p.innerText || '').slice(0, 4000)).match(NP) || []);
-      if (m.size === 1) { chrome.storage.local.set({ clicked: { app: [...m][0], at: Date.now() } }); return; }
+      if (m.size === 1) { chrome.storage.local.set({ clicked: { app: [...m][0], at: Date.now(), site: site() } }); return; }
       if (m.size > 1) return;
     }
   }, true);
-  const clicked = async () => { const { clicked: c } = await chrome.storage.local.get('clicked');
-    return c && Date.now() - c.at < 10 * 60 * 1000 ? c.app : ''; };
+  const site = () => location.host + '/' + location.pathname.split('/')[1];
+  const clicked = async () => { const { clicked: c, current } = await chrome.storage.local.get(['clicked', 'current']);
+    return c && c.site === site() && Date.now() - c.at < 10 * 60 * 1000 && !(current && current.at > c.at) ? c.app : ''; };
 
   let scanId = 0, busy = false, sig = '';
   const signature = () => { const r = scope(); return location.href + '|' + (r === document.body ? 'page' : 'dialog') + '|' +
@@ -458,9 +462,12 @@
       return hit && !(hit[2] === 'xlsx' && hasSerialBox) && { el, kind: hit[1], from: hit[2] };
     }).filter(Boolean);
     // "+ Add Serial Number" opens a row's serial box: tables whose first row's box is still closed
-    const closedSerial = [...root.querySelectorAll('table')].filter(t =>
-      [...t.querySelectorAll('button,a')].some(b => visible(b) && /add serial/i.test(b.innerText)) &&
+    const inert = b => b.tagName === 'BUTTON' ? b.type === 'button' : /^(#|javascript:)?$/.test(b.getAttribute('href') || '');
+    const addSerial = t => [...t.querySelectorAll('button,a')].find(b => visible(b) && /add serial/i.test(b.innerText));
+    const shut = [...root.querySelectorAll('table')].filter(t => addSerial(t) &&
       ![...t.querySelectorAll('textarea,input')].some(x => visible(x) && /serial/.test(labelOf(x))));
+    const closedSerial = shut.filter(t => inert(addSerial(t)));
+    const pressYourself = shut.length > closedSerial.length; // this portal's button might submit: the owner presses it
     const ready = new Set(c.files.map(f => f.key));
     // the customer's OTP (registration, Aadhaar) goes on Today as a call; the owner's own login OTP does not
     const ownLogin = root.querySelector('input[type=password]') || els.some(el => /user ?id|username|register email|login/.test(labelOf(el)));
@@ -516,7 +523,7 @@
       panel.dataset.fill = 'start';
       busy = true;
       if (closedSerial.length && !opened) { // opens an input box only; nothing is submitted
-        closedSerial.forEach(t => [...t.querySelectorAll('button,a')].find(b => /add serial/i.test(b.innerText)).click());
+        closedSerial.forEach(t => addSerial(t).click());
         await new Promise(r => setTimeout(r, 400));
         formMode(c, scope(), head, saved, step, true);
         busy = false;
@@ -526,7 +533,7 @@
       }
       panel.dataset.fill = 'fields';
       let filled = 0, kept = 0, attached = 0;
-      const left = [];
+      const left = pressYourself ? ['press + Add Serial Number, then Fill again'] : [];
       const serialEls = plan.filter(p => p.key === 'module_serials' && p.el.tagName !== 'TEXTAREA');
       const list = (c.values.module_serials || '').split('\n').filter(Boolean);
       for (const { el, key, extra } of plan) {
@@ -534,7 +541,9 @@
         if (extra || key === null) continue; // OTP, CAPTCHA: the person types these
         const v = key === 'module_serials' && serialEls.length > 1 ? list[serialEls.findIndex(p => p.el === el)] : valueOf(key);
         if (!key || v == null) { if (!el.value && key !== 'only_option') left.push(label); continue; }
-        if (el.value && !zeroish(el.value) && el.tagName !== 'SELECT') { kept += 1; continue; } // never overwrite what is typed
+        const chosen = el.tagName === 'SELECT' ? el.value !== '' && !/^\s*(select|--|choose)/i.test(el.selectedOptions[0]?.text || '')
+          : el.value && !zeroish(el.value);
+        if (chosen) { kept += 1; continue; } // never overwrite what is typed or picked
         if (setVal(el, v)) filled += 1; else if (key !== 'only_option') left.push(label);
       }
       for (const q of questions) {

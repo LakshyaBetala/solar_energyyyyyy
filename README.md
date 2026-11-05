@@ -372,9 +372,9 @@ tests/
   ui.py            41 checks driving the console in a real browser
   closeout.py      59 checks: close-out, e-sign consent rules, 300 KB pack, the extension
   milestone1.py    44 checks: Milestone 1 end to end with the co-pilot, plus failure paths
-  milestone2.py    78 checks: Milestone 2 end to end with the co-pilot on five sandbox portals
-  milestone3.py    39 checks: ten customers' stages read off the portal, Today, controls, monthly report
-  real_labels.py   7 checks: the co-pilot on the real field labels of the client's screens
+  milestone2.py    79 checks: Milestone 2 end to end with the co-pilot on five sandbox portals
+  milestone3.py    40 checks: ten customers' stages read off the portal, Today, controls, monthly report
+  real_labels.py   10 checks: the co-pilot on the real field labels of the client's screens
   longevity.py     11 checks: migrations, pinned versions, health, portal drift
   live_mode.py     7 checks: a fresh live install
   run_all.py       runs every suite with one summary
@@ -436,12 +436,12 @@ python tests/closeout.py  # 59 checks: the close-out screen, GPS and serial chec
                           # screen, and the extension attaching six files on the MSEDCL sandbox
 python tests/milestone1.py # 44 checks: Milestone 1 (K1) end to end with the co-pilot loaded, plus
                           # unreadable documents, wrong formats and steps out of order
-python tests/milestone2.py # 78 checks: Milestone 2 (K2): feasibility report, Jan Samarth, the field
+python tests/milestone2.py # 79 checks: Milestone 2 (K2): feasibility report, Jan Samarth, the field
                           # phone page and barcode serials, DCR with a dealer wait, 5 installation
                           # steps, e-sign, MSEDCL; receipts free of OTP and Aadhaar
-python tests/milestone3.py # 39 checks: Milestone 3 (K3): 10 of 10 stages match the portal, Today,
+python tests/milestone3.py # 40 checks: Milestone 3 (K3): 10 of 10 stages match the portal, Today,
                           # Start/Pause/Resume/Review/Approve/Retry, monthly Excel and PDF
-python tests/real_labels.py # 7 checks: the co-pilot on the client's real portal labels
+python tests/real_labels.py # 10 checks: the co-pilot on the client's real portal labels
 python tests/longevity.py  # 11 checks: old databases upgrade, versions pinned, health, drift
 python tests/live_mode.py  # 7 checks: its own live server on port 8911
 python tests/run_all.py    # all of the above, one summary (CI runs this on every push)
