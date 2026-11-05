@@ -308,7 +308,7 @@ Start from a customer whose agreement is uploaded (run the Milestone 1 script fi
 | 6 | Aadhaar page | panel fills nothing; Today shows "the portal is waiting for … OTP" |
 | 7 | Finish as the customer; on the result page **Save the reference and the approval letter** | reference and letter in the customer's file |
 | 8 | **Send field team the link**; open it on a phone; site photo; 6 panel labels (one twice, one blurred) | serials appear as read; the repeat counted once; the blurred one "not readable" |
-| 9 | Installation → **Confirm all barcode reads**; type the blurred one; Remove a wrong one | six confirmed; step 3 ticked; DCR Excel link appears |
+| 9 | Installation → **Confirm all barcode reads**; type the blurred one; Remove a wrong one; then enter No. of modules = 6 (from the order) and Save | before the count: "Add the number of panels installed", nothing in the record; after: six in the record, step 3 ticked, DCR Excel link appears |
 | 10 | DCR → B2C → **Fill** with one panel not in stock | refused; customer shows "Waiting for the dealer" on Today |
 | 11 | Credit the panel (sandbox), **Fill**, Submit | certificate number saved by itself; receipt kept |
 | 12 | Submit Installation, steps 1–5, **Fill** each | 0.00 replaced by the GPS; only the first table rows filled; plant photo attached; checklist answered; declaration left to you |
