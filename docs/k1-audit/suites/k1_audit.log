@@ -93,8 +93,11 @@
   PASS  M3     details form: the email box
   PASS  M4     details form: type 3 into the highlighted capacity box
   PASS  M5     details form: type 210000 as the cost
+  PASS  U7     Registration screen: a new customer (next step: documents)
+  PASS  U8     Registration screen: text size and labels
+  PASS  U9     Registration screen: open the folded portal section, then the screen redraws
 
   log: docs/k1-audit/k1_audit_log.md
 
-  89 passed, 0 failed
+  92 passed, 0 failed
 

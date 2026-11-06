@@ -1,6 +1,6 @@
 # KPI 1 audit test log
 
-Run 07 Nov 2026 01:07, `tests/k1_audit.py`. 89 of 89 cases pass.
+Run 07 Nov 2026 01:45, `tests/k1_audit.py`. 92 of 92 cases pass.
 
 | # | ID | Area | Input | Expected | Actual | Result |
 |---|---|---|---|---|---|---|
@@ -90,6 +90,9 @@ Run 07 Nov 2026 01:07, `tests/k1_audit.py`. 89 of 89 cases pass.
 | 84 | P1 | co-pilot | manifest hosts | consumer. and vendor.pmsuryaghar.gov.in included | ['https://rts.mahadiscom.in/RoofTopSolarVendor/*', 'https:// | PASS |
 | 85 | P2 | dashboard links | live 'Open customer registration' / 'Open vendor login' | the real login pages | {'pmsg': 'https://consumer.pmsuryaghar.gov.in/consumer/#/log | PASS |
 | 86 | P4 | rules | valid.app_no on 8-digit MH numbers | NP-MHSED26-12345678 accepted | checked | PASS |
-| 87 | M3 | details form | the email box | marked as needed (*), not 'optional' | EMAIL (THE PORTAL SENDS AN OTP) * | PASS |
+| 87 | M3 | details form | the email box | marked as needed (*), not 'optional' | Email * | PASS |
 | 88 | M4 | details form | type 3 into the highlighted capacity box | the 'missing' highlight goes as soon as it has a value | (True, False) | PASS |
 | 89 | M5 | details form | type 210000 as the cost | read back as Rs 2,10,000 (a missed zero shows) | Rs 2,10,000 | PASS |
+| 90 | U7 | Registration screen | a new customer (next step: documents) | Documents first and open; the portal section folded | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
+| 91 | U8 | Registration screen | text size and labels | body 15px; labels at least 13px, not in capitals | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
+| 92 | U9 | Registration screen | open the folded portal section, then the screen redraws | it stays open | [True, True] | PASS |

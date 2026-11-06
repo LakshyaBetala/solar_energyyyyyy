@@ -15,7 +15,7 @@ Audit dates: 6–7 Nov 2026. It covers:
 | | |
 |---|---|
 | **In the sandbox** | **Complete.** All 6 K1 steps run end to end with the real co-pilot extension: documents read → details complete → registered → accepted in the vendor login → agreement e-signed on the customer's phone → agreement uploaded. |
-| **Tests** | **488 checks in 10 suites, all green.** This includes the new `tests/k1_audit.py`: 89 cases, each logged with its input, the expected result, the actual result and the verdict. On the starting branch (`k1-rpx`) the same audit passes **53 of 89**. |
+| **Tests** | **491 checks in 10 suites, all green.** This includes the new `tests/k1_audit.py`: 92 cases (89 for the audit, plus 3 for the redesigned Registration screen on `k1-ui`), each logged with its input, the expected result, the actual result and the verdict. On the starting branch (`k1-rpx`) the 89 audit cases pass **53 of 89**. |
 | **Defects found in this audit** | **36 of the audit cases fail on `k1-rpx`.** All 36 are fixed on `k1-audit`. Four of the defects would have stopped K1 on the real portal or broken a promise to the client: 1. the co-pilot did not load on the real portal at all; 2. a full Aadhaar number could be stored; 3. one crafted image froze the server for 12.8 s; 4. the e-sign evidence for older links could never verify. |
 | **On the real portal** | **Partly proven.** The live consumer and vendor login pages were read, and their markup is now a test. Everything after the customer's OTP has **not** been seen, because reaching it needs a real login. Those pages need one live session with the owner (see [Still open](#still-open-needs-a-live-session-with-the-owner)). |
 | **The KPI itself** | **Not yet claimed.** It needs 3 real customers, each taking at most 5 minutes of the owner's time, timed with a stopwatch. |
@@ -116,6 +116,16 @@ The review was walked as the owner: create a customer, upload the bill and Aadha
 | U5 | The co-pilot "Filled:" list was garbled | Readable field names | screenshot m1-2 |
 | U6 | The agreement on a phone had tiny text (no viewport) | A phone viewport is added to the response only; the signed document and its hash are unchanged | k1_complete "kept copy" |
 
+**Redesign (branch `k1-ui`).** The owner found the Registration screen too full and the text too small. The screen was redesigned around one next step:
+
+- The four big-number tiles became one line of counts.
+- The six step boxes became a slim progress row.
+- A single "Next step" bar holds the one filled button, a sentence on why, and what else is needed before registering.
+- The section for the current step comes first, finished sections fold, and the full list of values read is folded.
+- Text is 15px, labels are 13.5px in sentence case, and hints use a grey that passes AA. Light and dark both hold.
+
+The rules are written down in [../PRODUCT.md](../PRODUCT.md) and [../DESIGN.md](../DESIGN.md). They are checked by k1_audit U7–U9: the current section comes first, the text sizes, and a section the owner opens stays open after a redraw.
+
 Screens:
 
 - after the fixes: [registration details](k1-audit/shots/reg-details-after.png);
@@ -178,14 +188,14 @@ Run against a local server with synthetic data only. No test contacts a governme
 | `k1_complete` | 86 | duplicates, uploads, conflicts, corrections, Aadhaar privacy, agreement evidence and verification |
 | `real_labels` | 8 | the co-pilot on 8 portal pages, including **the two live login pages** |
 | `validation` | 85 | every field rule, D06 and D08 |
-| `k1_audit` | 89 | **this audit**: D01–D15, R1–R12, M1–M6, P1–P4, each logged |
+| `k1_audit` | 92 | **this audit**: D01–D15, R1–R12, M1–M6, P1–P4, and U7–U9 for the redesigned screen, each logged |
 | `longevity` | 11 | old databases upgrade, the health check, pinned versions |
 | `live_mode` | 7 | a fresh live install: empty, no demo accounts, real portal links |
-| **Total** | **488** | **all green** |
+| **Total** | **491** | **all green** |
 
 Logs, committed with this audit:
 
-- [k1-audit/k1_audit_log.md](k1-audit/k1_audit_log.md) (also `.json`): all 89 cases, each with its input, expected result, actual result and verdict.
+- [k1-audit/k1_audit_log.md](k1-audit/k1_audit_log.md) (also `.json`): all 92 cases, each with its input, expected result, actual result and verdict.
 - [k1-audit/suites/](k1-audit/suites/): the full output of every suite, one log each, every PASS line.
 - [k1-audit/baseline_k1-rpx_audit.log](k1-audit/baseline_k1-rpx_audit.log): the same 89 cases on `k1-rpx`, **53 pass, 36 fail**.
 - [k1-audit/baseline_k1-rpx_real_labels.log](k1-audit/baseline_k1-rpx_real_labels.log): `k1-rpx` on the real-page labels, **3 pass, 5 fail** (R5).

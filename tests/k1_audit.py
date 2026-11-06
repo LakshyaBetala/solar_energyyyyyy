@@ -286,6 +286,19 @@ async def main():
         await pg.fill("#r_rts_cost", "210000")
         shown = await pg.inner_text("#h_rts_cost")
         case("M5", "details form", "type 210000 as the cost", "read back as Rs 2,10,000 (a missed zero shows)", shown == "Rs 2,10,000", shown)
+        look = await pg.evaluate("""() => { const s = [...document.querySelectorAll('.rgpane > .rgsec')];
+            const lab = getComputedStyle(document.querySelector('label[for=r_email]'));
+            return { first: s[0] && s[0].id, open: s[0] && s[0].open, portal: document.querySelector('#regPortal').open,
+                     body: getComputedStyle(document.querySelector('.rgv')).fontSize, label: lab.fontSize, caps: lab.textTransform }; }""")
+        case("U7", "Registration screen", "a new customer (next step: documents)", "Documents first and open; the portal section folded",
+             look["first"] == "regDocs" and look["open"] and not look["portal"], look)
+        case("U8", "Registration screen", "text size and labels", "body 15px; labels at least 13px, not in capitals",
+             look["body"] == "15px" and float(look["label"][:-2]) >= 13 and look["caps"] == "none", look)
+        await pg.click("#regPortal > summary")
+        await pg.evaluate("document.querySelector('#regPortal').dataset.before = 'x'; render()")  # the screen redraws, as after any save
+        kept = await pg.evaluate("[!document.querySelector('#regPortal').dataset.before, document.querySelector('#regPortal').open]")
+        case("U9", "Registration screen", "open the folded portal section, then the screen redraws", "it stays open",
+             kept == [True, True], kept)
         await b.close()
 
     sup.post("/api/demo/reset")

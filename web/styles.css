@@ -435,9 +435,6 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1px dashed var(--line)
 .fu.info{box-shadow:inset 2px 0 0 var(--info)}
 
 .field.miss input{border-color:var(--warn);box-shadow:0 0 0 2px var(--warn-soft)}
-#regRead .cb{grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:2px 10px}
-#regRead .fld.review{grid-column:1/-1}
-#regRead .fld .fv{font-size:12px}
 [data-demo][hidden],.whoami[hidden],.railfoot .hint[hidden]{display:none!important}
 
 /* registration forms: hints, live errors, required marker */
@@ -447,3 +444,103 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1px dashed var(--line)
 .field input.bad{border-color:var(--bad,#c0392b);background:color-mix(in srgb,var(--bad,#c0392b) 8%,var(--panel-2))}
 .field .req{color:var(--bad,#c0392b);letter-spacing:0}
 .btn:disabled{cursor:not-allowed}
+
+/* ---- Registration: one next step, readable at arm's length (15px body, sentence-case labels) ---- */
+.rgv{font-size:15px;line-height:1.55}
+.rgv .cowrap{grid-template-columns:minmax(250px,300px) minmax(0,1fr);gap:16px}
+.rgv .btn{font-size:14px;padding:8px 14px}
+.rgv .btn.sm{font-size:13px;padding:6px 11px}
+.rgv .btn.lg{font-size:15px;padding:11px 20px}
+.rgv a.btn{text-decoration:none}
+.rgv .pill{font-size:12px;letter-spacing:0;padding:3px 9px;border-radius:999px}
+.rgv .sub{font-size:12.5px}
+
+/* customer list */
+.rglist .ch h3{font-family:var(--font-ui);font-size:16px;font-weight:650}
+.rgcount{margin:0;padding:9px 14px;font-size:13px;color:var(--fg-dim);border-bottom:1px solid var(--line-soft)}
+.rgv .colist button{padding:12px 14px;gap:5px}
+.rgv .colist b{font-size:15px;font-weight:600}
+.rgv .colist button:hover{background:var(--panel-2)}
+.rgstate{font-size:13px;font-weight:600;color:var(--warn)}
+.rgstate.ok{color:var(--ok)}.rgstate.info{color:var(--info)}.rgstate.live{color:var(--teal)}
+
+/* the customer: one surface, sections divided by rules, never cards in cards */
+.rgpane{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);padding:22px 26px 10px;min-width:0;max-width:940px}
+.rghead h2{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.1}
+.rgfacts{margin:6px 0 0;color:var(--fg-dim);font-size:14px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.rgsteps{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.rgsteps li{display:flex;align-items:center;gap:7px;padding-top:9px;border-top:3px solid var(--line);font-size:13px;color:var(--fg-dim);min-width:0}
+.rgsteps li.done{border-top-color:var(--teal);color:var(--fg)}
+.rgsteps li.cur{color:var(--fg);font-weight:650}
+.rgsteps .dot{flex:none;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-size:11.5px;font-weight:700;
+  background:var(--panel-3);color:var(--fg-dim)}
+.rgsteps li.done .dot{background:var(--teal);color:var(--on-teal)}
+.rgsteps li.cur .dot{background:var(--teal-soft);color:var(--teal);box-shadow:inset 0 0 0 1.5px var(--teal)}
+
+/* next step: the only tinted block and the only filled button on the screen */
+.rgnext{margin:22px 0 8px;padding:16px 18px;border:1px solid var(--teal-line);background:var(--teal-soft);border-radius:6px}
+.rgnext.idle{border-color:var(--line);background:var(--panel-2)}
+.rgnext-main{display:flex;align-items:center;gap:12px 18px;flex-wrap:wrap}
+.rgnext-txt{flex:1 1 340px;min-width:0}
+.rgk{display:block;font-size:13px;font-weight:700;color:var(--teal)}
+.rgnext.idle .rgk{color:var(--ok)}
+.rgnext-txt p{margin:3px 0 0;max-width:68ch}
+.rgstatus{margin:0;font-size:15px;font-weight:650}
+.rgnext .rgapp{margin:14px 0 0;max-width:460px}
+.rgissues{margin:14px 0 0;padding:12px 0 0;border-top:1px solid var(--teal-line)}
+.rgissues p{margin:0 0 6px;font-size:13.5px;font-weight:600;color:var(--fg-dim)}
+.rgissues ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.rgissues li{display:flex;gap:10px;font-size:14px;align-items:baseline}
+.rgissues b{flex:none;min-width:5.5em;color:var(--warn);font-weight:650}
+
+/* sections */
+.rgsec{border-top:1px solid var(--line-soft)}
+.rgsec>summary,.rgsh{display:flex;align-items:baseline;gap:12px;padding:15px 0}
+.rgsec>summary{cursor:pointer;list-style:none;border-radius:var(--r)}
+.rgsec>summary::-webkit-details-marker{display:none}
+.rgsec>summary::before{content:'';flex:none;align-self:center;width:7px;height:7px;margin:0 3px 0 2px;
+  border-right:2px solid var(--fg-dim);border-bottom:2px solid var(--fg-dim);transform:rotate(-45deg);transition:transform .2s cubic-bezier(.25,1,.5,1)}
+.rgsec[open]>summary::before{transform:rotate(45deg)}
+.rgsec>summary:hover h3{color:var(--teal)}
+.rgsec h3{font-family:var(--font-ui);font-size:16.5px;font-weight:650}
+.rgmeta{color:var(--fg-dim);font-size:13.5px}
+.rgbody{padding:0 0 18px}
+.rgnote{margin:10px 0 0;color:var(--fg-dim);font-size:13.5px;max-width:72ch}
+.rgline{margin:12px 0 0;font-size:14px;color:var(--fg-dim)}
+.rgv .warn,.rgv .fhint.warn{color:var(--warn)}
+.rgactions{display:flex;justify-content:flex-end;padding-top:6px}
+
+/* documents and what was read */
+.rgv .docrow{padding:10px 12px;gap:12px;margin-bottom:8px}
+.rgv .docrow .nm{font-weight:550}
+.rgv .docrow .nm .sub{display:block;font-weight:400}
+.rgflags{display:grid;gap:4px}
+.rgv .fld{padding:10px 12px}
+.rgv .fld .fk{font-size:13px;letter-spacing:0;text-transform:none;color:var(--fg-dim)}
+.rgv .fld.review .fk{color:var(--fg);font-weight:600}
+.rgv .fld .fv{font-family:var(--font-ui);font-size:15px;font-variant-numeric:tabular-nums}
+.rgv .fld input{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;font-size:15px;min-width:0}
+.fnote{grid-column:1/-1;font-size:13px;color:var(--fg-dim);line-height:1.45}
+.fnote.warn{color:var(--warn)}
+
+/* the details form */
+.rgv .cofields{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 22px}
+.rgv .field{gap:5px}
+.rgv .field label{font-size:13.5px;letter-spacing:0;text-transform:none;color:var(--fg);font-weight:600}
+.rgv .field input{font-size:15px;padding:9px 11px}
+.rgv .fhint{font-size:13px;color:var(--fg-dim);line-height:1.45}
+.rgv .ferr{font-size:13px}
+.rgv .field.miss input{transition:border-color .2s ease-out,box-shadow .2s ease-out}
+
+/* what goes on the portal */
+.rgfiled{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 22px;margin:0 0 16px}
+.rgfiled dt{font-size:13px;color:var(--fg-dim)}
+.rgfiled dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.rgpane .rgapp{margin-top:16px;max-width:460px}
+
+@media (max-width:1000px){.rgv .cowrap{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:700px){
+  .rgpane{padding:16px}
+  .rgsteps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}
+}
+@media (prefers-reduced-motion:reduce){.rgsec>summary::before,.rgv .field.miss input{transition:none}}
