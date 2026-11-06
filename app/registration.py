@@ -225,7 +225,9 @@ def save_details(cid, body, user):
     if "email" in body:
         rest["email"] = valid.email(body["email"])
     if "district" in body:
-        rest["district"] = valid.name(body["district"], "district", required=False)
+        # shortcut: the district list is Maharashtra's; another state keeps free text until its list is added
+        rest["district"] = (valid.district(body["district"]) if region()["state"] == "Maharashtra"
+                            else valid.name(body["district"], "district", required=False))
     if "rts_cost" in body:
         rest["rts_cost"] = valid.cost(body["rts_cost"])
     if valid.text(body.get("aadhaar"), "Aadhaar").strip():
@@ -302,3 +304,44 @@ def summary(cid):
     return {"id": cid, "name": c["name"], "consumer_no": c["consumer_no"], "kw": c["kw"],
             "application_no": c["application_no"], "next": st["next"],
             "done": sum(s["done"] for s in st["steps"]), "total": len(st["steps"])}
+
+
+# What a status on the vendor's "My Application" list means for milestone 1. Read from the sandbox
+# copy of the portal (built from the client's screen recording).
+# shortcut: the live portal's status words are not seen yet; check them in the live session, and add
+# them here. A status not listed changes nothing and is logged, so the live session shows what to add.
+ACCEPTED = re.compile(r"upload agreement|agreement \(pending\)", re.I)
+PAST_AGREEMENT = re.compile(r"installation|inspection|commission|subsidy|redeem", re.I)
+
+
+def from_portal_list(rows, page, user):
+    """The co-pilot read the vendor's application list: bring each customer Solara knows up to date.
+    Only moves a customer forward, and only for statuses Solara knows."""
+    updated, unknown, problems = [], set(), []
+    for row in rows[:300]:
+        try:
+            app = valid.app_no(row.get("app_no"))
+        except (ValueError, AttributeError):
+            continue
+        status = valid.text(row.get("status"), "status").strip()[:80]
+        c = db.one("SELECT id, name FROM customers WHERE application_no=?", (app,))
+        if not c or not status:
+            continue
+        _, d = closeout.data(c["id"])
+        accepted, past = bool(ACCEPTED.search(status)), bool(PAST_AGREEMENT.search(status))
+        if not (accepted or past):
+            unknown.add(status)
+            continue
+        if not d.get("accepted_at"):
+            mark(c["id"], "accepted", user)
+            updated.append({"id": c["id"], "name": c["name"], "what": "accepted in the vendor login"})
+        if past and not d.get("agreement_uploaded_at"):
+            try:
+                mark(c["id"], "agreement_uploaded", user)
+                updated.append({"id": c["id"], "name": c["name"], "what": "agreement uploaded"})
+            except ValueError as ex:  # the portal is ahead of Solara: say so, mark nothing
+                problems.append({"id": c["id"], "name": c["name"], "what": str(ex)})
+    if unknown:
+        db.audit(user["username"], user["role"], "Co-pilot saw portal statuses Solara does not know", None,
+                 f"{page}: " + "; ".join(sorted(unknown))[:300])
+    return {"ok": True, "updated": updated, "unknown": sorted(unknown), "problems": problems}

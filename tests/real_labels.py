@@ -85,7 +85,36 @@ PAGES = {
     "pmsg-vendor-login": ("PM Surya Ghar vendor login, live site 7 Nov 2026",
         [(Path(__file__).parent / "real_pages" / "pmsg_vendor_login_2026-11.html").read_text(encoding="utf-8")],
         {"vemail": None, "vpw": None, "vcap": None}),
+    # the Apply page's State, District and DISCOM: PrimeNG dropdowns the co-pilot opens and picks
+    "pmsg-apply": ("PM Surya Ghar Apply page dropdowns, live PrimeNG markup",
+        [(Path(__file__).parent / "real_pages" / "pmsg_apply_dropdowns.html").read_text(encoding="utf-8")],
+        {"cno": "consumer_no"}),
 }
+
+# how the live PrimeNG dropdowns behaved (checked on the public filter, 7 Nov 2026)
+PRIMENG = """() => {
+  const OPTS = { state: ['MADHYA PRADESH', 'MAHARASHTRA', 'MANIPUR'], sort: ['Name ASC', 'Name DESC'],
+    discom: ['Adani Electricity Mumbai Ltd.', 'Maharashtra State Electricity Distribution Co. Ltd.', 'Tata Power'] };
+  const DIST = { MAHARASHTRA: ['Nagpur', 'Nandurbar', 'Nashik', 'Pune'] };
+  const close = () => document.querySelectorAll('.p-dropdown-panel').forEach(x => x.remove());
+  document.querySelectorAll('p-dropdown').forEach(pd => {
+    const lab = pd.querySelector('.p-dropdown-label');
+    pd.querySelector('.p-dropdown').addEventListener('click', () => {
+      if (pd.classList.contains('disable-input')) return;
+      if (document.querySelector('.p-dropdown-panel')) { close(); return; }
+      const list = pd.id === 'district' ? (DIST[document.querySelector('#state .p-dropdown-label').innerText] || []) : OPTS[pd.id];
+      setTimeout(() => {   // the portal fetches the list first
+        const panel = document.createElement('div'); panel.className = 'p-dropdown-panel';
+        panel.innerHTML = '<ul role="listbox">' + list.map(o => `<li role="option" aria-label="${o}">${o}</li>`).join('') + '</ul>';
+        document.body.appendChild(panel);
+        panel.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+          lab.textContent = li.getAttribute('aria-label'); lab.classList.remove('p-placeholder'); close();
+          if (pd.id === 'state') document.querySelector('#district').classList.remove('disable-input');
+        }));
+      }, pd.id === 'district' ? 400 : 100);
+    });
+  });
+}"""
 
 
 def html(title, fields):
@@ -121,6 +150,8 @@ async def main():
             # the screen changes under the panel, as on a single-page portal; then ↻ re-reads it
             await pg.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
                 document.body.insertAdjacentHTML('afterbegin', h); }""", html(src, fields))
+            if name == "pmsg-apply":
+                await pg.evaluate(PRIMENG)
             await pg.click("#solaraRescan")
             try:
                 await pg.wait_for_function("/Vaishali|Nothing to do/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
@@ -140,6 +171,10 @@ async def main():
                     wrong.append(f"{fid} expected '{values[want]}', got '{got}'")
             if name == "pmsg-consumer-login" and await pg.is_checked("#rguide"):
                 wrong.append("the guidelines checkbox must be left to the person")
+            if name == "pmsg-apply":
+                picked = await pg.evaluate("Object.fromEntries([...document.querySelectorAll('p-dropdown')].map(d => [d.id, d.querySelector('.p-dropdown-label').innerText]))")
+                want = {"state": "MAHARASHTRA", "district": values["district"], "discom": values["discom"], "sort": "Sort Vendors"}
+                wrong += [f"{k} shows '{picked.get(k)}', expected '{v}'" for k, v in want.items() if picked.get(k) != v]
             if name == "pmsg-vendor-login" and await pg.is_checked("#vrem"):
                 wrong.append("'Remember me' must be left to the person")
             check(f"{name} ({src})", not wrong, "; ".join(wrong) or f"{sum(1 for w in expect.values() if w)} filled, "

@@ -1,4 +1,4 @@
-﻿  PASS  cost '250000' -> 250000  — 250000
+  PASS  cost '250000' -> 250000  — 250000
   PASS  cost '2,50,000' -> 250000  — 250000
   PASS  cost 'Rs 285000' -> 285000  — 285000
   PASS  cost '₹ 1,85,000.5' -> 185000.50  — 185000.50
@@ -85,4 +85,3 @@
   PASS  an unknown link shows no crafted text
 
   85 passed, 0 failed
-

@@ -90,7 +90,7 @@
   // the field's name as the owner sees it on the page, for "Filled" and "Left for you"
   const shown = el => ((el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.innerText) ||
     el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.closest('.form-group,.fg,.f')?.querySelector('label')?.innerText ||
-    el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^enter\s+/i, '').trim().slice(0, 50);
+    el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^(enter|select)\s+/i, '').trim().slice(0, 50);
   const ruleFor = label => { const r = RULES.find(([re]) => re.test(label)); return r ? r[1] : undefined; };
 
   function setVal(el, v) {
@@ -107,6 +107,70 @@
     ['input', 'change', 'blur'].forEach(t => el.dispatchEvent(new Event(t, { bubbles: true })));
     el.style.outline = '2px solid #2BB673';
     return true;
+  }
+
+  // ---------- custom dropdowns (PrimeNG on the live PM Surya Ghar portal) ----------
+  // Open the list with a click, pick the one option whose text matches, check the box now shows it.
+  // Proven on the live site's public State and District filter (7 Nov 2026): clicks sent from a page
+  // script open the list and the form takes the choice; District unlocks once State is picked.
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const boxOf = el => el.closest('.p-dropdown, .p-select, mat-select, .mat-select, .ng-select') || el;
+  const OPTS = '.p-dropdown-panel li[role=option], .p-select-overlay li[role=option], .cdk-overlay-pane mat-option, .ng-dropdown-panel .ng-option, [role=listbox] [role=option]';
+  const optText = o => norm(o.getAttribute('aria-label') || o.innerText);
+  const isLocked = box => box.matches('.p-disabled, .disable-input, [aria-disabled=true]') ||
+    !!box.closest('.p-disabled, .disable-input') || box.querySelector('[aria-disabled=true]') !== null;
+  // still showing its placeholder ("Select State"): nothing chosen yet, by anyone
+  const isEmpty = el => !!boxOf(el).querySelector('.p-placeholder, .mat-select-placeholder, .ng-placeholder') ||
+    /^(select|choose|--)/i.test(boxOf(el).innerText.trim());
+  async function pickCustom(el, value) {
+    const box = boxOf(el), want = norm(value);
+    for (let i = 0; i < 20 && isLocked(box); i++) await sleep(150);   // waits for the field above it
+    if (isLocked(box)) return false;
+    // the list above may still be fading out (PrimeNG animates the close); its options must not be read as this one's
+    for (let i = 0; i < 15 && [...document.querySelectorAll(OPTS)].some(visible); i++) await sleep(100);
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    let opts = [];
+    for (let i = 0; i < 25 && !opts.length; i++) { await sleep(150); opts = [...document.querySelectorAll(OPTS)].filter(visible); }
+    let hit = opts.filter(o => optText(o) === want);
+    if (hit.length !== 1) hit = opts.filter(o => optText(o).length > 3 && (optText(o).includes(want) || want.includes(optText(o))));
+    if (hit.length !== 1) {   // none or several: close the list again and leave it to the owner
+      if ([...document.querySelectorAll(OPTS)].some(visible)) box.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return false;
+    }
+    const chosen = optText(hit[0]);
+    hit[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    for (let i = 0; i < 10 && !norm(box.innerText).includes(chosen); i++) await sleep(100);
+    if (!norm(box.innerText).includes(chosen)) return false;
+    box.style.outline = '2px solid #2BB673';
+    return true;
+  }
+
+  // ---------- the vendor's application lists ----------
+  // My Application and Vendor Consent: read every row and bring the customers Solara knows up to date.
+  function listRows(table) {
+    const head = [...table.rows[0].cells].map(c => norm(c.innerText));
+    const ai = head.findIndex(h => /application (no|number)/.test(h)), si = head.findIndex(h => /^status/.test(h));
+    if (ai < 0) return null;
+    return { status: si >= 0, rows: [...table.rows].slice(1).map(r => ({ app_no: (r.cells[ai] || {}).innerText?.trim(),
+      status: si >= 0 ? (r.cells[si] || {}).innerText?.trim() : '' })).filter(r => /^NP-/i.test(r.app_no || '')) };
+  }
+  async function listMode(list) {
+    if (!list.status) {   // Vendor Consent: these are waiting for the owner's approval, nothing to save yet
+      say(`<div style="margin-top:4px">${list.rows.length} application(s) waiting for your approval here.</div>` +
+        '<div style="margin-top:6px;color:#8FA3B2">Approve each one yourself. Then open My Application: Solara reads it and updates every customer.</div>');
+      return;
+    }
+    say('Reading the list for Solara…');
+    const r = await ask({ type: 'report', body: { event: 'portal_list', page: location.host + location.pathname, rows: list.rows } });
+    if (!r.ok) { say(`<span style="color:#F2A6A0">Solara was not updated: ${esc(r.error)}</span>` + btn('solaraRetry', 'Try again'));
+      panel.querySelector('#solaraRetry').onclick = scan; return; }
+    const d = r.data || {};
+    say(`<div id="solaraList" style="margin-top:4px">` +
+      ((d.updated || []).length ? `<b>Solara updated:</b>` + d.updated.map(u => `<div style="margin-top:3px">${esc(u.name)}: ${esc(u.what)}</div>`).join('')
+        : `Read ${list.rows.length} application(s). Nothing new for Solara.`) +
+      ((d.problems || []).length ? `<div style="margin-top:6px;color:#F2C879">` + d.problems.map(u => `${esc(u.name)}: ${esc(u.what)}`).join('<br>') + '</div>' : '') +
+      ((d.unknown || []).length ? `<div style="margin-top:6px;color:#8FA3B2">Statuses Solara does not know yet (nothing changed): ${esc(d.unknown.join(', '))}</div>` : '') +
+      '</div>');
   }
 
   async function attach(input, msg) {
@@ -151,6 +215,9 @@
     const app = labelled('Application Number', root, /^NP-/) || one(/\bNP-[A-Z0-9]+-\d{6,}\b/g, root);
     const fields = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) &&
       !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password'].includes(el.type));
+    const list = !consumer && !app && root === document.body &&
+      [...document.querySelectorAll('table')].filter(t => t.rows.length > 1).map(listRows).find(x => x && x.rows.length);
+    if (list) return listMode(list);
     let cid = '';
     if (!consumer && !app) {
       if (!fields.length) { say('<span style="color:#8FA3B2">Nothing to do on this page.</span>'); return; }
@@ -223,7 +290,7 @@
   function formMode(c, root, head, saved) {
     const els = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) && !el.readOnly && !el.disabled &&
       !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password', 'file'].includes(el.type) && !humanOnly(el));
-    // custom dropdowns (Angular Material and the like) are never clicked open; Solara names the value to pick
+    // custom dropdowns are picked by their visible option text; one that cannot be matched is named for the owner
     const customs = [...root.querySelectorAll(CUSTOM)].filter(el => visible(el) && !el.closest('select') &&
       !el.querySelector('input:not([type=hidden]),select')).map(el => {
         const key = ruleFor(labelOf(el)); return key ? { el, key, label: labelOf(el).split(' | ')[0] || key } : null; })
@@ -244,7 +311,8 @@
     const agreementReady = c.files.some(f => f.key === 'agreement');
     // a blank form says nothing about whose it is: the button names the customer, so a carried-over
     // customer is seen before anything is filled
-    say(head + saved + issueHtml + (fillable.length || files.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length} field(s) for ${esc((c.name || '').split(' ')[0])}` +
+    const pickable = customs.filter(x => isEmpty(x.el));
+    say(head + saved + issueHtml + (fillable.length || files.length || pickable.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length + pickable.length} field(s) for ${esc((c.name || '').split(' ')[0])}` +
       (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
       (agreementBox && c.agreement_draft ? '<div style="margin-top:6px;color:#F2C879">This agreement is a DRAFT format; the client has not approved the wording yet.</div>' : '') +
       (agreementBox ? btn('solaraMarkUploaded', 'I pressed Submit: mark agreement uploaded') : '') +
@@ -265,6 +333,13 @@
     fill.onclick = async () => {
       let filled = 0, kept = 0, attached = 0;
       const left = [], done = [], failed = [];
+      // dropdowns first, top to bottom: a later box (District) often waits for the one above it (State)
+      for (const { el, key } of customs) {
+        const label = shown(el);
+        if (!isEmpty(el)) { kept += 1; continue; }   // someone already chose; theirs stays
+        if (await pickCustom(el, c.values[key])) { filled += 1; done.push(label); }
+        else left.push(`${label} (pick “${c.values[key]}” yourself)`);
+      }
       for (const { el, key } of plan) {
         const label = shown(el);
         if (key === null) continue; // OTP, CAPTCHA: the person types these
@@ -276,7 +351,6 @@
       }
       const checkNames = plan.filter(p => (c.derived || []).includes(p.key) && done.includes(labelOf(p.el).split(' | ')[0]))
         .map(p => labelOf(p.el).split(' | ')[0]);
-      for (const { key, label } of customs) left.push(`${label} (pick “${c.values[key]}” yourself)`);
       for (const { el, kind } of files) {
         if (kind === 'agreement' && !agreementReady) { left.push('agreement (not signed yet)'); continue; }
         if (el.files && el.files.length) { kept += 1; continue; }   // a file you chose stays

@@ -1,4 +1,4 @@
-﻿
+
   -- database upgrades
   PASS  an old database gains the missing columns
   PASS  its data is kept
@@ -19,4 +19,3 @@
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
   11 passed, 0 failed
-

@@ -1,4 +1,4 @@
-﻿  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
   PASS  sign-in screen renders
   PASS  viewer signs in
   PASS  viewer sees Run agent disabled
@@ -41,4 +41,3 @@ A new code was sent. The earlier code no longer works. It is at the top of the
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
   38 passed, 0 failed
-

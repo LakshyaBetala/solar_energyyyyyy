@@ -163,6 +163,36 @@ def ifsc(v):
     return s
 
 
+# Maharashtra's districts exactly as the PM Surya Ghar portal lists them (read from the live site's public
+# State/District filter on 7 Nov 2026), and older names an Aadhaar or a bill may still carry.
+MH_DISTRICTS = ["Ahilyanagar", "Akola", "Amravati", "BEED", "BULDHANA", "Bhandara", "Chandrapur",
+                "Chhatrapati Sambhajinagar", "Dharashiv", "Dhule", "GONDIA", "Gadchiroli", "Hingoli", "Jalgaon",
+                "Jalna", "Kolhapur", "Latur", "Mumbai", "Mumbai Suburban", "Nagpur", "Nanded", "Nandurbar",
+                "Nashik", "PALGHAR", "Parbhani", "Pune", "RAIGAD", "Ratnagiri", "Sangli", "Satara",
+                "Sindhudurg", "Solapur", "Thane", "Wardha", "Washim", "Yavatmal"]
+_key = lambda s: re.sub(r"[^a-z]+", " ", s.lower()).strip()
+DISTRICT_ALIAS = {"ahmednagar": "Ahilyanagar", "ahmadnagar": "Ahilyanagar", "ahilya nagar": "Ahilyanagar",
+                  "aurangabad": "Chhatrapati Sambhajinagar", "sambhajinagar": "Chhatrapati Sambhajinagar",
+                  "chhatrapati sambhaji nagar": "Chhatrapati Sambhajinagar", "osmanabad": "Dharashiv",
+                  "mumbai city": "Mumbai", "raigarh": "RAIGAD", "gondiya": "GONDIA", "bid": "BEED",
+                  "buldana": "BULDHANA", "nasik": "Nashik", "poona": "Pune", "sholapur": "Solapur"}
+
+
+def district(v, strict=True):
+    """The portal's spelling of a Maharashtra district; an older name becomes the new one.
+    strict=False keeps a name that is not on the list (read from a document) instead of refusing it."""
+    s = text(v, "district").strip()
+    if not s:
+        return ""
+    k = _key(s)
+    hit = next((d for d in MH_DISTRICTS if _key(d) == k), None) or DISTRICT_ALIAS.get(k)
+    if hit:
+        return hit
+    if strict:
+        raise ValueError(f"{s} is not a Maharashtra district on the portal; pick it from the list")
+    return s
+
+
 def app_no(v):
     s = text(v, "application number").strip().upper()
     if not re.match(r"^NP-[A-Z0-9]+-\d{6,}$", s):

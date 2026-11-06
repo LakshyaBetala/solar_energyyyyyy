@@ -16,7 +16,7 @@ Values that are read cleanly fill the customer record; flagged ones fill it once
 import base64, gzip, io, re, os, json, difflib, asyncio, sys, zlib
 from pathlib import Path
 from pypdf import PdfReader
-from . import db, vault
+from . import db, vault, valid
 from .config import ROOT
 
 ENV_FILE = ROOT / ".env"
@@ -520,7 +520,7 @@ def apply_to_record(customer_id, only=None, overwrite=False):
             db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, customer_id))
     _, d = closeout.data(customer_id)
     extra = {"mobile": ok.get("bill_mobile"), "sanctioned_load": ok.get("sanctioned_load"),
-             "tariff": ok.get("tariff"), "district": ok.get("aadhaar_district"),
+             "tariff": ok.get("tariff"), "district": valid.district(ok.get("aadhaar_district") or "", strict=False),
              "aadhaar_last4": (ok.get("aadhaar_masked") or "")[-4:] or None}
     # the mobile the owner typed is the one the OTP goes to: a bill never replaces it
     extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "mobile") or not d.get(k))}

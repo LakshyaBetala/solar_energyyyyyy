@@ -265,6 +265,62 @@ async def main():
     case("P4", "rules", "valid.app_no on 8-digit MH numbers", "NP-MHSED26-12345678 accepted",
          valid.app_no("np-mhsed26-12345678") == "NP-MHSED26-12345678", "checked")
 
+    # ---------------- E1-E3: less work for the owner ----------------
+    print("\n  -- less work for the owner")
+    e1 = new("District Check")
+    r = sup.put(f"/api/registration/{e1}", json={"district": "Ahmednagar"})
+    case("E1", "details: district", "the old name 'Ahmednagar'", "saved as the portal's 'Ahilyanagar'",
+         r.status_code == 200 and closeout.data(e1)[1].get("district") == "Ahilyanagar", closeout.data(e1)[1].get("district"))
+    r = sup.put(f"/api/registration/{e1}", json={"district": "Atlantis"})
+    case("E1", "details: district", "'Atlantis'", "400; not a district on the portal", r.status_code == 400, (r.status_code, detail(r)))
+    case("E1", "extraction: district", "Aadhaar QR says 'Aurangabad'", "stored as 'Chhatrapati Sambhajinagar'",
+         valid.district("Aurangabad", strict=False) == "Chhatrapati Sambhajinagar" and valid.district("Somewhere", strict=False) == "Somewhere", "checked")
+    case("E1", "dashboard", "the district list", "the portal's 36 Maharashtra districts", len(valid.MH_DISTRICTS) == 36
+         and len(sup.get(f"/api/registration/{e1}").json()["districts"]) == 36, len(valid.MH_DISTRICTS))
+
+    e2 = new("Link Customer", "9890011122")
+    a = sup.post(f"/api/registration/{e2}/ask-docs").json()
+    tok, pub = a["url"].rsplit("/", 1)[1], httpx.Client(base_url=BASE, timeout=60)
+    pg2 = pub.get(f"/up/{tok}")
+    case("E2", "customer link", "the customer opens it", "200, greets them by first name, WhatsApp to their own number",
+         pg2.status_code == 200 and "Namaskar Link" in pg2.text and a["whatsapp"].startswith("https://wa.me/919890011122"), pg2.status_code)
+    case("E2", "customer link", "a viewer asks for a link", "403", client("a.more").post(f"/api/registration/{e2}/ask-docs").status_code == 403, "checked")
+    r = pub.post(f"/up/{tok}/file", params={"kind": "bill"}, files={"file": ("bill.pdf", bill, "application/pdf")})
+    got = db.one("SELECT kind FROM documents WHERE customer_id=? AND kind='bill'", (e2,))
+    read = {f["key"] for f in sup.get(f"/api/registration/{e2}").json()["fields"]}
+    case("E2", "customer link", "the customer sends the bill PDF", "stored, read like an owner upload, and the page says received",
+         r.status_code == 303 and "got=bill" in r.headers["location"] and got and "consumer_no" in read, (r.status_code, sorted(read)[:4]))
+    case("E2", "customer link", "the page after the upload", "shows received, never the bill's contents",
+         "Received" in pub.get(f"/up/{tok}").text and fx.NEW["consumer_no"] not in pub.get(f"/up/{tok}").text, "checked")
+    r = pub.post(f"/up/{tok}/file", params={"kind": "ownership"}, files={"file": ("x.pdf", b"%PDF-1", "application/pdf")})
+    case("E2", "customer link", "a document kind the link does not ask for", "refused", "err=type" in r.headers.get("location", ""), r.headers.get("location"))
+    r = pub.post(f"/up/{tok}/email", data={"email": "not an email"})
+    case("E2", "customer link", "a wrong email", "refused, nothing saved", "err=email" in r.headers["location"] and not closeout.data(e2)[1].get("email"), r.headers["location"])
+    r = pub.post(f"/up/{tok}/email", data={"email": "link.c@example.com"})
+    case("E2", "customer link", "the customer types their email", "saved on the record", closeout.data(e2)[1].get("email") == "link.c@example.com", closeout.data(e2)[1].get("email"))
+    case("E2", "customer link", "a made-up link", "404", pub.get("/up/not-a-real-token").status_code == 404, "checked")
+    db.ex("UPDATE doc_requests SET uploads=30 WHERE token=?", (tok,))
+    r = pub.post(f"/up/{tok}/file", params={"kind": "roof"}, files={"file": ("r.jpg", b"\xff\xd8\xff", "image/jpeg")})
+    case("E2", "customer link", "the 31st file on one link", "refused; the owner sends a new link", "err=many" in r.headers["location"], r.headers["location"])
+    db.ex("UPDATE doc_requests SET expires_at='2000-01-01T00:00:00' WHERE token=?", (tok,))
+    case("E2", "customer link", "after 7 days", "410, expired", pub.get(f"/up/{tok}").status_code == 410
+         and pub.post(f"/up/{tok}/email", data={"email": "x@y.in"}).status_code == 410, "checked")
+
+    e3 = new("List Customer")
+    db.ex("UPDATE customers SET application_no='NP-MHSED26-77700011', stage='feasible' WHERE id=?", (e3,))
+    key = sup.post("/api/copilot/key").json()["key"]
+    rep = lambda rows: httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key}, timeout=60,
+                                  json={"event": "portal_list", "page": "test/applications", "rows": rows}).json()
+    out = rep([{"app_no": "NP-MHSED26-77700011", "status": "Something new (Pending)"}, {"app_no": "NP-MHSED26-99999999", "status": "Upload Agreement (Pending)"}])
+    case("E3", "co-pilot: My Application", "a status Solara does not know, and a number on no customer", "nothing marked; the status is reported",
+         not closeout.data(e3)[1].get("accepted_at") and out["unknown"] == ["Something new (Pending)"] and not out["updated"], out)
+    out = rep([{"app_no": "NP-MHSED26-77700011", "status": "Upload Agreement (Pending)"}])
+    case("E3", "co-pilot: My Application", "the customer listed as 'Upload Agreement (Pending)'", "marked accepted in Solara, no click",
+         bool(closeout.data(e3)[1].get("accepted_at")) and out["updated"][0]["id"] == e3, out["updated"])
+    out = rep([{"app_no": "NP-MHSED26-77700011", "status": "Installation (Pending)"}])
+    case("E3", "co-pilot: My Application", "the portal is past the agreement, Solara has no signed one", "not marked uploaded; the gap is shown",
+         not closeout.data(e3)[1].get("agreement_uploaded_at") and out["problems"] and not out["updated"], out)
+
     # ---------------- M3-M5: what the manual review saw on the Registration screen ----------------
     print("\n  -- the Registration screen (manual review findings)")
     u = new("Screen Check Customer")
@@ -299,6 +355,11 @@ async def main():
         kept = await pg.evaluate("[!document.querySelector('#regPortal').dataset.before, document.querySelector('#regPortal').open]")
         case("U9", "Registration screen", "open the folded portal section, then the screen redraws", "it stays open",
              kept == [True, True], kept)
+        await pg.click('.kwchips [data-usekw="3"]')
+        chip = await pg.evaluate("[document.querySelector('#r_kw').value, document.querySelector('.kwchips .chip.on')?.innerText]")
+        case("E4", "Registration screen", "tap the 3 kW button", "capacity filled with 3; the button shows it is picked", chip == ["3", "3 kW"], chip)
+        opts = await pg.evaluate("document.querySelector('#r_district').tagName + ':' + document.querySelector('#r_district').options.length")
+        case("E4", "Registration screen", "the district box", "a list of the portal's districts, not a text box", opts == "SELECT:37", opts)
         await b.close()
 
     sup.post("/api/demo/reset")

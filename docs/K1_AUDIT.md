@@ -186,12 +186,12 @@ Run against a local server with synthetic data only. No test contacts a governme
 | `closeout` | 59 | details → customer e-sign → six MSEDCL PDFs → co-pilot upload; the consent rules |
 | `milestone1` | 44 | **the whole K1 flow with the real extension** on the sandbox portals, screenshots on |
 | `k1_complete` | 86 | duplicates, uploads, conflicts, corrections, Aadhaar privacy, agreement evidence and verification |
-| `real_labels` | 8 | the co-pilot on 8 portal pages, including **the two live login pages** |
+| `real_labels` | 9 | the co-pilot on 9 portal pages, including **the two live login pages** and the Apply page's PrimeNG dropdowns |
 | `validation` | 85 | every field rule, D06 and D08 |
-| `k1_audit` | 92 | **this audit**: D01–D15, R1–R12, M1–M6, P1–P4, and U7–U9 for the redesigned screen, each logged |
+| `k1_audit` | 111 | **this audit**: D01–D15, R1–R12, M1–M6, P1–P4, and U7–U9 for the redesigned screen, each logged |
 | `longevity` | 11 | old databases upgrade, the health check, pinned versions |
 | `live_mode` | 7 | a fresh live install: empty, no demo accounts, real portal links |
-| **Total** | **491** | **all green** |
+| **Total** | **511** | **all green** |
 
 Logs, committed with this audit:
 
@@ -209,6 +209,25 @@ python tests/k1_audit.py                        # rewrites docs/k1-audit/k1_audi
 ```
 
 CI runs the audit on every push to main and on every pull request (the "KPI 1 audit" step).
+
+## Less work for the owner (branch `k1-owner`)
+
+The KPI asks that nothing is typed by hand except OTPs, CAPTCHAs and flagged fields. This branch removes typing and clicks where the client's answer is already known:
+
+| Before | Now | Proof |
+|---|---|---|
+| Owner downloads the customer's photos from WhatsApp and uploads them | A link on WhatsApp: the customer photographs the bill and Aadhaar and types their email on their own phone. Files go through the same path as a dashboard upload (encrypted, read by rules, Aadhaar cut to the last 4). The page shows "received", never the contents. The link lasts 7 days and takes 30 files at most | k1_audit E2 (11 cases); checked by hand at phone size |
+| Owner types the kW | One tap on 1, 2, 3, 4 or 5 kW, or the size suggested from the bill | k1_audit E4 |
+| District typed, and spelled differently from the portal | A list of the portal's own 36 Maharashtra districts, read from the live site. Old names map to new ones (Ahmednagar to Ahilyanagar, Aurangabad to Chhatrapati Sambhajinagar, Osmanabad to Dharashiv) | k1_audit E1 |
+| Owner picks State, District and DISCOM on the portal | The co-pilot opens each PrimeNG dropdown and picks the matching option, District after State. If none or several match, it leaves that field to the owner. Its own code picked MAHARASHTRA and then Nashik on the live public filter (7 Nov 2026; nothing submitted) | real_labels `pmsg-apply`; live run |
+| Owner presses "Mark accepted" | On My Application, the co-pilot reads the list and marks each customer whose status shows they were accepted. If the portal is past the agreement but Solara has no verified signed copy, Solara says so and marks nothing. A status Solara does not know changes nothing and is logged | k1_audit E3 |
+
+The extension's own safety test now allows exactly one kind of click: opening a dropdown and choosing its option. It still forbids any other click, submit or tick, and checks that the selectors it uses contain no button, checkbox or submit.
+
+**Waiting for the client:**
+- **The cost.** It stays a field the owner types and Solara flags, until the client says whether they sell fixed kW packages. If they do, a price list would fill it.
+- **WhatsApp sending.** Nothing is sent automatically; the owner taps Send.
+- **The real portal's status words** on My Application. Only the sandbox's wording is known; the live session adds the real ones.
 
 ## Still open: needs a live session with the owner
 

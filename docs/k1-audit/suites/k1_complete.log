@@ -1,4 +1,4 @@
-﻿
+
   -- A. creation and duplicates
   PASS  a customer is created from a name and a valid mobile
   PASS  the mobile is saved with the record
@@ -82,13 +82,13 @@ Solara is not reachable at http://127.0.0.1:9. Is it running? Check the
   PASS  a field the person typed is kept
   PASS  a dropdown the person chose is kept  — Gujarat
   PASS  an untouched field is filled
-  PASS  an untouched native dropdown is filled  — 'Residential' / Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) Check the page, then press the portal's button yourself.
+  PASS  an untouched native dropdown is filled  — 'Residential' / Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: District (pick “Pune” yourself) Check the page, then press the portal's button yourself.
   PASS  OTP, CAPTCHA, verification code and password are left empty
   PASS  the declaration is not ticked
   PASS  nothing was submitted or uploaded
-  PASS  a custom dropdown is not clicked open; the panel says what to pick  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) Check the page, then press the portal's b
-  PASS  the panel says what was kept  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) C
-  PASS  a value the page rejects is reported, not counted as filled  — Filled 4. The page did not accept: Email Filled: Applicant name, Mobile number, State, Category  Left for you: Email, district (pick “Pune” yourself) Check the 
+  PASS  a custom dropdown is not clicked open; the panel says what to pick  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: District (pick “Pune” yourself) Check the page, then press the portal's b
+  PASS  the panel says what was kept  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: District (pick “Pune” yourself) C
+  PASS  a value the page rejects is reported, not counted as filled  — Filled 4. The page did not accept: Email Filled: Applicant name, Mobile number, State, Category  Left for you: District (pick “Pune” yourself), Email Check the 
   PASS  a refused application number is shown as NOT saved
   PASS  the customer record did not take it
 
@@ -100,7 +100,7 @@ Solara is not reachable at http://127.0.0.1:9. Is it running? Check the
   PASS  no JavaScript errors in the dashboard
 
   -- H. human-in-the-loop rules in the extension source
-  PASS  the extension never clicks, submits or ticks anything on a portal
+  PASS  the extension never clicks, submits or ticks anything on a portal (only a dropdown and its option)  — clicks in pickCustom on: ['box', 'hit[0]']
   PASS  OTP, CAPTCHA and password fields are excluded by rule and by guard
   PASS  it asks for no powers beyond Solara and the listed portals
   PASS  no CAPTCHA solver, stealth or automation library is referenced
@@ -108,4 +108,3 @@ Solara is not reachable at http://127.0.0.1:9. Is it running? Check the
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
   86 passed, 0 failed
-

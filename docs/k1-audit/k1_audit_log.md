@@ -1,6 +1,6 @@
 # KPI 1 audit test log
 
-Run 07 Nov 2026 01:45, `tests/k1_audit.py`. 92 of 92 cases pass.
+Run 07 Nov 2026 02:42, `tests/k1_audit.py`. 111 of 111 cases pass.
 
 | # | ID | Area | Input | Expected | Actual | Result |
 |---|---|---|---|---|---|---|
@@ -83,16 +83,35 @@ Run 07 Nov 2026 01:45, `tests/k1_audit.py`. 92 of 92 cases pass.
 | 77 | P3 | details | a customer with no email | 'email' listed as missing (the portal verifies it by OTP) | ['consumer number', 'mobile', 'email (the portal sends it an | PASS |
 | 78 | D14 | e-sign page | ?error= with crafted text | the text is not shown | checked | PASS |
 | 79 | M6 | e-sign page | wrong last-4 digits | told in English and Marathi, with the tries left | checked | PASS |
-| 80 | R10 | e-sign page | a 9000x9000 'signature' (20 KB) | refused in under 2 s, server keeps serving | 0.02s | PASS |
+| 80 | R10 | e-sign page | a 9000x9000 'signature' (20 KB) | refused in under 2 s, server keeps serving | 0.03s | PASS |
 | 81 | R7 | e-sign page | the customer signs as 'D’Souza Priya' (curly apostrophe) | signed | signed | PASS |
 | 82 | R9 | e-sign evidence | a link sent before copies were kept is signed | a copy is kept at signing; the agreement verifies | verified | PASS |
 | 83 | D15 | dashboard | GET /favicon.ico | no 404 | checked | PASS |
 | 84 | P1 | co-pilot | manifest hosts | consumer. and vendor.pmsuryaghar.gov.in included | ['https://rts.mahadiscom.in/RoofTopSolarVendor/*', 'https:// | PASS |
 | 85 | P2 | dashboard links | live 'Open customer registration' / 'Open vendor login' | the real login pages | {'pmsg': 'https://consumer.pmsuryaghar.gov.in/consumer/#/log | PASS |
 | 86 | P4 | rules | valid.app_no on 8-digit MH numbers | NP-MHSED26-12345678 accepted | checked | PASS |
-| 87 | M3 | details form | the email box | marked as needed (*), not 'optional' | Email * | PASS |
-| 88 | M4 | details form | type 3 into the highlighted capacity box | the 'missing' highlight goes as soon as it has a value | (True, False) | PASS |
-| 89 | M5 | details form | type 210000 as the cost | read back as Rs 2,10,000 (a missed zero shows) | Rs 2,10,000 | PASS |
-| 90 | U7 | Registration screen | a new customer (next step: documents) | Documents first and open; the portal section folded | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
-| 91 | U8 | Registration screen | text size and labels | body 15px; labels at least 13px, not in capitals | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
-| 92 | U9 | Registration screen | open the folded portal section, then the screen redraws | it stays open | [True, True] | PASS |
+| 87 | E1 | details: district | the old name 'Ahmednagar' | saved as the portal's 'Ahilyanagar' | Ahilyanagar | PASS |
+| 88 | E1 | details: district | 'Atlantis' | 400; not a district on the portal | (400, 'Atlantis is not a Maharashtra district on the portal; | PASS |
+| 89 | E1 | extraction: district | Aadhaar QR says 'Aurangabad' | stored as 'Chhatrapati Sambhajinagar' | checked | PASS |
+| 90 | E1 | dashboard | the district list | the portal's 36 Maharashtra districts | 36 | PASS |
+| 91 | E2 | customer link | the customer opens it | 200, greets them by first name, WhatsApp to their own number | 200 | PASS |
+| 92 | E2 | customer link | a viewer asks for a link | 403 | checked | PASS |
+| 93 | E2 | customer link | the customer sends the bill PDF | stored, read like an owner upload, and the page says received | (303, ['address', 'amount', 'avg_units', 'bill_mobile']) | PASS |
+| 94 | E2 | customer link | the page after the upload | shows received, never the bill's contents | checked | PASS |
+| 95 | E2 | customer link | a document kind the link does not ask for | refused | /up/XC_Z_YBUZKs-Ruhi0sGGyQxX?err=type | PASS |
+| 96 | E2 | customer link | a wrong email | refused, nothing saved | /up/XC_Z_YBUZKs-Ruhi0sGGyQxX?err=email | PASS |
+| 97 | E2 | customer link | the customer types their email | saved on the record | link.c@example.com | PASS |
+| 98 | E2 | customer link | a made-up link | 404 | checked | PASS |
+| 99 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/XC_Z_YBUZKs-Ruhi0sGGyQxX?err=many | PASS |
+| 100 | E2 | customer link | after 7 days | 410, expired | checked | PASS |
+| 101 | E3 | co-pilot: My Application | a status Solara does not know, and a number on no customer | nothing marked; the status is reported | {'ok': True, 'updated': [], 'unknown': ['Something new (Pend | PASS |
+| 102 | E3 | co-pilot: My Application | the customer listed as 'Upload Agreement (Pending)' | marked accepted in Solara, no click | [{'id': 'SS-2070', 'name': 'List Customer', 'what': 'accepte | PASS |
+| 103 | E3 | co-pilot: My Application | the portal is past the agreement, Solara has no signed one | not marked uploaded; the gap is shown | {'ok': True, 'updated': [], 'unknown': [], 'problems': [{'id | PASS |
+| 104 | M3 | details form | the email box | marked as needed (*), not 'optional' | Email * | PASS |
+| 105 | M4 | details form | type 3 into the highlighted capacity box | the 'missing' highlight goes as soon as it has a value | (True, False) | PASS |
+| 106 | M5 | details form | type 210000 as the cost | read back as Rs 2,10,000 (a missed zero shows) | Rs 2,10,000 | PASS |
+| 107 | U7 | Registration screen | a new customer (next step: documents) | Documents first and open; the portal section folded | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
+| 108 | U8 | Registration screen | text size and labels | body 15px; labels at least 13px, not in capitals | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |
+| 109 | U9 | Registration screen | open the folded portal section, then the screen redraws | it stays open | [True, True] | PASS |
+| 110 | E4 | Registration screen | tap the 3 kW button | capacity filled with 3; the button shows it is picked | ['3', '3 kW'] | PASS |
+| 111 | E4 | Registration screen | the district box | a list of the portal's districts, not a text box | SELECT:37 | PASS |

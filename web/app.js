@@ -584,6 +584,11 @@ const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Reg
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
 const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'],
   ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar']];
+const REG_KW = [1, 2, 3, 4, 5];
+const regKwChips = (g, val, op) => {
+  const sug = g.suggest && g.suggest.kw, sizes = [...new Set([...REG_KW, ...(sug ? [sug] : [])])].sort((a, b) => a - b);
+  return `<div class="kwchips" role="group" aria-label="Pick the capacity">${sizes.map(n => `<button type="button" class="chip${+val === n ? ' on' : ''}${n === sug ? ' sug' : ''}" data-usekw="${n}" aria-pressed="${+val === n}"${op}>${n} kW</button>`).join('')}</div>`;
+};
 const regFold = (id, title, meta, body, def) => {
   const open = (S.regOpen || {})[id] ?? def;
   return `<details class="rgsec" id="${id}" data-fold="${id}"${open ? ' open' : ''}>
@@ -597,7 +602,7 @@ const regWhy = (g, act) => {
     check: `Solara is not sure about: ${unsure.join(', ') || 'the PIN code'}. Compare with the document, then confirm.`,
     details: g.steps[2].done ? 'The agreement prints the installation cost from the vendor’s quote.' : `Still needed: ${g.missing.map(m => esc(m.replace(/\s*\(.*\)$/, ''))).join(', ')}.`,
     register: 'With the customer on the phone, open the portal. The co-pilot fills the form; you type the OTP and press Submit. It copies the application number back here.',
-    accept: `In the vendor login, open Vendor Consent and approve ${first}. Then mark it here.`,
+    accept: `In the vendor login, open Vendor Consent and approve ${first}. Then open My Application: the co-pilot reads the list and updates Solara.`,
     vsig: 'Once only: add the company signature that goes on every agreement.',
     sign: 'The customer gets a WhatsApp link, enters the last 4 digits of the consumer number, reads the agreement and signs on the phone.',
     wait: 'The link is with the customer and works for 7 days. Send it again if they cannot find it.',
@@ -651,6 +656,7 @@ VIEWS.reg = () => {
     `<li><b>${REG_KIND[i.kind] || esc(i.kind)}</b><span>${esc(i.kind === 'missing' ? i.field[0].toUpperCase() + i.field.slice(1) : i.message)}</span></li>`).join('')}</ul></div>` : '';
   const next = `<div class="rgnext${act ? '' : ' idle'}">
     <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
+    ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
     ${act === 'register' ? appField : ''}
     ${act === 'upload' ? `<div class="rgline">Pressed Submit on the portal without the co-pilot? <button class="btn sm" id="regUploaded"${op}>Mark the agreement uploaded</button></div>` : ''}
     ${issues}</div>`;
@@ -680,12 +686,14 @@ VIEWS.reg = () => {
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
-      <input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>
-      <div class="fhint" id="h_${k}">${esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">From the bill: <button type="button" class="btn sm" data-usekw="${g.suggest.kw}"${op}>Use ${g.suggest.kw} kW</button> <span>(${esc(g.suggest.why)})</span></div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
+      ${k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
+        ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
+      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
+      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
     <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button></div>`, !stepDone('details') || ['check', 'details'].includes(act));
   const portalSec = regFold('regPortal', 'On PM Surya Ghar', c.application_no ? esc(c.application_no) : 'not registered yet',
     `<dl class="rgfiled">${[['Name filed', v.name], ['Consumer number', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
-      ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><dt>${k}</dt><dd>${esc(x || 'not yet')}</dd></div>`).join('')}</dl>
+      ['State', v.state], ['District', v.district], ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><dt>${k}</dt><dd>${esc(x || 'not yet')}</dd></div>`).join('')}</dl>
     <div class="row" style="gap:8px"><a class="btn" href="${esc(g.portals.pmsg)}" target="_blank" rel="noopener">Open customer registration</a>
       <a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open vendor login</a></div>
     ${act === 'register' ? '' : appField}
@@ -719,6 +727,16 @@ async function regSendAgreement() {
        <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
        ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}`);
     await loadReg();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function regAskDocs() {
+  try {
+    const s = await api(`/registration/${S.regCid}/ask-docs`, { method: 'POST', body: {} });
+    modal('Documents from the customer', 'They photograph the bill and the Aadhaar and type their email on their own phone. Everything comes back here to check. The link works for 7 days.',
+      `<div class="field"><label for="askUrl">Link</label><input type="text" readonly value="${esc(s.url)}" id="askUrl"></div>`,
+      `<button class="btn" data-close>Close</button><button class="btn" id="askCopy">Copy link</button>
+       ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : '<span class="hint">Add their mobile to send it on WhatsApp.</span>'}`);
   } catch (err) { toast(err.message, true); }
 }
 
@@ -1119,7 +1137,9 @@ document.addEventListener('click', async e => {
     if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
     return;
   }
-  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); } return; }
+  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
+  if (t.id === 'regAskDocs') { regAskDocs(); return; }
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
@@ -1160,8 +1180,8 @@ document.addEventListener('click', async e => {
     } catch (err) { toast(err.message, true); }
     return;
   }
-  if (t.id === 'signCopy') {
-    try { await navigator.clipboard.writeText($('#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
+  if (t.id === 'signCopy' || t.id === 'askCopy') {
+    try { await navigator.clipboard.writeText($(t.id === 'askCopy' ? '#askUrl' : '#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
     return;
   }
   if (t.id === 'coKey') {

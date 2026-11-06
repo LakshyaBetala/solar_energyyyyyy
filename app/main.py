@@ -6,9 +6,9 @@ from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HT
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
-               msedcl, pmsg, registration, reset as resetmod)
+               msedcl, pmsg, registration, intake, reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
+from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
@@ -16,6 +16,7 @@ app.include_router(discom.router)
 app.include_router(esign.router)
 app.include_router(msedcl.router)
 app.include_router(pmsg.router)
+app.include_router(intake.router)
 
 
 @app.on_event("startup")
@@ -688,27 +689,40 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "suggest": registration.suggest(cid), "llm": extract.llm_status()}
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
+
+
+async def take_document(cid, kind, file, user):
+    """Store one registration document and read it. Used by the dashboard and by the customer's own link."""
+    if kind not in DOC_KINDS:
+        raise HTTPException(400, "unknown document type")
+    await upload_doc(cid, kind, file, user)
+    registration.docs_uploaded(cid, user["username"])
+    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
+    if kinds & {"bill", "aadhaar"}:
+        try:
+            await extract.run(cid, fresh=kind)
+        except Exception as ex:  # the upload is kept; the person can retry or type the details
+            db.audit("agent", "agent", "Document extraction failed", cid, f"{kind}: {type(ex).__name__}")
+            return f"The file is saved but could not be read ({type(ex).__name__}). Try Read again or type the details."
+    return None
 
 
 @app.post("/api/registration/{cid}/document")
 async def registration_document(cid: str, kind: str, file: UploadFile = File(...),
                                 user=Depends(need("operator"))):
-    if kind not in DOC_KINDS:
-        raise HTTPException(400, "unknown document type")
-    await upload_doc(_cid(cid), kind, file, user)
-    registration.docs_uploaded(cid, user["username"])
-    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
-    problem = None
-    if kinds & {"bill", "aadhaar"}:
-        try:
-            await extract.run(cid, fresh=kind)
-        except Exception as ex:  # the upload is kept; the person can retry or type the details
-            problem = f"The file is saved but could not be read ({type(ex).__name__}). Try Read again or type the details."
-            db.audit("agent", "agent", "Document extraction failed", cid, f"{kind}: {type(ex).__name__}")
+    problem = await take_document(_cid(cid), kind, file, user)
     out = registration_get(cid, user)
     out["extract_error"] = problem
     return out
+
+
+@app.post("/api/registration/{cid}/ask-docs")
+def registration_ask_docs(cid: str, request: Request, user=Depends(need("operator"))):
+    """A link for the customer to send their own bill, Aadhaar and email from their phone."""
+    url = intake.link(request, intake.create(_cid(cid), user))
+    return {"url": url, "whatsapp": intake.whatsapp(cid, url), "text": intake.share_text(cid, url)}
 
 
 @app.put("/api/registration/{cid}")
@@ -888,6 +902,8 @@ def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
 
 @app.post("/api/copilot/report")
 def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
+    if body.get("event") == "portal_list":
+        return registration.from_portal_list(body.get("rows") or [], str(body.get("page", ""))[:80], user)
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}

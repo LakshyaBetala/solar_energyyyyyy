@@ -1,4 +1,4 @@
-﻿
+
   -- the defect register (K1-D01 .. D15)
   PASS  D01    create customer: 12 customers added at the same moment
   PASS  D02    details: consumer no.: 'abc' over a saved number
@@ -89,6 +89,25 @@
   PASS  P2     dashboard links: live 'Open customer registration' / 'Open vendor login'
   PASS  P4     rules: valid.app_no on 8-digit MH numbers
 
+  -- less work for the owner
+  PASS  E1     details: district: the old name 'Ahmednagar'
+  PASS  E1     details: district: 'Atlantis'
+  PASS  E1     extraction: district: Aadhaar QR says 'Aurangabad'
+  PASS  E1     dashboard: the district list
+  PASS  E2     customer link: the customer opens it
+  PASS  E2     customer link: a viewer asks for a link
+  PASS  E2     customer link: the customer sends the bill PDF
+  PASS  E2     customer link: the page after the upload
+  PASS  E2     customer link: a document kind the link does not ask for
+  PASS  E2     customer link: a wrong email
+  PASS  E2     customer link: the customer types their email
+  PASS  E2     customer link: a made-up link
+  PASS  E2     customer link: the 31st file on one link
+  PASS  E2     customer link: after 7 days
+  PASS  E3     co-pilot: My Application: a status Solara does not know, and a number on no customer
+  PASS  E3     co-pilot: My Application: the customer listed as 'Upload Agreement (Pending)'
+  PASS  E3     co-pilot: My Application: the portal is past the agreement, Solara has no signed one
+
   -- the Registration screen (manual review findings)
   PASS  M3     details form: the email box
   PASS  M4     details form: type 3 into the highlighted capacity box
@@ -96,8 +115,9 @@
   PASS  U7     Registration screen: a new customer (next step: documents)
   PASS  U8     Registration screen: text size and labels
   PASS  U9     Registration screen: open the folded portal section, then the screen redraws
+  PASS  E4     Registration screen: tap the 3 kW button
+  PASS  E4     Registration screen: the district box
 
   log: docs/k1-audit/k1_audit_log.md
 
-  92 passed, 0 failed
-
+  111 passed, 0 failed

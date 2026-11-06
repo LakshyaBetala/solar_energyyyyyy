@@ -381,8 +381,15 @@ async def main():
     print("\n  -- H. human-in-the-loop rules in the extension source")
     src = (EXT / "panel.js").read_text(encoding="utf-8") + (EXT / "background.js").read_text(encoding="utf-8")
     code = re.sub(r"//.*", "", src)
-    check("the extension never clicks, submits or ticks anything on a portal",
-          not re.search(r"\.click\(|\.submit\(|requestSubmit|\.checked\s*=|dispatchEvent\(new (Mouse|Pointer)Event", code))
+    # the one place a click is sent: opening a dropdown and choosing its option (a field value, like typing)
+    pick = re.search(r"async function pickCustom\(.*?\n  \}\n", code, re.S)
+    rest = code.replace(pick.group(0), "") if pick else code
+    clicks = re.findall(r"(\w+(?:\[0\])?)\.dispatchEvent\(new MouseEvent", pick.group(0)) if pick else []
+    sels = re.search(r"const boxOf = .*?\n", code).group(0) + re.search(r"const OPTS = .*?\n", code).group(0)
+    check("the extension never clicks, submits or ticks anything on a portal (only a dropdown and its option)",
+          not re.search(r"\.click\(|\.submit\(|requestSubmit|\.checked\s*=|dispatchEvent\(new (Mouse|Pointer)Event", rest)
+          and pick is not None and set(clicks) <= {"box", "hit[0]"} and not re.search(r"(?i)button|checkbox|submit|input", sels),
+          f"clicks in pickCustom on: {sorted(set(clicks))}")
     check("OTP, CAPTCHA and password fields are excluded by rule and by guard",
           "otp|captcha" in code and "humanOnly" in code and "'password'" in code)
     check("it asks for no powers beyond Solara and the listed portals",

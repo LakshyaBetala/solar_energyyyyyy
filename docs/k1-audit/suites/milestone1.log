@@ -1,4 +1,4 @@
-﻿  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
   -- guard rails
   PASS  a viewer cannot add a customer
@@ -37,12 +37,12 @@
   PASS  what the owner typed is never overwritten
   PASS  the panel says what is left for the owner
   PASS  the customer's four documents attached to the portal's upload boxes  — 4
-  PASS  the application number is saved in Solara from the portal page, untyped  — NP-MHSED26-51605463
+  PASS  the application number is saved in Solara from the portal page, untyped  — NP-MHSED26-25076032
   PASS  the portal accepted the application under the bill name
 
   -- 3. accepted in the vendor login
   PASS  marked accepted; the next step is the agreement
-  PASS  documents to accepted is timed  — 9s in this run
+  PASS  documents to accepted is timed  — 8s in this run
 
   -- 4. agreement e-signed and uploaded
   PASS  the agreement link goes to the customer's own WhatsApp number
@@ -52,10 +52,9 @@
   PASS  the portal received the agreement as a PDF under 2 MB with the cost  — SS-2051_agreement.pdf 60 KB
   PASS  all six steps done for this customer  — [('documents', True), ('details', True), ('registered', True), ('accepted', True), ('signed', True), ('uploaded', True)]
   PASS  no JavaScript errors in the dashboard
-  (whole run, automated: 19s)
+  (whole run, automated: 18s)
   PASS  the audit trail records each step  — Added customer, Co-pilot attached files, Co-pilot fetched document, Co-pilot left fields, Confirmed extracted field, Customer e-signed documents, Document extraction, Generated close-out documents, Marked accepted, Marked agreement uploaded, Marked registered, Sent documents for e-signature, Updated registration details, Uploaded document
 
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
   44 passed, 0 failed
-
