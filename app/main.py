@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, 
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
+from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
                msedcl, pmsg, registration, reset as resetmod)
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
@@ -76,10 +76,24 @@ def need(role):
     return dep
 
 
+@app.exception_handler(TypeError)
+@app.exception_handler(AttributeError)
+async def wrong_type(request: Request, exc):
+    """A value of the wrong kind (a list where text belongs) is the sender's mistake, not a crash."""
+    if request.url.path.startswith("/api/"):
+        db.audit("system", "system", "Rejected wrong-typed request", "", f"{request.url.path}: {type(exc).__name__}")
+        return JSONResponse({"detail": "one of the values has the wrong type; send plain text or numbers"}, status_code=400)
+    raise exc
+
+
 @app.post("/api/login")
 def login(body: dict = Body(...)):
-    row = db.one("SELECT * FROM users WHERE username=?", (body.get("username", "").strip(),))
-    if not row or not db.pwcheck(body.get("password", ""), row["pw"]):
+    try:
+        user, pw = valid.text(body.get("username"), "username").strip(), valid.text(body.get("password"), "password")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    row = db.one("SELECT * FROM users WHERE username=?", (user,))
+    if not row or not db.pwcheck(pw, row["pw"]):
         raise HTTPException(401, "wrong username or password")
     tok = secrets.token_urlsafe(32)
     db.ex("INSERT INTO sessions(token,username,created_at) VALUES(?,?,?)",
@@ -656,7 +670,7 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "llm": extract.llm_status()}
+            "suggest": registration.suggest(cid), "llm": extract.llm_status()}
 
 
 @app.post("/api/registration/{cid}/document")
@@ -691,7 +705,7 @@ def registration_put(cid: str, body: dict = Body(...), user=Depends(need("operat
 @app.post("/api/registration/{cid}/confirm")
 def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        extract.confirm(_cid(cid), body.get("key"), body.get("value"), user)
+        extract.confirm(_cid(cid), valid.text(body.get("key"), "key"), body.get("value"), user)
     except KeyError:
         raise HTTPException(404, "no such extracted field")
     except ValueError as ex:
@@ -702,7 +716,8 @@ def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("op
 @app.post("/api/registration/{cid}/mark")
 def registration_mark(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        registration.mark(_cid(cid), body.get("step"), user, body.get("app_no"))
+        registration.mark(_cid(cid), valid.text(body.get("step"), "step"), user, body.get("app_no"),
+                          replace=body.get("replace") is True)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
@@ -739,6 +754,12 @@ async def registration_agreement_check(cid: str, user=Depends(current)):
 @app.post("/api/registration/{cid}/agreement")
 def registration_agreement(cid: str, request: Request, user=Depends(need("operator"))):
     c, d = closeout.data(_cid(cid))
+    try:
+        registration.require_ready(cid, "cannot send the agreement")
+        if not d.get("accepted_at"):
+            raise ValueError("cannot send the agreement: accept the customer in the vendor login first")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
     if not d.get("agreement_date"):
         closeout.save(cid, {"agreement_date": datetime.now().date().isoformat()}, user["username"])
     try:
@@ -817,6 +838,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in registration.values(cid).items() if v},
             "issues": registration.validate(cid)["issues"], "build_error": build_error,
+            "derived": registration.derived(cid),
             "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
                                              "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}
@@ -877,6 +899,11 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
 
 
 # ------------------------------- health -------------------------------
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)  # no icon; answering keeps the browser console free of a 404
+
+
 @app.get("/api/health")
 def health(user=Depends(current)):
     """Everything that breaks slowly, checked in one place: the database, the key, backups, disk,
@@ -910,7 +937,7 @@ def health(user=Depends(current)):
         "fields left unfilled: " + "; ".join(f"{d['detail']} ({d['k']}x)" for d in drift), warn=True)
     llm = extract.llm_status()
     add("ai", llm["enabled"], f"{llm['provider']} for photos" if llm["enabled"] else
-        "no AI key: photos of bills are flagged for typing", warn=True)
+        "AI is off (by design): the rules read bills and Aadhaar; photos of bills are flagged for typing", warn=True)
     return {"ok": all(c["state"] == "ok" for c in out if c["key"] in ("database", "key", "disk")),
             "checks": out}
 

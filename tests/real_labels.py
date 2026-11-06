@@ -91,7 +91,9 @@ async def main():
     sup.post("/api/demo/reset")
     sup.put(f"/api/registration/{CID}", json={"mobile": "9028144531", "email": "vaishali.p@example.com",
                                              "kw": "3", "rts_cost": "198000", "district": "Nashik"}).raise_for_status()
-    sup.post(f"/api/registration/{CID}/mark", json={"step": "registered", "app_no": "NP-MHSED26-16188888"}).raise_for_status()
+    # this suite is about portal labels, not the flow; the flow guard is tested in k1_complete.py
+    db.ex("UPDATE customers SET application_no=?, stage='feasible' WHERE id=?", ("NP-MHSED26-16188888", CID))
+    closeout.save(CID, {"pmsg_app_no": "NP-MHSED26-16188888"}, "test")
     closeout.mark(CID, "test", lat="19.997654", lng="73.789012")
     values = sup.get(f"/api/registration/{CID}").json()["values"]
     key = sup.post("/api/copilot/key").json()["key"]
@@ -104,7 +106,7 @@ async def main():
         await sw.evaluate(f"chrome.storage.local.set({{url: '{BASE}', key: '{key}'}})")
         pg = ctx.pages[0] if ctx.pages else await ctx.new_page()
         for name, (src, fields, expect) in PAGES.items():
-            await sw.evaluate(f"chrome.storage.local.set({{current: {{cid: '{CID}', at: Date.now()}}}})")
+            await sw.evaluate(f"chrome.storage.local.set({{current: {{cid: '{CID}', at: Date.now(), picked: true}}}})")
             await pg.goto(f"{BASE}/portal/verify")
             await pg.wait_for_selector("#solaraPanel")
             # the screen changes under the panel, as on a single-page portal; then ↻ re-reads it

@@ -438,3 +438,11 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1px dashed var(--line)
 #regRead .fld.review{grid-column:1/-1}
 #regRead .fld .fv{font-size:12px}
 [data-demo][hidden],.whoami[hidden],.railfoot .hint[hidden]{display:none!important}
+
+/* registration forms: hints, live errors, required marker */
+.fhint{font-size:11px;color:var(--fg-faint);line-height:1.4}
+.ferr{font-size:11.5px;color:var(--bad,#c0392b);line-height:1.4}
+.ferr:empty{display:none}
+.field input.bad{border-color:var(--bad,#c0392b);background:color-mix(in srgb,var(--bad,#c0392b) 8%,var(--panel-2))}
+.field .req{color:var(--bad,#c0392b);letter-spacing:0}
+.btn:disabled{cursor:not-allowed}

@@ -171,9 +171,10 @@ Open <http://127.0.0.1:8900>, sign in as `r.deshmukh` / `demo` (supervisor) and 
 `extension/` folder. In Solara: Close-out → **Connect co-pilot** gives a key. Extension → Options →
 address `http://127.0.0.1:8900` and the key → Save.
 
-**AI key (needed for photos of bills and bank pages):** put `ANTHROPIC_API_KEY=...` in `.env`
-(gitignored). Never paste it into chat or commit it. Without it, bill PDFs with a text layer and
-Aadhaar QR still read; photos of bills are flagged for typing.
+**AI is off by default** and is never used for basic tasks. Bill PDFs with a text layer, the Aadhaar QR,
+validation and the Aadhaar number check all run on plain rules. Only if you set `SOLARA_USE_AI=1` **and**
+`ANTHROPIC_API_KEY=...` in `.env` (gitignored; never paste it into chat) is a model tried, and only for
+a bill the rules cannot read at all. Otherwise photos of bills are flagged for typing.
 
 **Live install (the client's machine or server):**
 

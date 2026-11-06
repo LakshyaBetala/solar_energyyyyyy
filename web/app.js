@@ -536,8 +536,42 @@ async function loadReg(cid) {
   if (S.view === 'reg') render();
 }
 
+const REG_REQ = ['name', 'mobile', 'consumer_no', 'kw'];
 const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
 const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+
+/* Input rules for the registration forms. The server enforces the same ones; these show the
+   problem while typing, before Save. */
+const VD = ['0123456789', '1234067895', '2340178956', '3401289567', '4012395678', '5987604321', '6598710432', '7659821043', '8765932104', '9876543210'];
+const VP = ['0123456789', '1576283094', '5803796142', '8916043527', '9453126870', '4286573901', '2793806415', '7046913258'];
+const verhoeff = n => { let c = 0; [...n].reverse().forEach((ch, i) => { c = +VD[c][+VP[i % 8][+ch]]; }); return c === 0; };
+const REG_RULES = {
+  aadhaar: { hint: 'Type all 12 digits: Solara checks them here and keeps only the last 4', max: 16, mode: 'numeric', check: v => {
+    v = v.trim(); if (!v) return ''; if (/^[Xx*]{4}[ -]?[Xx*]{4}[ -]?\d{4}$/.test(v) || /^\d{4}$/.test(v)) return '';
+    if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, '');
+    return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^[01]/.test(n) ? 'Never starts with 0 or 1' : verhoeff(n) ? '' : 'Check digit does not match; check each digit on the card'; } },
+  name: { hint: 'Letters only, as on the Aadhaar', max: 60, check: v => !v ? 'Required' : v.trim().length < 3 ? 'At least 3 characters' : /[^\p{L}\p{M} .'-]/u.test(v) ? "Letters, spaces, . ' and - only" : '' },
+  mobile: { hint: '10 digits, starts with 6-9', max: 14, mode: 'numeric', check: v => { const n = v.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); return !v ? '' : !n ? 'Digits only' : /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting with 6, 7, 8 or 9'; } },
+  email: { hint: 'Optional', max: 120, check: v => !v || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? '' : 'Does not look like an email' },
+  consumer_no: { hint: '12 digits, printed on the bill', max: 16, mode: 'numeric', check: v => { if (!v) return ''; if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, ''); return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^(\d)\1+$/.test(n) ? 'Repeats one digit; check the bill' : ''; } },
+  kw: { hint: '0.5 to 10, e.g. 3 or 3.3', max: 6, mode: 'decimal', check: v => !v ? '' : !/^\d+(\.\d+)?$/.test(v.trim()) ? 'A number, e.g. 3.3' : +v < 0.5 || +v > 10 ? 'Between 0.5 and 10 kW' : '' },
+  rts_cost: { hint: 'Rupees, e.g. 285000 or 285000.50', max: 14, mode: 'decimal', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); if (!/^\d+(\.\d{1,2})?$/.test(t)) return 'An amount in rupees; up to 2 decimals'; return +t < 10000 || +t > 2500000 ? 'Between Rs 10,000 and Rs 25,00,000' : ''; } },
+  district: { hint: 'Optional', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  app_no: { hint: 'Copied by the co-pilot; type only if it missed', max: 40, check: v => !v || /^NP-[A-Z0-9]+-\d{6,}$/i.test(v.trim()) ? '' : 'Looks like NP-MHSED26-16165074' }
+};
+const regFieldCheck = inp => {
+  const r = REG_RULES[inp.dataset.r || inp.dataset.rule]; if (!r) return true;
+  const msg = r.check(inp.value), box = inp.closest('.field') || inp.parentElement;
+  inp.classList.toggle('bad', !!msg); inp.setAttribute('aria-invalid', msg ? 'true' : 'false');
+  const e = box.querySelector('.ferr'); if (e) e.textContent = msg;
+  return !msg;
+};
+const regFormOk = scope => $$(scope).map(regFieldCheck).every(Boolean);
+const regSyncButtons = () => {
+  const d = $('#regSave'); if (d && can('operator')) d.disabled = !regFormOk('#regDetails [data-r]');
+  const c = $('#regCreate'); if (c) c.disabled = !($('#nName').value.trim().length >= 3 && regFormOk('#nName,#nMobile'));
+};
 
 VIEWS.reg = () => {
   const list = S.reg || [], g = S.regData;
@@ -556,17 +590,26 @@ VIEWS.reg = () => {
   const c = g.customer, d = g.data, v = g.values, op = can('operator') ? '' : ' disabled';
   const docs = Object.fromEntries(g.documents.map(x => [x.kind, x]));
   const flagged = g.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key));
+  const fp = g.fields.find(f => f.key === 'pin'), fa = g.fields.find(f => f.key === 'aadhaar_pin');
+  const pinConflict = !!(fp && fa && fp.value !== fa.value && fp.value !== 'not read' && fa.value !== 'not read'
+    && (fp.status === 'review' || fa.status === 'review'));
+  const pinCard = !pinConflict ? '' : `<div class="fld review" id="regPin"><div class="fk">PIN code &middot; the bill and the Aadhaar disagree</div>
+    <div class="fv" style="grid-column:1/-1;font-family:var(--font-ui)">The portal and the agreement use the PIN you pick. Pick the one where the customer lives and the meter is.</div>
+    <div class="row" style="gap:8px;grid-column:1/-1;margin-top:4px">
+      <button class="btn sm go" data-pinpick="${esc(fp.value)}"${op}>Use ${esc(fp.value)} <span class="sub">(electricity bill)</span></button>
+      <button class="btn sm" data-pinpick="${esc(fa.value)}"${op}>Use ${esc(fa.value)} <span class="sub">(Aadhaar)</span></button></div></div>`;
   const fieldRow = f => {
     const later = REG_LATER.includes(f.key), rev = f.status === 'review';
     return `<div class="fld ${rev && !later ? 'review' : ''}" data-field="${esc(f.key)}">
       <div class="fk">${esc(f.field)} <span style="opacity:.7">&middot; ${esc(f.source)}</span>${later ? ' <span class="pill idle">needed later</span>' : ''}</div>
-      ${rev && !later ? `<div class="row" style="gap:6px;margin-top:4px"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="type it as on the document" style="flex:1">
+      ${rev && !later ? `<div class="row" style="gap:6px;margin-top:4px"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="${f.key === 'aadhaar_masked' ? 'last 4 digits only, e.g. 4471' : 'type it as on the document'}" maxlength="80" style="flex:1">
         <button class="btn sm go" data-confirm="${esc(f.key)}"${op}>Confirm</button></div>` : `<div class="fv">${esc(f.value)}</div>`}
       ${f.note ? `<div class="fk" style="color:${rev ? 'var(--warn)' : 'var(--fg-dim)'};letter-spacing:0;text-transform:none;font-size:11px;line-height:1.5">${esc(f.note)}</div>` : ''}</div>`;
   };
   const det = [['name', 'Customer name', c.name], ['mobile', 'Mobile (gets the portal OTP)', d.mobile], ['email', 'Email (optional)', d.email],
     ['consumer_no', 'Consumer number', c.consumer_no], ['kw', 'Proposed capacity (kW)', c.kw], ['rts_cost', 'Installation cost, Rs (for the agreement)', d.rts_cost],
-    ['district', 'District', d.district]];
+    ['district', 'District', d.district],
+    ['aadhaar', 'Aadhaar number (only the last 4 are kept)', d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '']];
   const stepDone = k => g.steps.find(s => s.key === k).done;
   return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}
   <div class="grid" style="gap:12px">
@@ -584,12 +627,13 @@ VIEWS.reg = () => {
           <span class="pill ${docs[k] ? 'ok' : ['bill', 'aadhaar'].includes(k) ? 'warn' : 'idle'}">${docs[k] ? 'on file' : ['bill', 'aadhaar'].includes(k) ? 'needed' : 'optional'}</span>
           <span class="nm">${esc(label)}${docs[k] ? `<div class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</div>` : ''}</span>
           <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${op}></label></div>`).join('')}
-          <div class="hint">Aadhaar is read from its QR code on this computer; nothing is sent out.${g.llm.enabled ? '' : ' Photos of bills and bank pages need the AI key; the PDF from the MSEDCL website reads without it.'}</div></div></div>
+          <div class="hint">Aadhaar is read from its QR code on this computer; nothing is sent out.${g.llm.enabled ? '' : ' No AI is used: the PDF bill from the MSEDCL website is read by rules; a photo of a bill or bank page is flagged for you to type.'}</div></div></div>
 
       <div class="card" id="regDetails"><div class="ch"><h3>Details for the portal</h3><span class="spacer"></span>
         <button class="btn sm pri" id="regSave"${op}>Save</button></div>
-        <div class="cb cofields" style="grid-template-columns:1fr 1fr">${det.map(([k, label, val]) => `<div class="field${g.missing.some(m => label.toLowerCase().startsWith(m.split(' ')[0])) && !val ? ' miss' : ''}"><label>${esc(label)}</label>
-          <input type="text" data-r="${k}" value="${esc(val ?? '')}"${op}></div>`).join('')}</div></div>
+        <div class="cb cofields" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">${det.map(([k, label, val]) => `<div class="field${g.missing.some(m => label.toLowerCase().startsWith(m.split(' ')[0])) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
+          <input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>
+          <div class="fhint" id="h_${k}">${esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">Suggested from the bill: <button type="button" class="btn sm" data-usekw="${g.suggest.kw}"${op}>Use ${g.suggest.kw} kW</button> (${esc(g.suggest.why)})</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint" style="color:var(--warn)">Flagged: from the vendor\'s quote. Solara does not guess a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div></div>
     </div>
 
     ${g.validation.issues.length ? `<div class="card" id="regIssues"><div class="ch"><h3>Before registering</h3><span class="spacer"></span>
@@ -599,7 +643,7 @@ VIEWS.reg = () => {
         <div class="hint">The co-pilot lists these on the portal too and will not hide them. Correct them here, then fill.</div></div></div>` : ''}
     <div class="card" id="regRead"><div class="ch"><h3>What Solara read</h3><span class="spacer"></span>
       <span class="pill ${!g.fields.length ? 'idle' : flagged.length ? 'warn' : 'ok'}">${!g.fields.length ? 'nothing yet' : flagged.length ? flagged.length + ' to check' : 'all clear'}</span></div>
-      <div class="cb" style="display:grid;gap:1px;padding:7px">${g.fields.length ? [...flagged, ...g.fields.filter(f => !flagged.includes(f))].map(fieldRow).join('')
+      <div class="cb" style="display:grid;gap:1px;padding:7px">${g.fields.length ? pinCard + [...flagged, ...g.fields.filter(f => !flagged.includes(f))].filter(f => !(pinConflict && ['pin', 'aadhaar_pin'].includes(f.key))).map(fieldRow).join('')
         : '<div class="hint" style="padding:16px;text-align:center">Upload the bill and the Aadhaar. Solara reads them straight away.</div>'}</div></div>
 
     <div class="card"><div class="ch"><h3>On PM Surya Ghar</h3><span class="spacer"></span><span class="hint">the co-pilot fills these; you press every Submit</span></div>
@@ -607,8 +651,8 @@ VIEWS.reg = () => {
         <div class="sumgrid">${[['Name filed', v.name], ['Consumer no.', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
           ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><div class="k">${k}</div><div class="v" style="font-size:12.5px;font-family:var(--font-ui);font-weight:500;line-height:1.35">${esc(x || '—')}</div></div>`).join('')}</div>
         <div class="row"><a class="btn" href="${esc(g.portals.pmsg)}" target="_blank" rel="noopener">Open customer registration</a>
-          <input type="text" id="regApp" placeholder="NP-MHSED26-…" value="${esc(c.application_no || '')}" style="width:190px"${op}>
-          <button class="btn sm" id="regAppSave"${op}>Save application no.</button></div>
+          <div class="field" style="margin:0"><input type="text" id="regApp" data-rule="app_no" placeholder="NP-MHSED26-…" value="${esc(c.application_no || '')}" maxlength="40" style="width:210px" aria-label="Application number" title="${esc(REG_RULES.app_no.hint)}"${op}><div class="ferr" role="alert"></div></div>
+          <button class="btn sm" id="regAppSave" data-has="${esc(c.application_no || '')}"${op}>${c.application_no ? 'Replace application no.' : 'Save application no.'}</button></div>
         <div class="row"><a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open vendor login</a>
           <button class="btn sm" id="regAccepted"${stepDone('registered') && !stepDone('accepted') ? op : ' disabled'}>${stepDone('accepted') ? '&#10003; Accepted' : 'Mark accepted'}</button>
           <button class="btn sm" id="regSign"${stepDone('accepted') && !stepDone('signed') && d.rts_cost ? op : ' disabled'}>Send agreement for e-sign</button>
@@ -1005,9 +1049,11 @@ document.addEventListener('click', async e => {
   if (t.id === 'regNext') { regAct(t.dataset.act); return; }
   if (t.id === 'regNew') {
     modal('New customer', 'Just the name to start. Everything else comes from the documents.',
-      `<div class="field"><label for="nName">Customer name</label><input type="text" id="nName" autocomplete="off"></div>
-       <div class="field"><label for="nMobile">Mobile (optional)</label><input type="text" id="nMobile" inputmode="numeric" autocomplete="off"></div>`,
-      '<button class="btn" data-close>Cancel</button><button class="btn go" id="regCreate">Add customer</button>');
+      `<div class="field"><label for="nName">Customer name</label><input type="text" id="nName" data-rule="name" maxlength="60" autocomplete="off" aria-describedby="nNameHint">
+         <div class="fhint" id="nNameHint">As on the Aadhaar. Letters only, at least 3.</div><div class="ferr" role="alert"></div></div>
+       <div class="field"><label for="nMobile">Mobile (optional)</label><input type="text" id="nMobile" data-rule="mobile" inputmode="numeric" maxlength="14" autocomplete="off">
+         <div class="fhint">10 digits. Used to spot a customer who is already on file.</div><div class="ferr" role="alert"></div></div>`,
+      '<button class="btn" data-close>Cancel</button><button class="btn go" id="regCreate" disabled>Add customer</button>');
     $('#nName').focus(); return;
   }
   if (t.id === 'regCreate') {
@@ -1024,6 +1070,12 @@ document.addEventListener('click', async e => {
     }
     return;
   }
+  if (t.dataset.pinpick) {
+    const v = t.dataset.pinpick;
+    if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
+    return;
+  }
+  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); } return; }
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
@@ -1035,7 +1087,13 @@ document.addEventListener('click', async e => {
     catch (err) { toast(err.message, true); }
     return;
   }
-  if (t.id === 'regAppSave') { if (await regPost('/mark', { step: 'registered', app_no: $('#regApp').value })) toast('Application number saved'); return; }
+  if (t.id === 'regAppSave') {
+    const v = $('#regApp').value.trim().toUpperCase(), had = t.dataset.has;
+    if (!regFieldCheck($('#regApp')) || !v) { toast('Type the application number as NP-MHSED26-16165074', true); return; }
+    if (had && v !== had && !confirm(`This customer is already registered as ${had}.\nReplace it with ${v}? Only do this after checking the portal.`)) return;
+    if (await regPost('/mark', { step: 'registered', app_no: v, replace: !!had && v !== had })) toast('Application number saved');
+    return;
+  }
   if (t.id === 'regAccepted' || t.id === 'regAcceptedModal') { closeModal(); if (await regPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
   if (t.id === 'regSign') { regSendAgreement(); return; }
   if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Milestone 1 done for this customer.'); return; }
@@ -1195,6 +1253,10 @@ document.addEventListener('click', async e => {
   if (t.id === 'togglemr') { S.showEn = !S.showEn; render(); return; }
 });
 
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset && (t.dataset.r || t.dataset.rule)) { regFieldCheck(t); regSyncButtons(); }
+});
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
   if (e.target.id === 'runcid') pickRunCustomer(e.target.value);

@@ -35,7 +35,11 @@ load_env()
 
 
 def llm_status():
+    """AI is off unless SOLARA_USE_AI=1 is set AND a key is present. Reading a bill's text, the
+    Aadhaar QR, validation and every other basic task are plain rules and never call a model."""
     load_env()
+    if os.environ.get("SOLARA_USE_AI", "").lower() not in ("1", "true", "yes"):
+        return {"enabled": False, "provider": None, "model": None}
     if os.environ.get("ANTHROPIC_API_KEY"):
         return {"enabled": True, "provider": "anthropic",
                 "model": os.environ.get("SOLARA_MODEL", "claude-sonnet-5-5")}
@@ -241,9 +245,11 @@ FULL_AADHAAR = re.compile(r"(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)")
 
 
 def refuse_aadhaar_number(key, value):
-    """A whole Aadhaar number must never be stored, even when a person types it."""
-    if key.startswith("aadhaar") and FULL_AADHAAR.search(value or ""):
-        raise ValueError("do not enter the full Aadhaar number; Solara keeps only the last 4 digits")
+    """A whole Aadhaar number is never stored. It is accepted only in the Aadhaar number box (checked,
+    then cut to the last 4 digits); in any other box it is refused with a pointer to that box."""
+    if key.startswith("aadhaar") and key != "aadhaar_masked" and FULL_AADHAAR.search(value or ""):
+        raise ValueError("that is an Aadhaar number: type it in the Aadhaar number box under Details "
+                         "(Solara checks it and keeps only the last 4 digits). This box is for the name")
 
 
 def _record(customer_id):
@@ -286,7 +292,7 @@ async def run(customer_id, use_llm=True, fresh=None):
         found = len(fields)
         primary = found < 4  # the parser does not know this bill's layout
         use_text = len(bill_text.strip()) >= 200
-        if model and (use_text or (primary and imgs)):
+        if model and primary and (use_text or imgs):   # only when the rules cannot read this bill at all
             try:
                 got = await llm_read("bill", st, text=bill_text if use_text else None,
                                      image=None if use_text else imgs[0])
@@ -528,21 +534,31 @@ def confirm(customer_id, key, value, user):
     row = db.one("SELECT * FROM extractions WHERE customer_id=? AND field=?", (customer_id, label))         if label else None
     if not row:
         raise KeyError(key)
-    value = " ".join(str(value).split())
+    from . import valid
+    value = " ".join(valid.text(value, "value").split())
     if not value:
         raise ValueError("enter the value as it appears on the document")
     refuse_aadhaar_number(key, value)
+    if key in ("aadhaar_name", "bill_name", "owner_name", "account_holder"):
+        value = valid.name(value, "the name")
+    elif key == "aadhaar_masked":
+        value = f"XXXX XXXX {valid.aadhaar_any(value)}"   # a full number is checked, then only 4 digits kept
+    elif key in ("pin", "aadhaar_pin", "property_pin"):
+        value = valid.pin(value)
+    elif key == "ifsc":
+        value = valid.ifsc(value)
     if key == "aadhaar_unread":
-        real = "aadhaar_name"
+        real = "aadhaar_name"  # typed text becomes the name, so it is checked as a name below
     elif key == "bill_unread":
         real = "consumer_no"
-        value = re.sub(r"\D", "", value)
-        if not 9 <= len(value) <= 14:
-            raise ValueError("type the consumer number printed on the bill (digits); the name goes in Details")
+        try:
+            value = valid.consumer_no(value)
+        except ValueError:
+            raise ValueError("type the 12-digit consumer number printed on the bill; the name goes in Details")
     else:
         real = key
-    if real == "aadhaar_name" and len(value) < 3:
-        raise ValueError("enter the name as it appears on the Aadhaar")
+    if real == "aadhaar_name":
+        value = valid.name(value, "the name on the Aadhaar")
     was = row["value"] if row["value"] != "not read" else None
     note = f"Checked by {user['name']}" + (f" (read as “{was}”)" if was and was != value else "")
     if real != key:

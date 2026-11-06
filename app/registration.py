@@ -4,9 +4,10 @@ vendor agreement uploaded on the national portal.
 Six steps, each done or not, and the one thing to do next. The record itself lives in the
 customers row and the close-out record (closeout.data), so every later document reuses it.
 """
-import json, re
+import json, os, re
 from datetime import datetime
-from . import db, closeout, extract
+import sqlite3
+from . import db, closeout, extract, valid
 from .config import vendor, region
 
 PRE_STAGES = ("lead", "docs", "register", "feasible")  # before installation
@@ -28,13 +29,7 @@ MOBILE = re.compile(r"^[6-9]\d{9}$")
 PIN = re.compile(r"^\d{6}$")
 
 
-def clean_mobile(v):
-    n = re.sub(r"\D", "", v or "")
-    n = n[-10:] if len(n) > 10 and n[:-10] in ("91", "091", "0091") else n
-    n = n[1:] if len(n) == 11 and n[0] == "0" else n
-    if n and not MOBILE.match(n):
-        raise ValueError("the mobile number has 10 digits and starts with 6, 7, 8 or 9")
-    return n
+clean_mobile = valid.mobile
 
 
 def duplicates(name, mobile=None, consumer_no=None, exclude=None):
@@ -56,22 +51,51 @@ def duplicates(name, mobile=None, consumer_no=None, exclude=None):
 
 
 def create(name, mobile, user, allow_duplicate=False):
-    name = " ".join((name or "").split())
-    if len(name) < 3:
-        raise ValueError("enter the customer's name")
+    name = valid.name(name, "the customer's name")
     mobile = clean_mobile(mobile)
     dup = duplicates(name, mobile)
     if dup and not allow_duplicate:
         raise Duplicate(dup)
-    nums = [int(r["id"].split("-")[1]) for r in db.q("SELECT id FROM customers WHERE id LIKE 'SS-%'")]
-    cid = f"SS-{max(nums, default=2000) + 1}"
-    db.ex("""INSERT INTO customers(id,name,category,stage,workflow,last_activity,subsidy)
-             VALUES(?,?,?,?,?,?,0)""", (cid, name, "Residential", "docs", "rooftop_registration",
-                                       datetime.now().strftime("%d %b").lstrip("0")))
+    for _ in range(8):  # two people adding at once can pick the same number; the next try is free
+        nums = [int(r["id"].split("-")[1]) for r in db.q("SELECT id FROM customers WHERE id LIKE 'SS-%'")]
+        cid = f"SS-{max(nums, default=2000) + 1}"
+        try:
+            db.ex("""INSERT INTO customers(id,name,category,stage,workflow,last_activity,subsidy)
+                     VALUES(?,?,?,?,?,?,0)""", (cid, name, "Residential", "docs", "rooftop_registration",
+                                               datetime.now().strftime("%d %b").lstrip("0")))
+            break
+        except sqlite3.IntegrityError:
+            continue
+    else:
+        raise ValueError("could not add the customer just now; please try again")
     if mobile:
         closeout.save(cid, {"mobile": mobile}, user["username"])
     db.audit(user["username"], user["role"], "Added customer", cid, name)
     return cid
+
+
+UNITS_PER_KW_MONTH = 120  # a rooftop kW gives roughly 120 units a month in Maharashtra
+
+
+def derived(cid):
+    """Portal values Solara works out or defaults rather than reads from a document. The co-pilot
+    fills them but tells the owner to check them."""
+    _, d = closeout.data(cid)
+    return [k for k in ("module_type",) if not d.get(k)]  # roof area is measured on site, never guessed
+
+
+def suggest(cid):
+    """A proposed capacity from the bill, for the owner to accept with one click; never saved by itself."""
+    rows = {extract.KEY_OF.get(r["field"]): r["value"] for r in extract.saved(cid)}
+    num = lambda k: float(re.sub(r"[^\d.]", "", rows.get(k) or "") or 0)
+    avg, sanc = num("avg_units"), num("sanctioned_load")
+    if not avg:
+        return None
+    kw = max(0.5, min(10, round(avg / UNITS_PER_KW_MONTH * 2) / 2))
+    if sanc:
+        kw = min(kw, sanc)
+    return {"kw": kw, "why": f"about {avg:g} units a month on the bill"
+            + (f", {sanc:g} kW sanctioned load" if sanc else "")}
 
 
 def values(cid):
@@ -85,6 +109,7 @@ def values(cid):
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
+            "module_type": d.get("module_type") or os.environ.get("SOLARA_MODULE_TYPE", "Mono PERC (DCR)"),
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng")}
 
@@ -111,8 +136,11 @@ def validate(cid):
         bad("mobile", "the mobile number must be 10 digits starting with 6-9")
     if c["pin"] and not PIN.match(c["pin"]):
         bad("PIN code", "the PIN code must be 6 digits")
-    if c["consumer_no"] and not 9 <= len(c["consumer_no"]) <= 14:
-        bad("consumer number", "the consumer number must be 9 to 14 digits")
+    if c["consumer_no"]:
+        try:
+            valid.consumer_no(c["consumer_no"])
+        except ValueError as ex:
+            bad("consumer number", str(ex))
     for r in extract.saved(cid):
         key = extract.KEY_OF.get(r["field"])
         if r["status"] != "review" or key in LATER:
@@ -177,46 +205,59 @@ def status(cid):
 
 
 def save_details(cid, body, user):
-    cols = {}
-    if "name" in body and body["name"].strip():
-        cols["name"] = " ".join(body["name"].split())
+    """Check every field first, then save. One bad value saves nothing and keeps what was there."""
+    cols, rest = {}, {}
+    if valid.text(body.get("name"), "name").strip():
+        cols["name"] = valid.name(body["name"], "the customer's name")
     if "consumer_no" in body:
-        no = re.sub(r"\D", "", body["consumer_no"] or "")
-        if no and not 9 <= len(no) <= 14:
-            raise ValueError("the consumer number on an MSEDCL bill has 12 digits")
+        no = valid.consumer_no(body["consumer_no"])
         other = duplicates("", None, no, exclude=cid) if no else []
         if other:
             raise ValueError(f"consumer number {no} is already on {other[0]['id']} ({other[0]['name']})")
         cols["consumer_no"] = no or None
     if "kw" in body:
-        try:
-            kw = float(body["kw"]) if str(body["kw"]).strip() else None
-        except ValueError:
-            raise ValueError("capacity must be a number of kW, e.g. 3 or 3.3")
-        if kw is not None and not 0.5 <= kw <= 10:
-            raise ValueError("residential rooftop capacity is between 0.5 and 10 kW")
-        cols["kw"] = kw
+        cols["kw"] = valid.kw(body["kw"])
+    if "mobile" in body:
+        rest["mobile"] = valid.mobile(body["mobile"])
+    if "email" in body:
+        rest["email"] = valid.email(body["email"])
+    if "district" in body:
+        rest["district"] = valid.name(body["district"], "district", required=False)
+    if "rts_cost" in body:
+        rest["rts_cost"] = valid.cost(body["rts_cost"])
+    if valid.text(body.get("aadhaar"), "Aadhaar").strip():
+        rest["aadhaar_last4"] = valid.aadhaar_any(body["aadhaar"])  # the full number is dropped here
     for col, v in cols.items():
         db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, cid))
-    rest = {k: body[k] for k in ("mobile", "email", "district", "rts_cost") if k in body}
-    if "mobile" in rest:
-        rest["mobile"] = clean_mobile(rest["mobile"])
-    if rest.get("email") and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", rest["email"].strip()):
-        raise ValueError("that email address does not look right")
-    if rest.get("rts_cost"):
-        rest["rts_cost"] = re.sub(r"[^\d]", "", rest["rts_cost"])
     if rest:
         closeout.save(cid, rest, user["username"])
     db.audit(user["username"], user["role"], "Updated registration details", cid,
              ", ".join(sorted(list(cols) + list(rest))))
 
 
-def mark(cid, step, user, app_no=None):
+def require_ready(cid, what):
+    """A later step needs the earlier ones: documents read and checked, details complete."""
+    st = status(cid)
+    done = {s["key"] for s in st["steps"] if s["done"]}
+    if "documents" not in done:
+        raise ValueError(f"{what}: upload the bill and Aadhaar and check what was read first")
+    if "details" not in done:
+        raise ValueError(f"{what}: add " + ", ".join(st["missing"]) + " first")
+    if st["validation"]["blocking"]:
+        raise ValueError(f"{what}: fix " + st["validation"]["issues"][0]["field"] + " first")
+
+
+def mark(cid, step, user, app_no=None, replace=False):
     c, d = closeout.data(cid)
     if step == "registered":
-        app_no = (app_no or "").strip().upper()
-        if not APP_NO.match(app_no):
-            raise ValueError("the application number looks like NP-MHSED26-16165074")
+        app_no = valid.app_no(app_no)
+        if c["application_no"] and c["application_no"] != app_no:
+            if not (replace and user["role"] == "supervisor"):
+                raise ValueError(f"already registered as {c['application_no']}; a supervisor can replace "
+                                 "it after checking the portal")
+            db.audit(user["username"], user["role"], "Replaced application number", cid,
+                     f"{c['application_no']} -> {app_no}")
+        require_ready(cid, "cannot register")
         clash = db.one("SELECT id FROM customers WHERE application_no=? AND id<>?", (app_no, cid))
         if clash:
             raise ValueError(f"{app_no} is already on {clash['id']}")
@@ -226,6 +267,8 @@ def mark(cid, step, user, app_no=None):
     elif step == "accepted":
         if not c["application_no"]:
             raise ValueError("register the customer first")
+        if d.get("accepted_at"):
+            return
         closeout.mark(cid, user["username"], accepted_at=db.now())
     elif step == "agreement_uploaded":
         agreement = next(s for s in closeout.status(cid) if s["key"] == "agreement")

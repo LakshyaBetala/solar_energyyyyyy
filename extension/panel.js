@@ -37,6 +37,7 @@
     [/sanctioned|connected load/, 'sanctioned_load'],
     [/capacity/, 'capacity'],
     [/category/, 'category'],
+    [/module (technology|type)|panel type/, 'module_type'],
     [/total cost|cost of rts|installation cost|project cost|quotation amount/, 'rts_cost'],
   ];
   const FILES = [[/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
@@ -129,9 +130,16 @@
   document.body.appendChild(panel);
   panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') scan(); });
 
-  const remember = c => chrome.storage.local.set({ current: { cid: c.customer_id, at: Date.now() } });
+  // `picked` means the owner chose this customer in the panel on purpose; that choice is respected
+  const remember = async c => { const { current } = await chrome.storage.local.get('current');
+    // a finished registration is not carried to the next blank form; only an explicit pick keeps it
+    if (c.application_no && !(current && current.cid === c.customer_id && current.picked)) {
+      if (current && current.cid === c.customer_id) chrome.storage.local.remove('current');
+      return;
+    }
+    chrome.storage.local.set({ current: { cid: c.customer_id, at: Date.now(), picked: !!(current && current.cid === c.customer_id && current.picked) } }); };
   const recalled = async () => { const { current } = await chrome.storage.local.get('current');
-    return current && Date.now() - current.at < 45 * 60 * 1000 ? current.cid : ''; };
+    return current && Date.now() - current.at < 45 * 60 * 1000 ? { cid: current.cid, picked: !!current.picked } : null; };
 
   async function scan() {
     const root = scope();
@@ -142,8 +150,9 @@
     let cid = '';
     if (!consumer && !app) {
       if (!fields.length) { say('<span style="color:#8FA3B2">Nothing to do on this page.</span>'); return; }
-      cid = await recalled();
-      if (!cid) return pick();
+      const rec = await recalled();
+      if (!rec) return pick();
+      cid = rec.cid;
     }
     say('Looking up this customer…');
     const r = await ask({ type: 'lookup', consumer_no: consumer, app_no: app, cid });
@@ -169,7 +178,8 @@
     let saved = '';
     if (!c.application_no && app && consumer === (c.values.consumer_no || '') || (!c.application_no && app && !consumer && cid)) {
       const rep = await ask({ type: 'report', body: { customer_id: c.customer_id, event: 'app_no', app_no: app } });
-      if (rep.ok) c.application_no = app;
+      // this registration is finished: the next blank form must ask who it is for, never assume
+      if (rep.ok) { c.application_no = app; chrome.storage.local.remove('current'); }
       saved = rep.ok ? `<div style="margin-top:6px;color:#5FD3A8">Application number <b>${esc(app)}</b> saved in Solara.</div>`
         : `<div style="margin-top:6px;color:#F2A6A0">Application number <b>${esc(app)}</b> was NOT saved: ${esc(rep.error)}. Type it into Solara yourself.</div>`;
     }
@@ -186,7 +196,7 @@
       `<button data-pick="${esc(x.id)}" style="display:block;width:100%;text-align:left;margin-top:6px;padding:7px 9px;border:0;border-radius:7px;background:#24343F;color:#E8EEF2;cursor:pointer">` +
       `<b>${esc(x.name)}</b><br><span style="color:#8FA3B2;font-size:11px">${esc(x.id)} &middot; consumer ${esc(x.consumer_no)}</span></button>`).join(''));
     panel.querySelectorAll('[data-pick]').forEach(b => b.onclick = async () => {
-      await chrome.storage.local.set({ current: { cid: b.dataset.pick, at: Date.now() } }); scan(); });
+      await chrome.storage.local.set({ current: { cid: b.dataset.pick, at: Date.now(), picked: true } }); scan(); });
   }
 
   function msedclAttach(c, rows, head) {
@@ -258,6 +268,8 @@
         if (setVal(el, c.values[key]) && (el.tagName === 'SELECT' || el.value === String(c.values[key]))) { filled += 1; done.push(label); }
         else { left.push(label); failed.push(label); }   // the page refused or changed the value
       }
+      const checkNames = plan.filter(p => (c.derived || []).includes(p.key) && done.includes(labelOf(p.el).split(' | ')[0]))
+        .map(p => labelOf(p.el).split(' | ')[0]);
       for (const { key, label } of customs) left.push(`${label} (pick “${c.values[key]}” yourself)`);
       for (const { el, kind } of files) {
         if (kind === 'agreement' && !agreementReady) { left.push('agreement (not signed yet)'); continue; }
@@ -271,7 +283,8 @@
       fill.outerHTML = `<div id="solaraFilled" style="margin-top:8px"><b>Filled ${filled}${attached ? `, attached ${attached}` : ''}.</b>` +
         (kept ? ` Kept ${kept} you had typed.` : '') +
         (failed.length ? `<br><span style="color:#F2A6A0">The page did not accept: ${esc(failed.join(', '))}</span>` : '') +
-        (done.length ? `<details><summary style="cursor:pointer;color:#8FA3B2">What was filled</summary>${esc(done.join(', '))}</details>` : '') +
+        (done.length ? `<div style="margin-top:4px;color:#8FA3B2">Filled: ${esc(done.join(', '))}</div>` : '') +
+        (checkNames.length ? `<div style="margin-top:4px;color:#F2C879">Check these, Solara worked them out: ${esc(checkNames.join(', '))}</div>` : '') +
         (left.length ? `<br><span style="color:#F2C879">Left for you: ${esc([...new Set(left)].join(', '))}</span>` : '') +
         '<br>Check the page, then press the portal\'s button yourself.</div>';
       ask({ type: 'report', body: { customer_id: c.customer_id, portal: location.host, attached: filled + attached,

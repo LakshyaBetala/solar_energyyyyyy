@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from . import db, closeout
+from . import valid, db, closeout
 from .config import vendor
 
 router = APIRouter(prefix="/sign")
@@ -122,13 +122,21 @@ def verified(request, r):
         request.cookies.get("sg_" + r["token"][:12], ""), r["verify_secret"])
 
 
+_ISSUED = set()  # messages this server has shown; a crafted ?error= link cannot add its own text
+
+
+def go_back(token, msg):
+    _ISSUED.add(msg)
+    return RedirectResponse(f"/sign/{token}?error=" + quote(msg), 303)
+
+
 # ------------------------------- routes -------------------------------
 @router.get("/{token}", response_class=HTMLResponse)
 def sign_get(token: str, request: Request, error: str = ""):
     r, stop = load(token)
     if stop:
         return stop
-    err = f'<div class="err">{e(error)}</div>' if error else ""
+    err = f'<div class="err">{e(error)}</div>' if error in _ISSUED else ""  # only text this server issued
     if not verified(request, r):
         return page(f"""{err}<div class="card"><h1>Confirm it is you
 <span class="mr">तुमची ओळख निश्चित करा</span></h1>
@@ -213,8 +221,7 @@ def sign_verify(token: str, digits: str = Form("")):
               (n, "locked" if n >= MAX_ATTEMPTS else r["status"], token))
         db.audit("customer", "customer", "E-sign check failed", r["customer_id"],
                  f"attempt {n} of {MAX_ATTEMPTS}")
-        return RedirectResponse(f"/sign/{token}?error=" + quote(
-            "Those digits do not match. Check the consumer number on your bill."), 303)
+        return go_back(token, "Those digits do not match. Check the consumer number on your bill.")
     secret = secrets.token_urlsafe(16)
     db.ex("UPDATE sign_requests SET verify_secret=? WHERE token=?", (secret, token))
     resp = RedirectResponse(f"/sign/{token}", 303)
@@ -246,10 +253,10 @@ async def sign_post(token: str, request: Request):
     cid, docs = r["customer_id"], json.loads(r["docs"])
     approve = [k for k in form.getlist("approve") if k in docs]
     name = (form.get("name") or "").strip()
-    back = lambda msg: RedirectResponse(f"/sign/{token}?error=" + quote(msg), 303)
+    back = lambda msg: go_back(token, msg)
     if not approve:
         return back("Tick at least one document.")
-    if form.get("consent") != "yes" or len(name) < 3:
+    if form.get("consent") != "yes" or not valid.ok_name(name):
         return back("Enter your full name and tick the consent box.")
     changed = [k for k in approve if closeout.doc_hash(k, cid) != docs[k]]
     if changed:
@@ -262,6 +269,8 @@ async def sign_post(token: str, request: Request):
             png = closeout.png_from_data_url(form.get("signature"))
         except ValueError as ex:
             return back(str(ex))
+        except Exception:  # a malformed or hostile signature value must not become a 500
+            return back("The signature could not be read. Please sign again.")
         closeout.save_signature("consumer", png, name, cid, token)
     ts = db.now()
     for k in approve:
