@@ -37,7 +37,9 @@ def live():
 
 def portals():
     if live():
-        return {"pmsg": "https://pmsuryaghar.gov.in/", "pmsg_vendor": "https://pmsuryaghar.gov.in/",
+        # the national portal's logins live on their own hosts (seen on the live site, Nov 2026)
+        return {"pmsg": "https://consumer.pmsuryaghar.gov.in/consumer/#/login",
+                "pmsg_vendor": "https://vendor.pmsuryaghar.gov.in/vendor/#/login",
                 "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/"}
     return {"pmsg": "/portal/verify", "pmsg_vendor": "/pmsg/vendor/consent", "msedcl": "/msedcl/"}
 

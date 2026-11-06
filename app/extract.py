@@ -396,7 +396,8 @@ async def run(customer_id, use_llm=True, fresh=None):
     # a person's corrections survive a re-read, unless the document they corrected was replaced
     for r in saved(customer_id):
         key = KEY_OF.get(r["field"])
-        if key and r["note"].startswith("Checked by") and kind_of(key) != fresh and key in PRETTY:
+        newer = (r["ts"] or "") >= ((docs.get(kind_of(key)) or {}).get("uploaded_at") or "")  # not for a replaced document
+        if key and r["note"].startswith("Checked by") and kind_of(key) != fresh and key in PRETTY and newer:
             fields[key] = _f(r["value"], 100, r["source"], "ok", r["note"])
     if "aadhaar_name" in fields and fields["aadhaar_name"]["status"] == "ok":
         fields.pop("aadhaar_unread", None)
@@ -521,7 +522,8 @@ def apply_to_record(customer_id, only=None, overwrite=False):
     extra = {"mobile": ok.get("bill_mobile"), "sanctioned_load": ok.get("sanctioned_load"),
              "tariff": ok.get("tariff"), "district": ok.get("aadhaar_district"),
              "aadhaar_last4": (ok.get("aadhaar_masked") or "")[-4:] or None}
-    extra = {k: v for k, v in extra.items() if v and (overwrite or not d.get(k))}
+    # the mobile the owner typed is the one the OTP goes to: a bill never replaces it
+    extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "mobile") or not d.get(k))}
     if extra:
         closeout.save(customer_id, extra, "extraction")
 
@@ -547,6 +549,10 @@ def confirm(customer_id, key, value, user):
         value = valid.pin(value)
     elif key == "ifsc":
         value = valid.ifsc(value)
+    elif key == "consumer_no":
+        value = valid.consumer_no(value)
+    elif key == "bill_mobile":
+        value = valid.mobile(value)
     if key == "aadhaar_unread":
         real = "aadhaar_name"  # typed text becomes the name, so it is checked as a name below
     elif key == "bill_unread":
@@ -567,8 +573,8 @@ def confirm(customer_id, key, value, user):
                  VALUES(?,?,?,?,?,?,?,?)""",
               (customer_id, PRETTY[real], value, 100, "typed from the document", "ok", note, db.now()))
     else:
-        db.ex("""UPDATE extractions SET value=?, status='ok', confidence=100, note=?
-                 WHERE customer_id=? AND field=?""", (value, note, customer_id, label))
+        db.ex("""UPDATE extractions SET value=?, status='ok', confidence=100, note=?, ts=?
+                 WHERE customer_id=? AND field=?""", (value, note, db.now(), customer_id, label))
     apply_to_record(customer_id, only={real, "account_no", "ifsc"}, overwrite=True)
     db.audit(user["username"], user["role"], "Confirmed extracted field", customer_id, PRETTY[real])
 

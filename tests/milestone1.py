@@ -172,6 +172,7 @@ async def main():
         await dash.wait_for_function("!document.querySelector('[data-confirm]')")
         await dash.fill('[data-r="kw"]', "3")                                # from the customer's order
         await dash.fill('[data-r="rts_cost"]', "210000")
+        await dash.fill('[data-r="email"]', "priya.k@example.com")                # the portal verifies it by OTP
         await dash.click("#regSave")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Register')")
         check("after the check and the order details, the next step is registering", True)

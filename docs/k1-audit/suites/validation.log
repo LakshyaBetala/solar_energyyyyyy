@@ -1,0 +1,88 @@
+﻿  PASS  cost '250000' -> 250000  — 250000
+  PASS  cost '2,50,000' -> 250000  — 250000
+  PASS  cost 'Rs 285000' -> 285000  — 285000
+  PASS  cost '₹ 1,85,000.5' -> 185000.50  — 185000.50
+  PASS  cost '250000.50' -> 250000.50  — 250000.50
+  PASS  cost '-250000' refused
+  PASS  cost '0' refused
+  PASS  cost '999999999999' refused
+  PASS  cost 'Rs 1.5 lakh' refused
+  PASS  cost '250000.555' refused
+  PASS  cost 'abc' refused
+  PASS  cost '1e6' refused
+  PASS  cost '5000' refused
+  PASS  cost keeps paise: never 25000050
+  PASS  name '123' refused
+  PASS  name '@@@ ###' refused
+  PASS  name 'Priya1234' refused
+  PASS  name '<script>x</script>' refused
+  PASS  name 'AAAAAAAAAAAAAAAAAAAA' refused
+  PASS  name 'ab' refused
+  PASS  name '...' refused
+  PASS  name 'Priya Sanjay Kulkarni' accepted
+  PASS  name "D'Souza" accepted
+  PASS  name 'Anne-Marie O.' accepted
+  PASS  name 'प्रिया कुलकर्णी' accepted
+  PASS  consumer no 'abc' refused
+  PASS  consumer no '123456789' refused
+  PASS  consumer no '1234567890123' refused
+  PASS  consumer no '0000000000000' refused
+  PASS  consumer no '111111111111' refused
+  PASS  consumer no '1700555O1234' refused
+  PASS  consumer no tolerates spaces and hyphens
+  PASS  Aadhaar last 4 'abcd' refused
+  PASS  Aadhaar last 4 '12' refused
+  PASS  Aadhaar last 4 '99999999' refused
+  PASS  Aadhaar last 4 '12345' refused
+  PASS  a real 12-digit Aadhaar passes and only its last 4 come back
+  PASS  spaces in the 12 digits are fine
+  PASS  Aadhaar '234567890125' refused
+  PASS  Aadhaar '123456789012' refused
+  PASS  Aadhaar '034567890124' refused
+  PASS  Aadhaar '23456789012' refused
+  PASS  Aadhaar '2345678901241' refused
+  PASS  Aadhaar '2345 6789 01AB' refused
+  PASS  Aadhaar box takes the full number, the last 4, or the masked form
+  PASS  Aadhaar masked form accepted
+  PASS  mobile letters refused
+  PASS  mobile 91 prefix tolerated
+  PASS  a list is not text
+  PASS  name '123' refused when adding a customer
+  PASS  good consumer number saved
+  PASS  garbage consumer number refused with 400  — {"detail":"the consumer number has digits only (spaces and hyphens are fine)"}
+  PASS  ...and the saved number is still there
+  PASS  cost 250000.50 saved as 250000.50
+  PASS  negative cost refused
+  PASS  one bad field saves nothing
+  PASS  wrong-typed name gives 400, not 500
+  PASS  wrong-typed kw gives 400, not 500
+  PASS  wrong-typed mobile gives 400, not 500
+  PASS  wrong-typed email gives 400, not 500
+  PASS  wrong-typed rts_cost gives 400, not 500
+  PASS  wrong-typed consumer_no gives 400, not 500
+  PASS  wrong-typed login gives 400
+  PASS  wrong-typed application number gives 400
+  PASS  the Details box accepts a full valid Aadhaar number  — {"customer":{"id":"SS-2051","name":"Validation Tester One","aadhaar_name":null,"
+  PASS  only the last 4 are on file
+  PASS  the full number is nowhere in the saved record
+  PASS  ...nor anywhere in the database, including the audit trail
+  PASS  a wrong check digit is refused with a reason
+  PASS  a bad Aadhaar leaves the saved last 4 alone
+  PASS  saving the masked form again changes nothing
+  PASS  AI is off by default
+  PASS  cannot register before documents are read  — {"detail":"cannot register: upload the bill and Aadhaar and check what was read first"}
+  PASS  cannot send the agreement before registration  — {"detail":"cannot send the agreement: upload the bill and Aadhaar and check what was read 
+  PASS  cannot accept before registering
+  PASS  12 customers added at once: no 500  — [200]
+  PASS  ...and every one has its own ID
+  PASS  favicon request is answered, not a 404
+  PASS  roof area is never guessed (it is measured on site)
+  PASS  module technology defaults from settings
+  PASS  co-pilot is told which values were worked out  — ['module_type']
+  PASS  co-pilot receives the module technology, not a roof area
+  PASS  the PIN the owner picked is the one on file
+  PASS  a PIN that is not 6 digits is refused
+  PASS  an unknown link shows no crafted text
+
+  85 passed, 0 failed
+

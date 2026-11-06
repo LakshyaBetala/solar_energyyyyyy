@@ -18,14 +18,15 @@ def text(v, field):
 
 
 def name(v, field="name", required=True):
-    n = " ".join(text(v, field).split())
+    # phones type a curly apostrophe (D’Souza); Marathi spellings carry invisible joiners
+    n = " ".join(text(v, field).replace("\u2019", "'").replace("\u200c", "").replace("\u200d", "").split())
     if not n and not required:
         return ""
-    if not 3 <= len(n) <= 60:
-        raise ValueError(f"{field} must be 3 to 60 characters")
+    if not 3 <= len(n) <= 80:
+        raise ValueError(f"{field} must be 3 to 80 characters")
     letter = lambda ch: unicodedata.category(ch)[0] in "LM"  # letters and the marks that go on them (Marathi)
     if not any(ch.isalpha() for ch in n) or any(not (letter(ch) or ch in " .'-") for ch in n):
-        raise ValueError(f"{field} can have letters, spaces, . ' and - only (no digits or symbols)")
+        raise ValueError(f"{field}: use letters and spaces (a full stop, apostrophe or hyphen is fine); no digits or symbols")
     return n
 
 
@@ -165,5 +166,8 @@ def ifsc(v):
 def app_no(v):
     s = text(v, "application number").strip().upper()
     if not re.match(r"^NP-[A-Z0-9]+-\d{6,}$", s):
-        raise ValueError("the application number looks like NP-MHSED26-16165074")
+        raise ValueError("the application number looks like NP-MHSED26-12345678")
+    # shortcut: every Maharashtra number seen so far has 8 digits; widen if the portal issues 9
+    if s.startswith("NP-MHSED") and len(s.rsplit("-", 1)[1]) != 8:
+        raise ValueError("a Maharashtra application number ends in 8 digits, like NP-MHSED26-12345678; check for a missed digit")
     return s

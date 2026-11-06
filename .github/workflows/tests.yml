@@ -39,6 +39,8 @@ jobs:
         run: python tests/real_labels.py
       - name: Input rules and step order
         run: python tests/validation.py
+      - name: KPI 1 audit (every registered defect and review finding)
+        run: python tests/k1_audit.py
       - name: Longevity (migrations, health, drift, pins)
         run: python tests/longevity.py
       - name: Live mode

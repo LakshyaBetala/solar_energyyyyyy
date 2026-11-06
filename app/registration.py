@@ -14,8 +14,9 @@ PRE_STAGES = ("lead", "docs", "register", "feasible")  # before installation
 APP_NO = re.compile(r"^NP-[A-Z0-9]+-\d{6,}$")
 LATER = {"account_holder", "account_no", "ifsc", "passbook_unread"}  # not needed to register
 # what must be on file before the portal form can be filled
+# the live portal's profile step asks for an email and verifies it by OTP, so it is needed too
 REQUIRED = (("consumer_no", "consumer number"), ("name", "customer name"), ("mobile", "mobile"),
-            ("kw", "proposed capacity (kW)"))
+            ("email", "email (the portal sends it an OTP)"), ("kw", "proposed capacity (kW)"))
 
 
 class Duplicate(ValueError):
@@ -87,7 +88,9 @@ def derived(cid):
 def suggest(cid):
     """A proposed capacity from the bill, for the owner to accept with one click; never saved by itself."""
     rows = {extract.KEY_OF.get(r["field"]): r["value"] for r in extract.saved(cid)}
-    num = lambda k: float(re.sub(r"[^\d.]", "", rows.get(k) or "") or 0)
+    def num(k):  # "3.5 kW approx." -> 3.5; nothing readable -> 0
+        m = re.search(r"\d+(\.\d+)?", rows.get(k) or "")
+        return float(m.group(0)) if m else 0
     avg, sanc = num("avg_units"), num("sanctioned_load")
     if not avg:
         return None
@@ -117,7 +120,7 @@ def values(cid):
 def missing(cid):
     c, d = closeout.data(cid)
     have = {"consumer_no": c["consumer_no"], "name": c["name"] or c["aadhaar_name"],
-            "mobile": d.get("mobile"), "kw": c["kw"]}
+            "mobile": d.get("mobile"), "email": d.get("email"), "kw": c["kw"]}
     return [label for key, label in REQUIRED if not have[key]]
 
 
@@ -247,21 +250,25 @@ def require_ready(cid, what):
         raise ValueError(f"{what}: fix " + st["validation"]["issues"][0]["field"] + " first")
 
 
-def mark(cid, step, user, app_no=None, replace=False):
+def mark(cid, step, user, app_no=None, replace=False, from_portal=False):
+    """from_portal: the co-pilot read the number off the portal's own result page. The customer is
+    then registered whatever Solara thought of the record, so the number is always kept."""
     c, d = closeout.data(cid)
     if step == "registered":
         app_no = valid.app_no(app_no)
-        if c["application_no"] and c["application_no"] != app_no:
-            if not (replace and user["role"] == "supervisor"):
-                raise ValueError(f"already registered as {c['application_no']}; a supervisor can replace "
-                                 "it after checking the portal")
-            db.audit(user["username"], user["role"], "Replaced application number", cid,
-                     f"{c['application_no']} -> {app_no}")
-        require_ready(cid, "cannot register")
+        old = c["application_no"]
+        if old and old != app_no and not (replace and user["role"] == "supervisor"):
+            raise ValueError(f"already registered as {old}; a supervisor can replace it after checking the portal")
+        if not (from_portal or (replace and old)):
+            require_ready(cid, "cannot register")
         clash = db.one("SELECT id FROM customers WHERE application_no=? AND id<>?", (app_no, cid))
         if clash:
             raise ValueError(f"{app_no} is already on {clash['id']}")
-        db.ex("UPDATE customers SET application_no=?, stage='feasible' WHERE id=?", (app_no, cid))
+        db.ex("UPDATE customers SET application_no=? WHERE id=?", (app_no, cid))
+        if c["stage"] in ("lead", "docs", "register"):  # never moves a customer back
+            db.ex("UPDATE customers SET stage='feasible' WHERE id=?", (cid,))
+        if old and old != app_no:  # written only once the replacement has happened
+            db.audit(user["username"], user["role"], "Replaced application number", cid, f"{old} -> {app_no}")
         closeout.save(cid, {"pmsg_app_no": app_no}, user["username"])
         closeout.mark(cid, user["username"], registered_at=db.now())
     elif step == "accepted":

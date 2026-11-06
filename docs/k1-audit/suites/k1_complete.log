@@ -1,0 +1,111 @@
+﻿
+  -- A. creation and duplicates
+  PASS  a customer is created from a name and a valid mobile
+  PASS  the mobile is saved with the record
+  PASS  a mobile that cannot exist is refused
+  PASS  a +91 number is accepted and stored as 10 digits
+  PASS  the same name (case and spacing ignored) is stopped as a duplicate  — This looks like Zubin Karandikar (SS-2051, same name)
+  PASS  the same mobile number is stopped as a duplicate
+  PASS  a duplicate can still be added on purpose
+  PASS  a duplicate warning created nothing
+  PASS  a viewer cannot add a customer
+  PASS  a consumer number already on another customer is refused
+  PASS  a bad email is refused
+
+  -- B. document uploads
+  PASS  an unknown document type is refused on the general upload route too
+  PASS  an empty file is refused with a reason
+  PASS  a missing customer is refused
+  PASS  a viewer cannot upload
+  PASS  a corrupt PDF is kept, explained and does not crash the upload
+
+  -- C. extraction, uncertain fields, manual corrections
+  PASS  each field carries its source
+  PASS  a name that differs between bill and Aadhaar is a flagged mismatch  — {'email (the portal sends it an OTP)': 'missing', 'proposed capacity (kW)': 'missing', 'Consumer name (bill)': 'mismatch', 'Registered mobile': 'mismatch'}
+  PASS  the bill mobile disagreeing with the mobile typed by hand is flagged, and the typed one is kept
+  PASS  a missing required item is listed as missing
+  PASS  a malformed PIN shows as invalid
+  PASS  incomplete or conflicting data is blocking, never silently accepted
+  PASS  flagged values did not reach the record
+  PASS  a correction is saved, with what was read kept in the note  — Checked by Rohit Deshmukh
+  PASS  the filed name follows the correction
+  PASS  a correction survives uploading another document
+  PASS  replacing the corrected document asks for the check again
+  PASS  once corrected and complete, nothing blocks the portal fill  — []
+  PASS  an Aadhaar without a readable QR is uncertain, with the reason
+  PASS  a full Aadhaar number typed by a person is refused
+  PASS  typing the name for an unread Aadhaar reaches the customer record
+  PASS  an unread bill needs a real consumer number to be corrected
+  PASS  a typed consumer number lands in the record
+
+  -- D. Aadhaar privacy
+  PASS  no more than the last 4 digits of the Aadhaar number are in the database or audit trail
+  PASS  the older XML QR keeps only the last 4 digits
+  PASS  the Aadhaar number is never sent to a model (no model call path for it)
+
+  -- E. agreement
+  PASS  the agreement is flagged as a draft until the client's wording is in
+  PASS  agreement refuses to go out to a customer before the application number exists
+  PASS  a failed upload mark is refused and not recorded
+  PASS  an application number already on another customer is refused
+  PASS  an agreement with a blank address is not generated or sent  — {"detail":"not ready to send: Vendor-consumer agreement (Missing: customer addre
+  PASS  without an Aadhaar name the agreement uses the customer name, never 'None'
+  PASS  the exact version sent is kept, encrypted
+  PASS  a change after sending stops the signature; nothing is signed
+  PASS  no approval was recorded for the changed document
+  PASS  wrong digits do not open the documents
+  PASS  the customer is shown the kept copy
+  PASS  the customer e-signs the current version
+  PASS  signature evidence is tied to this customer, this request and this document hash
+  PASS  the signature image is stored encrypted under the customer
+  PASS  the signed agreement verifies end to end (approval, kept copy, signatures, stored PDF)  — []
+  PASS  the signed agreement PDF is stored securely and opens
+  PASS  a copy that no longer matches what was approved fails verification
+  PASS  an unverified agreement cannot be marked uploaded
+  PASS  once the copy is restored the co-pilot's upload report verifies and is accepted  — {"ok":true}
+  PASS  the audit trail names each agreement step
+
+  -- F. co-pilot API
+  PASS  lookup tells the co-pilot what is missing or doubtful
+  PASS  a wrong co-pilot key is refused
+  PASS  an unknown customer gets a clear answer
+  PASS  an application number that clashes is refused by the report route
+
+  -- G. extension
+  PASS  a disconnected co-pilot says Solara is not reachable and offers Try again  — Solara co-pilot
+↻
+Solara is not reachable at http://127.0.0.1:9. Is it running? Check the 
+  PASS  nothing was filled while disconnected
+  PASS  a wrong key is explained
+  PASS  the panel lists what is missing or doubtful before filling  — Solara co-pilot ↻ Ext Field Tester · SS-2058 not this customer? 1 to sort out in Solara first missing: proposed capacity (kW) — proposed capacity (kW) is not on
+  PASS  with open issues the fill button says so
+  PASS  a field the person typed is kept
+  PASS  a dropdown the person chose is kept  — Gujarat
+  PASS  an untouched field is filled
+  PASS  an untouched native dropdown is filled  — 'Residential' / Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) Check the page, then press the portal's button yourself.
+  PASS  OTP, CAPTCHA, verification code and password are left empty
+  PASS  the declaration is not ticked
+  PASS  nothing was submitted or uploaded
+  PASS  a custom dropdown is not clicked open; the panel says what to pick  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) Check the page, then press the portal's b
+  PASS  the panel says what was kept  — Filled 3. Kept 2 you had typed. Filled: Applicant name, Email, Category  Left for you: district (pick “Pune” yourself) C
+  PASS  a value the page rejects is reported, not counted as filled  — Filled 4. The page did not accept: Email Filled: Applicant name, Mobile number, State, Category  Left for you: Email, district (pick “Pune” yourself) Check the 
+  PASS  a refused application number is shown as NOT saved
+  PASS  the customer record did not take it
+
+  -- I. dashboard
+  PASS  adding a duplicate shows who it matches and offers to open them
+  PASS  changing the name takes back the override
+  PASS  the registration screen lists what to sort out before registering
+  PASS  a signed agreement shows whether it verified, and the draft warning is on screen  — Signed agreement: verified (approval, kept copy and signatures match)
+  PASS  no JavaScript errors in the dashboard
+
+  -- H. human-in-the-loop rules in the extension source
+  PASS  the extension never clicks, submits or ticks anything on a portal
+  PASS  OTP, CAPTCHA and password fields are excluded by rule and by guard
+  PASS  it asks for no powers beyond Solara and the listed portals
+  PASS  no CAPTCHA solver, stealth or automation library is referenced
+
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  86 passed, 0 failed
+

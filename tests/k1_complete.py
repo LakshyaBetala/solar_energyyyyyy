@@ -149,7 +149,7 @@ async def main():
     check("replacing the corrected document asks for the check again", f["bill_name"]["status"] == "review")
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]})
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_mobile", "value": "9876543211"})
-    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "210000"}).raise_for_status()
+    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "210000", "email": "k1.customer@example.test"}).raise_for_status()
     g = sup.get(f"/api/registration/{cid}").json()
     check("once corrected and complete, nothing blocks the portal fill",
           not g["validation"]["blocking"] and g["next"]["act"] == "register", str(g["validation"]["issues"]))
@@ -219,7 +219,8 @@ async def main():
         check("wrong digits do not open the documents", pub.get(s2["url"] + "/doc/agreement").status_code == 403)
         pub.post(s2["url"] + "/verify", data={"digits": fx.NEW["consumer_no"][-4:]})
         shown = pub.get(s2["url"] + "/doc/agreement").text
-    check("the customer is shown the kept copy", shown == closeout.snapshot_html(tok2, "agreement", cid) and "Rs 230000" in shown)
+    # a phone viewport is prepended to the response only; the kept copy itself follows byte for byte
+    check("the customer is shown the kept copy", shown.endswith(closeout.snapshot_html(tok2, "agreement", cid)) and "Rs 230000" in shown)
     check("the customer e-signs the current version", "signed" in sign(s2["url"], fx.NEW["consumer_no"][-4:]))
     ap = db.one("SELECT * FROM approvals WHERE customer_id=?", (cid,))
     rq = db.one("SELECT * FROM sign_requests WHERE token=?", (tok2,))

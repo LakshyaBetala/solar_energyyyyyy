@@ -76,6 +76,15 @@ PAGES = {
         '<p>User Id <input type="text" id="userIdField" name="username"></p>',
         '<p>Password <input type="password" id="pw" name="password"></p>'],
         {"userIdField": None}),
+    # the live site's own markup, saved read-only on 6 Nov 2026 (public page, nothing typed or sent):
+    # PrimeNG input with no id, name or label[for]; a maths CAPTCHA; the guidelines checkbox
+    "pmsg-consumer-login": ("PM Surya Ghar consumer login, live site 6 Nov 2026",
+        [(Path(__file__).parent / "real_pages" / "pmsg_consumer_login_2026-11.html").read_text(encoding="utf-8")],
+        {"rmob": "mobile", "rcap": None}),
+    # the live vendor login, saved read-only on 7 Nov 2026: "User/Register Email ID" must never get the customer's email
+    "pmsg-vendor-login": ("PM Surya Ghar vendor login, live site 7 Nov 2026",
+        [(Path(__file__).parent / "real_pages" / "pmsg_vendor_login_2026-11.html").read_text(encoding="utf-8")],
+        {"vemail": None, "vpw": None, "vcap": None}),
 }
 
 
@@ -117,16 +126,22 @@ async def main():
                 await pg.wait_for_function("/Vaishali|Nothing to do/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
             except Exception:
                 print("   panel:", (await pg.inner_text("#solaraPanel"))[:200]); raise
+            wrong = []
             if await pg.locator("#solaraFill").count():
+                if "Vaishali" not in await pg.inner_text("#solaraFill"):  # a recalled customer is named on the button
+                    wrong.append("the Fill button does not name the customer")
                 await pg.click("#solaraFill")
                 await pg.wait_for_selector("#solaraFilled")
-            wrong = []
             for fid, want in expect.items():
                 got = await pg.input_value(f"#{fid}")
                 if want is None and got:
                     wrong.append(f"{fid} should stay empty, got '{got}'")
                 elif want and (got or "").strip() != str(values[want]).strip():
                     wrong.append(f"{fid} expected '{values[want]}', got '{got}'")
+            if name == "pmsg-consumer-login" and await pg.is_checked("#rguide"):
+                wrong.append("the guidelines checkbox must be left to the person")
+            if name == "pmsg-vendor-login" and await pg.is_checked("#vrem"):
+                wrong.append("'Remember me' must be left to the person")
             check(f"{name} ({src})", not wrong, "; ".join(wrong) or f"{sum(1 for w in expect.values() if w)} filled, "
                   f"{sum(1 for w in expect.values() if w is None)} left alone")
         await ctx.close()

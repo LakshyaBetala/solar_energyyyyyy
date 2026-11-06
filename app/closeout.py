@@ -422,8 +422,14 @@ def png_from_data_url(url):
     raw = base64.b64decode(m.group(1))
     if len(raw) > 400_000:
         raise ValueError("signature image too large")
-    im = Image.open(io.BytesIO(raw)).convert("RGBA")
-    ink = sum(1 for px in im.getdata() if px[3] > 40)
+    try:
+        im = Image.open(io.BytesIO(raw))
+    except Exception:
+        raise ValueError("the signature could not be read; please sign again")
+    if im.width * im.height > 2400 * 1200:  # a pad is at most a few hundred pixels; refuse before decoding
+        raise ValueError("the signature could not be read; please sign again")
+    im = im.convert("RGBA")
+    ink = sum(im.getchannel("A").point(lambda a: 255 if a > 40 else 0).histogram()[255:])
     if ink < 150:
         raise ValueError("the signature is empty; draw it in the box")
     out = io.BytesIO()

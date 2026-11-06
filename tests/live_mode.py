@@ -42,7 +42,7 @@ async def main():
         check("the demo reset is refused on a live install", c.post("/api/demo/reset").status_code == 403)
         cid = c.post("/api/customers", json={"name": "First Real Customer"}).json()["customer"]["id"]
         g = c.get(f"/api/registration/{cid}").json()
-        check("links open the real national portal", g["portals"]["pmsg"].startswith("https://pmsuryaghar.gov.in"))
+        check("links open the real national portal logins", g["portals"]["pmsg"].startswith("https://consumer.pmsuryaghar.gov.in") and g["portals"]["pmsg_vendor"].startswith("https://vendor.pmsuryaghar.gov.in"))
         async with async_playwright() as p:
             b = await p.chromium.launch()
             pg = await b.new_page()

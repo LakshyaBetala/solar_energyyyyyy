@@ -1,0 +1,12 @@
+﻿  PASS  vendor-login (national portal vendor login, f0035/f0048)  — 0 filled, 3 left alone
+  FAIL  upload-agreement (Upload Agreement dialog, f0107)  — the Fill button does not name the customer
+  FAIL  site-feasibility (Site Feasibility Report, f0141)  — the Fill button does not name the customer
+  FAIL  installation-step1 (Submit Installation step 1, f0165)  — the Fill button does not name the customer
+  FAIL  dcr-b2c (NISE DCR Details (B2C), f0009/f0011)  — the Fill button does not name the customer
+  PASS  msedcl-login (MSEDCL vendor login, live page)  — 0 filled, 1 left alone
+  FAIL  pmsg-consumer-login (PM Surya Ghar consumer login, live site 6 Nov 2026)  — the Fill button does not name the customer
+  PASS  pmsg-vendor-login (PM Surya Ghar vendor login, live site 7 Nov 2026)  — 0 filled, 3 left alone
+
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  3 passed, 5 failed

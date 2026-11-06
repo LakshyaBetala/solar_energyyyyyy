@@ -551,8 +551,26 @@ def closeout_get(cid: str, user=Depends(current)):
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs}
 
 
+CLOSEOUT_RULES = {"aadhaar_last4": valid.aadhaar_any, "mobile": valid.mobile, "rts_cost": valid.cost,
+                  "email": valid.email}
+
+
+def closeout_checked(body):
+    """The close-out page follows the same rules as Registration: a full Aadhaar number is cut to its
+    last 4 here, and a bad cost or mobile is refused instead of saved."""
+    out = dict(body)
+    for k, rule in CLOSEOUT_RULES.items():
+        try:
+            if k in out and valid.text(out[k], k).strip():
+                out[k] = rule(out[k])
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+    return out
+
+
 @app.put("/api/closeout/{cid}")
 def closeout_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    body = closeout_checked(body)
     closeout.save(_cid(cid), body, user["username"])
     db.audit(user["username"], user["role"], "Updated close-out details", cid,
              ", ".join(sorted(k for k in body if k in closeout.LABEL))[:200])
@@ -879,7 +897,7 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
             return {"ok": True, "already": True}
         try:
             registration.mark(cid, "registered" if body["event"] == "app_no" else "agreement_uploaded",
-                              user, body.get("app_no"))
+                              user, body.get("app_no"), from_portal=body["event"] == "app_no")
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         return {"ok": True}

@@ -1,0 +1,61 @@
+﻿  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  -- guard rails
+  PASS  a viewer cannot add a customer
+  PASS  a customer needs a name
+  PASS  an Aadhaar photo without a readable QR is flagged, not guessed  — the QR code on the Aadhaar could not be read. Take a straight, sharp p
+  PASS  confirming a flag needs the value
+  PASS  a password-protected e-Aadhaar PDF gets a clear instruction  — this PDF is password-protected (e-Aadhaar is). Send a photo or a scree
+  PASS  a file that is not a PDF or photo is explained  — this file is neither a PDF nor a photo Solara can open (send JPG, PNG 
+  PASS  unknown document type refused
+  PASS  details refuse a short mobile
+  PASS  details refuse a capacity not a number
+  PASS  details refuse a capacity above residential
+  PASS  details refuse a short consumer number
+  PASS  accepted cannot be marked before registration
+  PASS  an application number must look like NP-…
+  PASS  agreement upload cannot be marked before it is signed
+
+  -- 1. documents in Solara
+  PASS  new customer added from one name; next step is the documents  — SS-2051
+  PASS  consumer number read from the bill
+  PASS  Aadhaar name read from the QR, offline
+  PASS  only the last 4 Aadhaar digits are kept
+  PASS  district and address come from the QR
+  PASS  mobile and sanctioned load filled into the record
+  PASS  the bill-vs-Aadhaar name difference is the one thing flagged
+  PASS  the unread bank page does not block registration (needed later)
+  PASS  after the check and the order details, the next step is registering
+  PASS  the name to file is the bill spelling
+
+  -- 2. registration on the portal (co-pilot)
+  PASS  on a blank form the co-pilot offers the customers waiting to register
+  PASS  verify page: state, company, consumer number, mobile filled  — 4
+  PASS  the co-pilot leaves the OTP box alone
+  PASS  the co-pilot remembers the customer on the next page
+  PASS  application form filled from the record  — {'name': 'PRIYA S KULKARNI', 'addr': 'B-12 SAI SHRADDHA SOCIETY MANCHAR AMBEGAON', 'pin': '410503', 'cap': '3', 'load': '5', 'cat': 'Residential', 'roof': '40'}
+  PASS  what the owner typed is never overwritten
+  PASS  the panel says what is left for the owner
+  PASS  the customer's four documents attached to the portal's upload boxes  — 4
+  PASS  the application number is saved in Solara from the portal page, untyped  — NP-MHSED26-61465529
+  PASS  the portal accepted the application under the bill name
+
+  -- 3. accepted in the vendor login
+  PASS  marked accepted; the next step is the agreement
+  PASS  documents to accepted is timed  — 8s in this run
+
+  -- 4. agreement e-signed and uploaded
+  PASS  the agreement link goes to the customer's own WhatsApp number
+  PASS  the customer signs the agreement on their phone
+  PASS  in the Upload Agreement dialog the co-pilot finds the right customer behind the list
+  PASS  cost filled and the signed agreement attached
+  PASS  the portal received the agreement as a PDF under 2 MB with the cost  — SS-2051_agreement.pdf 60 KB
+  PASS  all six steps done for this customer  — [('documents', True), ('details', True), ('registered', True), ('accepted', True), ('signed', True), ('uploaded', True)]
+  PASS  no JavaScript errors in the dashboard
+  (whole run, automated: 17s)
+  PASS  the audit trail records each step  — Added customer, Co-pilot attached files, Co-pilot fetched document, Co-pilot left fields, Confirmed extracted field, Customer e-signed documents, Document extraction, Generated close-out documents, Marked accepted, Marked agreement uploaded, Marked registered, Sent documents for e-signature, Updated registration details, Uploaded document
+
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  44 passed, 0 failed
+

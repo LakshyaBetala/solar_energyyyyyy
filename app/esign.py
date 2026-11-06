@@ -30,6 +30,10 @@ def create(cid, keys, user):
     if bad:
         raise ValueError("not ready to send: " + "; ".join(
             (st[k]["title"] + (f" ({st[k]['note']})" if st[k]["note"] else "")) if k in st else k for k in bad))
+    c, d = closeout.data(cid)
+    # a customer still in milestone 1 gets the agreement only once accepted; one accepted before Solara is past it
+    if "agreement" in keys and c["stage"] in ("lead", "docs", "register", "feasible") and not d.get("accepted_at"):
+        raise ValueError("send the agreement after the customer is accepted in the vendor login")
     token = secrets.token_urlsafe(18)
     for k in keys:
         closeout.save_snapshot(token, k, cid)
@@ -221,7 +225,9 @@ def sign_verify(token: str, digits: str = Form("")):
               (n, "locked" if n >= MAX_ATTEMPTS else r["status"], token))
         db.audit("customer", "customer", "E-sign check failed", r["customer_id"],
                  f"attempt {n} of {MAX_ATTEMPTS}")
-        return go_back(token, "Those digits do not match. Check the consumer number on your bill.")
+        left = MAX_ATTEMPTS - n
+        return go_back(token, f"Those digits do not match. Check the consumer number on your bill ({left} tries left). "
+                              f"/ अंक जुळत नाहीत. बिलावरील ग्राहक क्रमांक तपासा (आणखी {left} प्रयत्न).")
     secret = secrets.token_urlsafe(16)
     db.ex("UPDATE sign_requests SET verify_secret=? WHERE token=?", (secret, token))
     resp = RedirectResponse(f"/sign/{token}", 303)
@@ -239,7 +245,10 @@ def sign_doc(token: str, key: str, request: Request):
         return message("Not available", "उपलब्ध नाही", "Open the link from the start.", 403)
     # show the copy kept when the link was sent, so what they read is what they approve
     shown = closeout.snapshot_html(token, key, r["customer_id"]) or closeout.unsigned_html(key, r["customer_id"])
-    return HTMLResponse(shown)
+    # readable on a phone: added to what is sent only, so the approved document itself is unchanged
+    phone = ('<meta name="viewport" content="width=device-width,initial-scale=1">'
+             '<style>@media (max-width:700px){body{font-size:15px!important;padding:12px}td,th{font-size:14px}}</style>')
+    return HTMLResponse(phone + shown)
 
 
 @router.post("/{token}", response_class=HTMLResponse)
@@ -264,6 +273,9 @@ async def sign_post(token: str, request: Request):
         return message("A document changed after this link was sent", "कागदपत्र बदलले आहे",
                        "Changed: " + ", ".join(titles[k] for k in changed) +
                        ". Nothing was signed. Ask the installer to send a fresh link.", 409)
+    for k in approve:  # a link sent before copies were kept: the content is unchanged (checked above), keep it now
+        if closeout.snapshot_html(token, k, cid) is None:
+            closeout.save_snapshot(token, k, cid)
     if not closeout.signature("consumer", cid):
         try:
             png = closeout.png_from_data_url(form.get("signature"))

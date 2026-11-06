@@ -87,6 +87,10 @@
     return norm(t.join(' | ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '));
   }
 
+  // the field's name as the owner sees it on the page, for "Filled" and "Left for you"
+  const shown = el => ((el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.innerText) ||
+    el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.closest('.form-group,.fg,.f')?.querySelector('label')?.innerText ||
+    el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^enter\s+/i, '').trim().slice(0, 50);
   const ruleFor = label => { const r = RULES.find(([re]) => re.test(label)); return r ? r[1] : undefined; };
 
   function setVal(el, v) {
@@ -238,7 +242,9 @@
     // after Submit the portal locks the box, which is exactly when the owner marks it done
     const agreementBox = [...root.querySelectorAll('input[type=file]')].some(el => /agreement/.test(labelOf(el)));
     const agreementReady = c.files.some(f => f.key === 'agreement');
-    say(head + saved + issueHtml + (fillable.length || files.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length} field(s)` +
+    // a blank form says nothing about whose it is: the button names the customer, so a carried-over
+    // customer is seen before anything is filled
+    say(head + saved + issueHtml + (fillable.length || files.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length} field(s) for ${esc((c.name || '').split(' ')[0])}` +
       (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
       (agreementBox && c.agreement_draft ? '<div style="margin-top:6px;color:#F2C879">This agreement is a DRAFT format; the client has not approved the wording yet.</div>' : '') +
       (agreementBox ? btn('solaraMarkUploaded', 'I pressed Submit: mark agreement uploaded') : '') +
@@ -260,7 +266,7 @@
       let filled = 0, kept = 0, attached = 0;
       const left = [], done = [], failed = [];
       for (const { el, key } of plan) {
-        const label = labelOf(el).split(' | ')[0];
+        const label = shown(el);
         if (key === null) continue; // OTP, CAPTCHA: the person types these
         if (!key || c.values[key] == null) { if (!el.value) left.push(label); continue; }
         // never overwrite what a person typed or chose
