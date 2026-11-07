@@ -186,12 +186,12 @@ Run against a local server with synthetic data only. No test contacts a governme
 | `closeout` | 59 | details → customer e-sign → six MSEDCL PDFs → co-pilot upload; the consent rules |
 | `milestone1` | 44 | **the whole K1 flow with the real extension** on the sandbox portals, screenshots on |
 | `k1_complete` | 86 | duplicates, uploads, conflicts, corrections, Aadhaar privacy, agreement evidence and verification |
-| `real_labels` | 9 | the co-pilot on 9 portal pages, including **the two live login pages** and the Apply page's PrimeNG dropdowns |
+| `real_labels` | 10 | the co-pilot on 9 portal pages, including **the two live login pages** and the Apply page's PrimeNG dropdowns; the layout link sends names, never values |
 | `validation` | 85 | every field rule, D06 and D08 |
 | `k1_audit` | 111 | **this audit**: D01–D15, R1–R12, M1–M6, P1–P4, and U7–U9 for the redesigned screen, each logged |
 | `longevity` | 11 | old databases upgrade, the health check, pinned versions |
 | `live_mode` | 7 | a fresh live install: empty, no demo accounts, real portal links |
-| **Total** | **511** | **all green** |
+| **Total** | **512** | **all green** |
 
 Logs, committed with this audit:
 
@@ -228,6 +228,61 @@ The extension's own safety test now allows exactly one kind of click: opening a 
 - **The cost.** It stays a field the owner types and Solara flags, until the client says whether they sell fixed kW packages. If they do, a price list would fill it.
 - **WhatsApp sending.** Nothing is sent automatically; the owner taps Send.
 - **The real portal's status words** on My Application. Only the sandbox's wording is known; the live session adds the real ones.
+
+## 8. Regression and manual run, 7 Nov 2026 (branch `k1-owner`)
+
+**Regression.** All 10 suites were run on commit 3f5d383 and passed: 511 checks in 224 s. The run covers every step of KPI 1, the real extension on the sandbox portals, the live login markup, and the 111 logged audit cases. After the fixes below, the final run is 512 checks, all green.
+
+**Manual run.** One customer was taken from nothing to "Milestone 1 done", by hand in the browser.
+- **The owner:** laptop, 1366×768.
+- **The customer:** a phone, 390×844.
+- **The portal:** the sandbox stood in for PM Surya Ghar.
+- **The co-pilot:** not loaded in this browser. Its fills were typed by hand; its list read-back ran the same code and sent the same request. Fills with the real extension are covered by milestone1.
+
+| # | Step (who) | What happened | Result |
+|---|---|---|---|
+| 1 | New customer from a name and mobile (owner) | Created; Next step: "Upload the bill and Aadhaar" | Pass |
+| 2 | Ask the customer for documents (owner) | A link, and WhatsApp to the customer's own number in English and Marathi | Pass |
+| 3 | Bill, Aadhaar and email from the phone (customer) | Each shows "Received"; no number of theirs is shown back on the page | Pass |
+| 4 | Check what was read (owner) | One flag: the bill name and the Aadhaar name differ. District "Pune" came from the QR, the email from the link, and "3 kW suggested" from the bill | Pass |
+| 5 | Confirm, tap 3 kW, type the cost, save (owner) | The cost reads back as Rs 2,10,000. The PM Surya Ghar section moves to the top with State, District and DISCOM | Pass |
+| 6 | Register on the portal (owner and customer) | Sandbox: OTP, form, 4 documents, CAPTCHA, declaration, Submit. Application NP-MHSED26-58571799 | Pass (sandbox) |
+| 7 | Application number into Solara (co-pilot, or owner) | A number one digit short is refused ("Ends in 8 digits"); the real one is saved | Pass |
+| 8 | Vendor Consent approved, My Application read (owner and co-pilot) | "Upload Agreement (Pending)" marked the customer accepted with no click | Pass |
+| 9 | Agreement sent and signed on the phone (owner and customer) | Wrong digits: English and Marathi, "4 tries left". The agreement shows the right name, consumer number and cost. Signed | Pass |
+| 10 | Upload Agreement on the portal (co-pilot and owner) | The signed PDF (66 KB) and the cost; "Agreement updated successfully" | Pass (sandbox) |
+| 11 | My Application read again (co-pilot) | "Installation (Pending)" marked the agreement uploaded; the agreement verifies | Pass |
+| 12 | Done (owner) | 6 of 6 steps; "Documents to accepted took 2:20"; the audit trail has every step with who did it | Pass |
+| 13 | Viewer role | Every button is disabled | Pass after a fix (see below) |
+
+Screens are in [k1-audit/manual/](k1-audit/manual/).
+
+**Fixed during the run:**
+- A viewer could type, but not confirm, in the "check what was read" box. It is now disabled for viewers.
+- Links shown as buttons were underlined in dialogs.
+- Customers marked from the portal list now say so in the audit trail ("read from the portal list: Upload Agreement (Pending)").
+
+**Added for the live session:** a "Send this page's layout to Solara" link on the co-pilot panel. It sends field names, types and list choices, never what is typed and never the page's text. It is saved as a file for the developer to turn into a test. Checked in real_labels.
+
+**Noted, not changed:** saving the details logs every field name in the audit trail, including unchanged ones. It is noisy but harmless.
+
+## 9. Where every part of KPI 1 stands
+
+| KPI 1 item | In the sandbox | On the real portal | What is stopping it |
+|---|---|---|---|
+| Documents read once, mismatches flagged | Done | Not tried with real customers' documents | Real bills and Aadhaar photos, with each customer's consent (client) |
+| The customer sends their own documents and email | Done | Works anywhere Solara is reachable | Where Solara runs for the client: hosted, or on the owner's laptop (client decision) |
+| kW, State, District, DISCOM without typing | Done | Login pages and the public State/District dropdowns proven live; the Apply page itself not seen | One live session after login (client and owner) |
+| Cost without typing | Typed by the owner, flagged | Same | Whether the client sells fixed kW packages at fixed prices (client decision) |
+| Co-pilot fills registration and application | Done (milestone1, real extension) | Pages after the OTP not seen: profile, vendor pop-up, Apply, application form, uploads | Live session; each page saved and added as a test |
+| The client selected as vendor | Sandbox uses a vendor code | The real "vendor select" pop-up not seen | Live session; the vendor's name exactly as the portal lists it (client) |
+| Accepted in the vendor login | Done, including the automatic read of My Application | Real Vendor Consent and My Application not seen; real status words unknown | Live session with the owner's vendor login |
+| Agreement e-signed by the customer | Done | Same page (Solara's own) | The client approves the agreement wording; the company's real signature and details |
+| Agreement uploaded with the cost | Done (milestone1, and by hand today) | Real Upload Agreement dialog not seen | Live session |
+| No typing except OTP, CAPTCHA and flagged fields | Met, except the cost and fields the sandbox form asks for (roof area, bank account) | Unknown until the real form is seen | Price list decision; live session to see which fields the real form asks for |
+| 3 real customers, at most 5 minutes of owner time each | Not possible in a sandbox | Not done | Three real new customers and a stopwatch session with the owner |
+
+**In short:** everything that can be built and proven without the client is done and tested. What is left needs the client to decide some things, provide some things, and spend one hour on the real portal. Those are listed in [K1_NEEDED_FROM_CLIENT.md](K1_NEEDED_FROM_CLIENT.md).
 
 ## Still open: needs a live session with the owner
 

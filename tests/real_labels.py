@@ -14,6 +14,7 @@ from playwright.async_api import async_playwright
 sys.path.insert(0, ".")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from app import db, closeout  # noqa: E402
+from app.config import DATA  # noqa: E402
 
 BASE, CID = "http://127.0.0.1:8900", "SS-2045"
 EXT = Path(__file__).resolve().parent.parent / "extension"
@@ -179,6 +180,14 @@ async def main():
                 wrong.append("'Remember me' must be left to the person")
             check(f"{name} ({src})", not wrong, "; ".join(wrong) or f"{sum(1 for w in expect.values() if w)} filled, "
                   f"{sum(1 for w in expect.values() if w is None)} left alone")
+            if name == "pmsg-apply":   # the layout button used in the live session: names only, never what is filled in
+                await pg.click("#solaraLayout")
+                await pg.wait_for_function("/^(Sent|Not sent)/.test(document.querySelector('#solaraLayout').innerText)")
+                files = sorted((DATA / "layouts").glob("*.json"))
+                saved = files[-1].read_text(encoding="utf-8") if files else ""
+                check("the page layout reaches Solara with field names, and none of the values on the page",
+                      '"rule": "district"' in saved and '"name": "consumerNo"' in saved
+                      and str(values["consumer_no"]) not in saved and "Nashik" not in saved, files[-1].name if files else "no file")
         await ctx.close()
     print("\n  reset:", sup.post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

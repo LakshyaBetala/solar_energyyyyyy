@@ -252,7 +252,7 @@ def require_ready(cid, what):
         raise ValueError(f"{what}: fix " + st["validation"]["issues"][0]["field"] + " first")
 
 
-def mark(cid, step, user, app_no=None, replace=False, from_portal=False):
+def mark(cid, step, user, app_no=None, replace=False, from_portal=False, note=""):
     """from_portal: the co-pilot read the number off the portal's own result page. The customer is
     then registered whatever Solara thought of the record, so the number is always kept."""
     c, d = closeout.data(cid)
@@ -289,7 +289,7 @@ def mark(cid, step, user, app_no=None, replace=False, from_portal=False):
         closeout.mark(cid, user["username"], agreement_uploaded_at=db.now())
     else:
         raise ValueError("unknown step")
-    db.audit(user["username"], user["role"], f"Marked {step.replace('_', ' ')}", cid, app_no or "")
+    db.audit(user["username"], user["role"], f"Marked {step.replace('_', ' ')}", cid, app_no or note)
 
 
 def docs_uploaded(cid, user):
@@ -333,11 +333,11 @@ def from_portal_list(rows, page, user):
             unknown.add(status)
             continue
         if not d.get("accepted_at"):
-            mark(c["id"], "accepted", user)
+            mark(c["id"], "accepted", user, note=f"read from the portal list: {status}")
             updated.append({"id": c["id"], "name": c["name"], "what": "accepted in the vendor login"})
         if past and not d.get("agreement_uploaded_at"):
             try:
-                mark(c["id"], "agreement_uploaded", user)
+                mark(c["id"], "agreement_uploaded", user, note=f"read from the portal list: {status}")
                 updated.append({"id": c["id"], "name": c["name"], "what": "agreement uploaded"})
             except ValueError as ex:  # the portal is ahead of Solara: say so, mark nothing
                 problems.append({"id": c["id"], "name": c["name"], "what": str(ex)})
@@ -345,3 +345,21 @@ def from_portal_list(rows, page, user):
         db.audit(user["username"], user["role"], "Co-pilot saw portal statuses Solara does not know", None,
                  f"{page}: " + "; ".join(sorted(unknown))[:300])
     return {"ok": True, "updated": updated, "unknown": sorted(unknown), "problems": problems}
+
+
+def save_layout(body, user):
+    """A real portal page's layout sent from the co-pilot in the live session: field names, types and
+    list choices, never values. Kept as a file for the developer to turn into a test."""
+    from .config import DATA
+    clip = lambda v: valid.text(v, "layout")[:80] if not isinstance(v, (list, dict, bool)) else v
+    fields = [{k: clip(v) if k != "options" else [clip(o) for o in (v or [])[:60]] for k, v in f.items()
+               if k in ("tag", "type", "label", "all_labels", "rule", "id", "name", "placeholder", "required", "options")}
+              for f in (body.get("fields") or [])[:200] if isinstance(f, dict)]
+    page = clip(body.get("page", ""))
+    out = DATA / "layouts" / f"{datetime.now():%Y%m%d-%H%M%S}_{re.sub(r'[^A-Za-z0-9]+', '-', page)[:60]}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"page": page, "title": clip(body.get("title", "")), "fields": fields,
+                               "buttons": [clip(b) for b in (body.get("buttons") or [])[:40]], "at": db.now()},
+                              indent=1, ensure_ascii=False), encoding="utf-8")
+    db.audit(user["username"], user["role"], "Co-pilot saved a page layout", None, f"{page}: {len(fields)} fields")
+    return {"ok": True, "fields": len(fields), "file": out.name}

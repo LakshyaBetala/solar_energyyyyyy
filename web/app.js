@@ -634,7 +634,7 @@ VIEWS.reg = () => {
     const later = REG_LATER.includes(f.key), rev = f.status === 'review' && !later;
     return `<div class="fld ${rev ? 'review' : ''}" data-field="${esc(f.key)}">
       <div class="fk">${esc(f.field)} <span class="sub">· ${esc(f.source)}</span>${later ? ' <span class="pill idle">needed later</span>' : ''}</div>
-      ${rev ? `<div class="row" style="gap:8px;grid-column:1/-1"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="${f.key === 'aadhaar_masked' ? 'last 4 digits only, e.g. 4471' : 'type it as on the document'}" maxlength="80" style="flex:1" aria-label="${esc(f.field)}">
+      ${rev ? `<div class="row" style="gap:8px;grid-column:1/-1"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="${f.key === 'aadhaar_masked' ? 'last 4 digits only, e.g. 4471' : 'type it as on the document'}" maxlength="80" style="flex:1" aria-label="${esc(f.field)}"${op}>
         <button class="btn go" data-confirm="${esc(f.key)}"${op}>Confirm</button></div>` : `<div class="fv">${esc(f.value)}</div>`}
       ${f.note ? `<div class="fnote${rev ? ' warn' : ''}">${esc(f.note)}</div>` : ''}</div>`;
   };

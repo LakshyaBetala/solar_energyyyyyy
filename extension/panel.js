@@ -194,9 +194,28 @@
   const btn = (id, text, primary) => `<button id="${id}" style="display:block;width:100%;margin-top:8px;padding:8px;border:0;border-radius:7px;` +
     `cursor:pointer;font-weight:700;${primary ? 'background:#2BB673;color:#04150D' : 'background:#24343F;color:#E8EEF2'}">${text}</button>`;
   const say = html => { panel.innerHTML = `<div style="display:flex;justify-content:space-between"><b style="color:#5FD3A8">Solara co-pilot</b>` +
-    `<span id="solaraRescan" style="cursor:pointer;color:#8FA3B2" title="Read this page again">&#8635;</span></div>` + html; };
+    `<span id="solaraRescan" style="cursor:pointer;color:#8FA3B2" title="Read this page again">&#8635;</span></div>` + html +
+    `<div style="margin-top:8px;text-align:right"><a href="#" id="solaraLayout" style="color:#8FA3B2;font-size:11px">Send this page's layout to Solara</a></div>`; };
   document.body.appendChild(panel);
-  panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') scan(); });
+  panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') scan(); if (e.target.id === 'solaraLayout') { e.preventDefault(); sendLayout(e.target); } });
+
+  // For mapping a real portal page in the live session: field names, types and list choices only.
+  // What is typed in a field is never read; neither is the page's text.
+  async function sendLayout(link) {
+    const short = s => String(s ?? '').trim().slice(0, 80);
+    const els = [...document.querySelectorAll('input,select,textarea,' + CUSTOM)].filter(el => visible(el) && !panel.contains(el) &&
+      el.type !== 'hidden' && !(el.matches(CUSTOM) && el.querySelector('input,select')));
+    const fields = els.slice(0, 200).map(el => ({ tag: el.tagName.toLowerCase(), type: short(el.type || el.getAttribute('role')),
+      label: short(shown(el)), all_labels: short(labelOf(el)), rule: (k => k === null ? 'never' : k || 'no rule')(ruleFor(labelOf(el))), id: short(el.id),
+      name: short(el.name || el.getAttribute('formcontrolname')), placeholder: short(el.placeholder), required: !!el.required,
+      options: el.tagName === 'SELECT' ? [...el.options].slice(0, 60).map(o => short(o.text)) : undefined }));
+    const buttons = [...document.querySelectorAll('button,[role=button],input[type=submit]')].filter(b => visible(b) && !panel.contains(b))
+      .slice(0, 40).map(b => short(b.innerText || b.value || b.getAttribute('aria-label')));
+    link.textContent = 'Sending…';
+    const r = await ask({ type: 'report', body: { event: 'page_layout', page: short(location.host + location.pathname + location.hash),
+      title: short(document.title), fields, buttons } });
+    link.textContent = r.ok ? `Sent: ${fields.length} fields` : 'Not sent: ' + r.error;
+  }
 
   // `picked` means the owner chose this customer in the panel on purpose; that choice is respected
   const remember = async c => { const { current } = await chrome.storage.local.get('current');

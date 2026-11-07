@@ -902,6 +902,8 @@ def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
 
 @app.post("/api/copilot/report")
 def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
+    if body.get("event") == "page_layout":
+        return registration.save_layout(body, user)
     if body.get("event") == "portal_list":
         return registration.from_portal_list(body.get("rows") or [], str(body.get("page", ""))[:80], user)
     cid = _cid(body.get("customer_id", ""))
