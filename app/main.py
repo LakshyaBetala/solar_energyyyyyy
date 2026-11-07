@@ -40,7 +40,7 @@ async def startup():
             print('  no users yet: python -m app.users add <username> "<Full Name>" supervisor\n')
         return
     if fresh or not db.q("SELECT 1 FROM documents LIMIT 1"):
-        await docs_gen.generate()
+        await docs_gen.generate([c[0] for c in db.CUSTOMERS])  # sample files are for the demo's own customers only
         for c in db.q("SELECT id FROM customers"):
             try:
                 await extract.run(c["id"], use_llm=False)

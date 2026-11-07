@@ -29,6 +29,16 @@ To finish Milestone 1 on the real PM Surya Ghar portal, we need three things fro
 | F4 | Your current agreement or quotation format, if you have one | So Solara's agreement matches what you already use |
 | F5 | 3 to 5 recent bills (the PDF from the MSEDCL website) and Aadhaar photos, from customers who agree to it | To check that Solara reads real documents correctly. They stay on your computer and are not shared |
 
+### Checks before Session A
+
+| # | Please check | Why it matters |
+|---|---|---|
+| C1 | Your vendor login works: email, password, CAPTCHA, then an OTP to your phone. If not, reset it with "Forgot Password?" | You sign in yourself at every session |
+| C2 | Chrome on your laptop allows adding an extension in Developer mode (no IT policy blocking it), the internet is stable, and Google Meet works | The Solara helper runs inside your Chrome; we install it on a call |
+| C3 | Is MSEDCL's feasibility always instant? In the example on our first call, registration, application, feasibility, vendor selection and agreement upload all happened within 15 minutes | If it sometimes takes days, the test is planned around it; only your minutes count |
+| C4 | Whose email goes in the customer's profile: the customer's own, or your office email? | The portal sends a code to that email during registration |
+| C5 | 3 or 4 real new customers who are not yet registered on PM Surya Ghar, have their latest MSEDCL bill and Aadhaar, and can take your call for the OTP (you log in as the customer with their mobile number, as today) | One for Session A, three for Session B |
+
 ## 3. Time on the real portal
 
 ### Session A: one hour, to see the real pages
