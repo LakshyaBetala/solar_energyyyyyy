@@ -567,7 +567,8 @@ VIEWS.today = () => {
     ${group('To do in Solara', 'one click each', t.todo)}
     ${group('On the government website', 'the co-pilot fills it; you press Submit', t.portal)}
     ${group('Waiting for the customer', 'nothing to do until they reply', t.waiting, true)}
-    ${n ? `<div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px"><button class="btn" id="todayNew"${op}>+ Add a new customer</button></div>` : ''}
+    <div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px">${n ? `<button class="btn" id="todayNew"${op}>+ Add a new customer</button>` : ''}
+      <button class="btn sm" id="coKey"${op}>Connect the Chrome helper</button></div>
   </section></div>`;
 };
 
