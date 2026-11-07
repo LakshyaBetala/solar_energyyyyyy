@@ -665,7 +665,7 @@ def _pre_install():
 def today_list(user=Depends(current)):
     """One list of what to do now, for every customer: calls, things to do here, things on the portals."""
     rows = db.q(f"""SELECT id FROM customers WHERE stage IN ({",".join("?" * len(CLOSE_STAGES))}) ORDER BY id""", CLOSE_STAGES)
-    return registration.today([closeout_summary(r["id"]) for r in rows])
+    return {**registration.today([closeout_summary(r["id"]) for r in rows]), "portals": portals()}
 
 
 @app.get("/api/registration")
@@ -697,7 +697,8 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "suggest": registration.suggest(cid), "llm": extract.llm_status(), "otp": registration.heads_up(cid),
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "otp": registration.heads_up(cid, "approve" if registration.status(cid)["next"]["act"] == "approve" else "register"),
             "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
 
 
@@ -890,12 +891,34 @@ def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
     d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
     if not d or kind not in DOC_KINDS:
         raise HTTPException(404, "no such document on file")
-    blob = vault.read(Path(d["path"]))
+    blob, name = vault.read(Path(d["path"])), d["filename"]
+    if blob.startswith(b"%PDF"):
+        if len(blob) > PORTAL_MAX:
+            raise HTTPException(413, f"the {kind} PDF is {len(blob) // 1024} KB; the portal takes 2 MB at most. Upload a smaller copy in Solara")
+        kind_type = "application/pdf"
+    else:
+        blob, name, kind_type = portal_jpeg(blob, name, PORTAL_MAX // 2 if kind == "roof" else PORTAL_MAX)
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
-    kind_type = "application/pdf" if blob.startswith(b"%PDF") else \
-        "image/png" if blob.startswith(b"\x89PNG") else "image/jpeg"
-    return Response(blob, media_type=kind_type,
-                    headers={"Content-Disposition": f'attachment; filename="{d["filename"]}"'})
+    return Response(blob, media_type=kind_type, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+PORTAL_MAX = 2 * 1024 * 1024  # the portal's limit on the bill, passbook and agreement boxes (seen 7 Nov 2026)
+
+
+def portal_jpeg(blob, name, limit):
+    """A photo as the portal accepts it: JPEG (it refuses PNG on some boxes), within the size limit."""
+    import io
+    from PIL import Image
+    if blob.startswith(b"\xff\xd8") and len(blob) <= limit:
+        return blob, name, "image/jpeg"
+    im = Image.open(io.BytesIO(blob)).convert("RGB")
+    for side, q in ((3000, 85), (2400, 80), (1800, 75), (1400, 70), (1000, 65)):
+        im.thumbnail((side, side))
+        out = io.BytesIO(); im.save(out, "JPEG", quality=q, optimize=True)
+        if out.tell() <= limit:
+            break
+    stem = name.rsplit(".", 1)[0]
+    return out.getvalue(), stem + ".jpg", "image/jpeg"
 
 
 @app.get("/api/copilot/file/{cid}/{key}")
@@ -917,13 +940,13 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
-    if body.get("event") in ("app_no", "agreement_uploaded"):
+    if body.get("event") in ("app_no", "agreement_uploaded", "customer_approved"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
         if body["event"] == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
             return {"ok": True, "already": True}
+        step = {"app_no": "registered"}.get(body["event"], body["event"])
         try:
-            registration.mark(cid, "registered" if body["event"] == "app_no" else "agreement_uploaded",
-                              user, body.get("app_no"), from_portal=body["event"] == "app_no")
+            registration.mark(cid, step, user, body.get("app_no"), from_portal=body["event"] == "app_no")
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         return {"ok": True}

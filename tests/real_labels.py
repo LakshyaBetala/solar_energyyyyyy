@@ -61,6 +61,18 @@ PAGES = {
     "installation-step1": ("Submit Installation step 1, f0165", [
         field("vn", "Name of Vendor:*"), field("lat", "Latitude:*"), field("lng", "Enter longitude:*")],
         {"vn": "vendor", "lat": "lat", "lng": "lng"}),
+    # the customer login's own forms, from the 7 Nov 2026 recording: the account number is always the person's
+    "subsidy-bank": ("Subsidy bank details, customer login, 7 Nov 2026 recording", [
+        field("atype", "Account Type*", "select", options=["Savings", "Current"]),
+        field("bname", "Bank Name*", "select", options=["Bank of Baroda", "Bank of Maharashtra", "State Bank of India"]),
+        field("ifsc", "IFSC Code*"), field("br", "Branch Name*"), field("hold", "Account Holder Name*"),
+        field("acc", "Bank Account Number*"), field("acc2", "Confirm Bank Account Number*")],
+        {"atype": "account_type", "bname": "bank_name", "ifsc": "ifsc", "br": None, "hold": "account_holder",
+         "acc": None, "acc2": None}),
+    "apply-form": ("Application form, customer login, 7 Nov 2026 recording", [
+        field("cat", "Category*", "select", options=["Residential", "Residential Welfare Association"]),
+        field("kwp", "Proposed kWp*"), field("loc", "Type of Location", "select", options=["Urban", "Rural"])],
+        {"cat": "category", "kwp": "capacity", "loc": None}),
     "dcr-b2c": ("NISE DCR Details (B2C), f0009/f0011", [
         field("br", "Branch", "select", options=["Maharashtra - Flat No. 203"]),
         field("it", "Item Type", "select", options=["Solar Panels"]),
@@ -116,6 +128,17 @@ PRIMENG = """() => {
     });
   });
 }"""
+
+
+# the customer login's My Applications card as on 7 Nov 2026: per stage, who / name / state / when
+def tracker(app_no, states):
+    names = ["Registration", "Application", "Feasibility", "Vendor Selection", "Upload Agreement", "Installation",
+             "Inspection", "Project Commissioning", "Subsidy Request", "Subsidy Disbursal"]
+    who = ["Consumer", "Consumer", "Discom", "Consumer", "Vendor", "Vendor", "Discom", "Discom", "Consumer", "REC"]
+    steps = "".join(f'<div class="st"><div>{w}</div><div>{n}</div><div class="badge">{s}</div><div>07-11-2026 7:08 pm</div></div>'
+                    for w, n, s in zip(who, names, states))
+    return (f'<div class="card"><button>Action</button><div class="steps">{steps}</div>'
+            f'<table><tr><td>Application Number:</td><td>{app_no}</td></tr><tr><td>Approved capacity (kWp):</td><td>3.300</td></tr></table></div>')
 
 
 def html(title, fields):
@@ -188,6 +211,43 @@ async def main():
                 check("the page layout reaches Solara with field names, and none of the values on the page",
                       '"rule": "district"' in saved and '"name": "consumerNo"' in saved
                       and str(values["consumer_no"]) not in saved and "Nashik" not in saved, files[-1].name if files else "no file")
+
+        # ---- the two logins side by side: the customer login's screens, and the hand-off to the other tab ----
+        async def show(page, body):
+            await page.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
+                document.body.insertAdjacentHTML('afterbegin', h); }""", body)
+            await page.click("#solaraRescan")
+        panel = lambda page: page.inner_text("#solaraPanel")
+        closeout.mark(CID, "test", accepted_at=db.now(), agreement_uploaded_at=db.now())
+        await sw.evaluate("chrome.storage.local.remove(['current', 'handoff'])")
+        await pg.goto(f"{BASE}/portal/verify"); await pg.wait_for_selector("#solaraPanel")
+        await show(pg, '<div role="dialog">Do you want the Vendor to fill the application on your behalf? <button>Yes</button><button>No</button></div>')
+        await pg.wait_for_function("/Answer No/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
+        check("customer login: 'Do you want the Vendor to fill' gets the answer No", True)
+        await show(pg, '<div role="dialog"><h4>Submit Agreement Details</h4><p>Application Number: NP-MHSED26-16188888</p>'
+                       '<label for="aotp">Enter OTP</label><input id="aotp"><button>Verify &amp; Approve</button></div>')
+        await pg.wait_for_selector("#solaraMarkApproved", timeout=20000)
+        check("customer login: the approval dialog shows the steps and a mark button; the OTP box stays the person's",
+              "Submit Agreement Details" in await panel(pg) and not await pg.input_value("#aotp"), (await panel(pg))[:160])
+        other = await ctx.new_page()   # the vendor login in the second tab
+        await other.goto(f"{BASE}/pmsg/vendor/consent"); await other.wait_for_selector("#solaraPanel")
+        await show(pg, tracker("NP-MHSED26-16188888", ["Completed"] * 5 + ["In Progress"] + ["Pending"] * 4))
+        try:
+            await pg.wait_for_function("/Solara updated|Nothing new|not updated/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
+        except Exception:
+            print("   panel:", repr((await panel(pg))[:400])); raise
+        check("customer login tracker: Installation In Progress marks the customer's approval in Solara",
+              bool(closeout.data(CID)[1].get("agreement_approved_at")) and "approved" in await panel(pg), (await panel(pg))[:200])
+        try:
+            await other.wait_for_selector("#solaraHandoff", timeout=8000)
+            told = await other.inner_text("#solaraHandoff")
+        except Exception:
+            told = ""
+        check("the other tab is told at once: approved, installation can start", "approved the agreement" in told, told or "no banner")
+        await show(pg, tracker("NP-MHSED26-16188888", ["Completed"] * 4 + ["Pending"] * 6))
+        await pg.wait_for_function("/Solara updated|Nothing new|not updated/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
+        check("a tracker behind Solara moves nothing back", bool(closeout.data(CID)[1].get("agreement_approved_at")))
+        await other.close()
         await ctx.close()
     print("\n  reset:", sup.post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

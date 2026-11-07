@@ -468,7 +468,7 @@ a.btn{text-decoration:none}
 .rgpane{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--r);padding:22px 26px 10px;min-width:0;max-width:940px}
 .rghead h2{font-family:var(--font-display);font-size:28px;font-weight:600;line-height:1.1}
 .rgfacts{margin:6px 0 0;color:var(--fg-dim);font-size:14px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.rgsteps{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.rgsteps{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .rgsteps li{display:flex;align-items:center;gap:7px;padding-top:9px;border-top:3px solid var(--line);font-size:13px;color:var(--fg-dim);min-width:0}
 .rgsteps li.done{border-top-color:var(--teal);color:var(--fg)}
 .rgsteps li.cur{color:var(--fg);font-weight:650}

@@ -240,3 +240,20 @@ property proof, statement, roof ownership) are not collected.
 - **The customer must approve the agreement in their own login.** The vendor upload alone is not enough.
 - **The loan goes through Jan Samarth and then the Bank of Maharashtra's own portal.** It is not a single form.
 - **The quotation amount equals the agreement's total cost.**
+
+## 6. Done on k1-owner (7 Nov 2026), with tests
+
+| # | What now happens | Test |
+|---|---|---|
+| G1 | Seventh step "Customer approved it on the portal". Today shows a call line with its own WhatsApp heads-up. The co-pilot shows the steps and an "I pressed Verify & Approve" button in the Submit Agreement Details dialog; the dashboard has "Mark it approved" | milestone1, real_labels |
+| G3 | Gender is filled from the Aadhaar QR (M/F/T → Male/Female/Other) | rule only; no demo customer has a QR gender |
+| G4 | Account type (Savings), bank name (from the IFSC), IFSC and holder are filled from the passbook; the panel asks to check bank name and account type. **Branch and the account number twice stay typed by hand** (Solara keeps only a masked number) | real_labels "subsidy-bank" |
+| G5 | Photos go to the portal as JPEG under 2 MB, the pre-installation photo under 1 MB; a PDF over 2 MB is refused with a message | — |
+| G8 | "Do you want the Vendor to fill": the panel says answer No | real_labels |
+| — | "Proposed kWp" is filled with the capacity; Category with Residential; Type of Location, SC/ST and "Did anyone help" are left | real_labels "apply-form" |
+| — | **Customer login tracker**: the panel reads the ten stages on My Applications and updates Solara (Upload Agreement Completed → uploaded; Installation In Progress or later → customer approved). A tracker behind Solara moves nothing back | real_labels |
+| — | **Two logins side by side**: Today → "Open vendor + customer logins side by side" (and the Upload step) opens the vendor login on the left and the customer login on the right. What one tab marks (uploaded, approved) shows at once as a note in the other tab's panel; the Solara dashboard picks it up when you come back to it | real_labels (two tabs) |
+
+Still by hand on purpose: every OTP, CAPTCHA and password; the guidelines, declaration and net-metering
+ticks; every Submit / Accept / Verify & Approve; the bank account number; the site Yes/No answers and
+the roof area (measured on site).

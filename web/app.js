@@ -537,10 +537,29 @@ async function loadToday() {
   counters();
   if (S.view === 'today') render();
 }
+// The vendor login on the left, the customer login on the right: upload in one, the customer approves in
+// the other, and the Solara panel in each says what the other finished. Named windows are reused.
+function sideBySide(p) {
+  const w = Math.floor(screen.availWidth / 2), at = x => `popup,left=${x},top=0,width=${w},height=${screen.availHeight}`;
+  const a = window.open(p.pmsg_vendor, 'solaraVendor', at(0)), b = window.open(p.pmsg, 'solaraCustomer', at(w));
+  toast(a && b ? 'Vendor login on the left, customer login on the right. The Solara panel in each tells the other what is done.'
+    : 'Chrome blocked one window: click the blocked pop-up icon in the address bar, choose Always allow, then press again.');
+}
+// what the co-pilot saved on the portal shows here as soon as the owner comes back to Solara
+window.addEventListener('focus', async () => {
+  if (S.view === 'today') return loadToday();
+  if (S.view !== 'reg' || !S.regCid || !S.regData) return;
+  const fresh = await api('/registration/' + S.regCid).catch(() => null);
+  const sig = g => g && g.steps.map(s => +s.done).join('') + g.next.act;
+  // only a step that moved re-draws the page, so nothing half-typed is lost on every focus
+  if (fresh && sig(fresh) !== sig(S.regData)) {
+    S.regData = fresh; S.reg = await api('/registration').catch(() => S.reg); render(); toast('Updated from the portal.');
+  }
+});
 const fmtPhone = n => n && n.length === 10 ? `${n.slice(0, 5)} ${n.slice(5)}` : (n || '');
 // the one button each line gets, by what the line asks for
 const TODAY_BTN = { docs: 'Send the WhatsApp link', sign: 'Send to sign', check: 'Check it', details: 'Add details',
-  register: 'Register now', accept: 'Open', upload: 'Open', vsig: 'Add signature', fix: 'Fill in', build: 'Make documents', wait: 'Open' };
+  register: 'Register now', approve: 'Approve now', accept: 'Open', upload: 'Open', vsig: 'Add signature', fix: 'Fill in', build: 'Make documents', wait: 'Open' };
 
 VIEWS.today = () => {
   const t = S.today;
@@ -551,7 +570,7 @@ VIEWS.today = () => {
     <div class="tdmain"><b>${esc(x.text)}</b>
       <span class="sub">${esc(x.name)} · ${esc(x.cid)}${x.phone ? ` · <a href="tel:+91${esc(x.phone)}">${fmtPhone(x.phone)}</a>` : ''}</span></div>
     <div class="tdact">${x.otp ? `<a class="btn sm" href="${esc(x.otp.whatsapp)}" target="_blank" rel="noopener">WhatsApp: codes are coming</a>` : ''}
-      <button class="btn ${go ? 'go' : muted ? 'sm' : ''}" data-today="${esc(x.cid)}" data-screen="${x.screen}" data-act="${esc(x.act)}"${muted || ['accept', 'upload', 'check', 'details', 'register', 'fix', 'wait'].includes(x.act) ? '' : op}>${esc(muted ? 'Open' : TODAY_BTN[x.act] || 'Open')}</button></div></li>`; };
+      <button class="btn ${go ? 'go' : muted ? 'sm' : ''}" data-today="${esc(x.cid)}" data-screen="${x.screen}" data-act="${esc(x.act)}"${muted || ['accept', 'upload', 'check', 'details', 'register', 'approve', 'fix', 'wait'].includes(x.act) ? '' : op}>${esc(muted ? 'Open' : TODAY_BTN[x.act] || 'Open')}</button></div></li>`; };
   const group = (title, hint, items, muted) => !items.length ? '' : `<section class="tdgroup" aria-label="${esc(title)}">
     <div class="rgsh"><h3>${title}</h3><span class="rgmeta">${hint}</span></div>
     <ul class="tdlist">${items.map(x => row(x, muted)).join('')}</ul></section>`;
@@ -568,6 +587,7 @@ VIEWS.today = () => {
     ${group('On the government website', 'the co-pilot fills it; you press Submit', t.portal)}
     ${group('Waiting for the customer', 'nothing to do until they reply', t.waiting, true)}
     <div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px">${n ? `<button class="btn" id="todayNew"${op}>+ Add a new customer</button>` : ''}
+      <button class="btn sm" id="sideBySide">Open vendor + customer logins side by side</button>
       <button class="btn sm" id="coKey"${op}>Connect the Chrome helper</button></div>
   </section></div>`;
 };
@@ -591,7 +611,7 @@ async function loadReg(cid) {
   if (S.view === 'reg') render();
 }
 
-const REG_REQ = ['name', 'mobile', 'email', 'consumer_no', 'kw'];
+const REG_REQ = ['name', 'mobile', 'consumer_no', 'kw'];
 const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
 const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -634,7 +654,7 @@ const regSyncButtons = () => {
 
 /* The Registration screen: one next step at the top, then only the section that step needs.
    Sections the owner opens or closes stay that way until another customer is picked. */
-const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Registered', accepted: 'Accepted', signed: 'E-signed', uploaded: 'Uploaded' };
+const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Registered', accepted: 'Accepted', signed: 'E-signed', uploaded: 'Uploaded', approved: 'Customer approved' };
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
 const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'],
   ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar']];
@@ -662,6 +682,7 @@ const regWhy = (g, act) => {
     sign: 'The customer gets a WhatsApp link, enters the last 4 digits of the consumer number, reads the agreement and signs on the phone.',
     wait: 'The link is with the customer and works for 7 days. Send it again if they cannot find it.',
     upload: 'In the vendor login: My Application, then Update Agreement. The co-pilot attaches the signed PDF and the cost; you press Submit.',
+    approve: `The portal needs ${first} to approve the uploaded agreement in their own login: My Applications, Submit Agreement Details, Approve, tick the declaration, Verify & Approve. Call them for the login code.`,
     '': g.elapsed_to_accepted != null ? `Documents to accepted took ${regMin(g.elapsed_to_accepted)}, including the wait for the customer’s OTP.` : 'Registered, accepted, and the agreement is on the portal.'
   }[act] || '';
 };
@@ -712,7 +733,8 @@ VIEWS.reg = () => {
   const next = `<div class="rgnext${act ? '' : ' idle'}">
     <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
     ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
-    ${act === 'register' && g.otp ? `<div class="rgline">Call ${esc((c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the two codes. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
+    ${['register', 'approve'].includes(act) && g.otp ? `<div class="rgline">Call ${esc((c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the code. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
+    ${act === 'approve' ? `<div class="rgline">Approved on the portal without the co-pilot? <button class="btn sm" id="regApproved"${op}>Mark it approved</button></div>` : ''}
     ${act === 'register' ? appField : ''}
     ${act === 'upload' ? `<div class="rgline">Pressed Submit on the portal without the co-pilot? <button class="btn sm" id="regUploaded"${op}>Mark the agreement uploaded</button></div>` : ''}
     ${issues}</div>`;
@@ -812,7 +834,8 @@ async function regAct(act) {
   }
   if (act === 'vsig') return coAct('vsig');
   if (act === 'sign' || act === 'wait') return regSendAgreement();
-  if (act === 'upload') { window.open(g.portals.pmsg_vendor, '_blank'); toast('My Application → Update Agreement → press Attach in the Solara panel → Submit.'); }
+  if (act === 'upload') { sideBySide(g.portals); setTimeout(() => toast('Left: My Application → Update Agreement → Attach in the Solara panel → Submit. Right: the customer approves it next.'), 2500); }
+  if (act === 'approve') { window.open(g.portals.pmsg, '_blank'); toast('Log in as the customer (they read you the code) → My Applications → Submit Agreement Details → Approve → tick → Verify & Approve.'); }
 }
 
 /* ------------------------------ close-out ------------------------------ */
@@ -1197,6 +1220,7 @@ document.addEventListener('click', async e => {
     $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
   if (t.id === 'regAskDocs') { regAskDocs(); return; }
   if (t.dataset.today) { todayAct(t); return; }
+  if (t.id === 'sideBySide') return sideBySide(S.today.portals);
   if (t.id === 'todayNew') { S.view = 'reg'; render(); await loadReg(); $('#regNew')?.click(); return; }
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
@@ -1218,7 +1242,8 @@ document.addEventListener('click', async e => {
   }
   if (t.id === 'regAccepted' || t.id === 'regAcceptedModal') { closeModal(); if (await regPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
   if (t.id === 'regSign') { regSendAgreement(); return; }
-  if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Milestone 1 done for this customer.'); return; }
+  if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Next: the customer approves it in their login.'); return; }
+  if (t.id === 'regApproved') { if (await regPost('/mark', { step: 'customer_approved' })) toast('Approved by the customer. Milestone 1 done for this customer.'); return; }
 
   /* close-out */
   if (t.dataset.co) { loadCo(t.dataset.co); return; }

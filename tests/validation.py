@@ -130,7 +130,7 @@ check("roof area is never guessed (it is measured on site)", "roof_area" not in 
 check("module technology defaults from settings", bool(v["values"]["module_type"]))
 key = sup.post("/api/copilot/key").json()["key"]
 look = httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()
-check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type"}, str(look.get("derived")))
+check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type"}, str(look.get("derived")))
 check("co-pilot receives the module technology, not a roof area", "roof_area" not in look["values"] and look["values"].get("module_type"))
 
 # ---- two PINs that disagree: the chosen one is what is kept

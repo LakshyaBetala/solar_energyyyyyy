@@ -73,7 +73,7 @@ async def main():
         check("the call line shows the customer's number to tap",
               await call.locator('a[href="tel:+919028144531"]').count() == 1)
         wa = await call.locator('a[href*="wa.me/919028144531"]').get_attribute("href")
-        check("the call line carries the WhatsApp heads-up that two codes are coming", wa and "two%20codes" in wa)
+        check("the call line carries the WhatsApp heads-up that one SMS code is coming", wa and "a%20code%20by%20SMS" in wa)
         check("only the top line has the filled button", await pg.locator(".tdrow .btn.go").count() == 1)
         lines = await pg.locator(".tdrow").count()
         tag = await pg.locator("#tagToday").inner_text()

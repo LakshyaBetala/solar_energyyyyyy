@@ -1,6 +1,6 @@
 # KPI 1 audit test log
 
-Run 07 Nov 2026 15:30, `tests/k1_audit.py`. 115 of 115 cases pass.
+Run 07 Nov 2026 22:43, `tests/k1_audit.py`. 115 of 115 cases pass.
 
 | # | ID | Area | Input | Expected | Actual | Result |
 |---|---|---|---|---|---|---|
@@ -80,7 +80,7 @@ Run 07 Nov 2026 15:30, `tests/k1_audit.py`. 115 of 115 cases pass.
 | 74 | R3 | extraction | confirm it as '1700 5550 1234' | stored as 170055501234 | (200, '') | PASS |
 | 75 | R11 | extraction | a hand correction to the bill, then a new bill uploaded | the new bill's reading wins | LT-I RES | PASS |
 | 76 | R12 | registration page | sanctioned load read as '3.5 kW approx.' | the page loads (no 500) | 200 | PASS |
-| 77 | P3 | details | a customer with no email | 'email' listed as missing (the portal verifies it by OTP) | ['consumer number', 'mobile', 'email (the portal sends it an | PASS |
+| 77 | P3 | details | a customer with no email | not missing: the portal's email is optional (7 Nov recording) | ['consumer number', 'mobile', 'proposed capacity (kW)'] | PASS |
 | 78 | D14 | e-sign page | ?error= with crafted text | the text is not shown | checked | PASS |
 | 79 | M6 | e-sign page | wrong last-4 digits | told in English and Marathi, with the tries left | checked | PASS |
 | 80 | R10 | e-sign page | a 9000x9000 'signature' (20 KB) | refused in under 2 s, server keeps serving | 0.03s | PASS |
@@ -98,20 +98,20 @@ Run 07 Nov 2026 15:30, `tests/k1_audit.py`. 115 of 115 cases pass.
 | 92 | E2 | customer link | a viewer asks for a link | 403 | checked | PASS |
 | 93 | E2 | customer link | the customer sends the bill PDF | stored, read like an owner upload, and the page says received | (303, ['address', 'amount', 'avg_units', 'bill_mobile']) | PASS |
 | 94 | E2 | customer link | the page after the upload | the bill ticked, the Aadhaar asked for next; never the bill's contents | checked | PASS |
-| 95 | E2 | customer link | a document kind the link does not ask for | refused | /up/lIo2bMOoh23lTURyzY2NdlIU?err=type | PASS |
-| 96 | E2 | customer link | a wrong email | refused, nothing saved | /up/lIo2bMOoh23lTURyzY2NdlIU?err=email | PASS |
+| 95 | E2 | customer link | a document kind the link does not ask for | refused | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=type | PASS |
+| 96 | E2 | customer link | a wrong email | refused, nothing saved | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=email | PASS |
 | 97 | E2 | customer link | the customer types their email | saved on the record | link.c@example.com | PASS |
 | 98 | L2 | customer link | bill and email sent, Aadhaar not yet | one thing asked: the Aadhaar, step 2 of 3; not 'All done' | checked | PASS |
 | 99 | L1 | customer link | a link made while Solara runs on this computer | flagged: it will not open on the customer's phone | True | PASS |
 | 100 | L1 | customer link | SOLARA_PUBLIC_URL set to the internet address | links use that address | https://solara.example.in/up/abc | PASS |
 | 101 | L3 | dashboard | the dashboard's script file | the browser checks for a newer copy on every load | checked | PASS |
 | 102 | E2 | customer link | a made-up link | 404 | checked | PASS |
-| 103 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/lIo2bMOoh23lTURyzY2NdlIU?err=many | PASS |
+| 103 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=many | PASS |
 | 104 | E2 | customer link | after 7 days | 410, expired | checked | PASS |
 | 105 | E3 | co-pilot: My Application | a status Solara does not know, and a number on no customer | nothing marked; the status is reported | {'ok': True, 'updated': [], 'unknown': ['Something new (Pend | PASS |
 | 106 | E3 | co-pilot: My Application | the customer listed as 'Upload Agreement (Pending)' | marked accepted in Solara, no click | [{'id': 'SS-2070', 'name': 'List Customer', 'what': 'accepte | PASS |
 | 107 | E3 | co-pilot: My Application | the portal is past the agreement, Solara has no signed one | not marked uploaded; the gap is shown | {'ok': True, 'updated': [], 'unknown': [], 'problems': [{'id | PASS |
-| 108 | M3 | details form | the email box | marked as needed (*), not 'optional' | Email * | PASS |
+| 108 | M3 | details form | the email box | not marked as needed: the portal's email is optional | Email | PASS |
 | 109 | M4 | details form | type 3 into the highlighted capacity box | the 'missing' highlight goes as soon as it has a value | (True, False) | PASS |
 | 110 | M5 | details form | type 210000 as the cost | read back as Rs 2,10,000 (a missed zero shows) | Rs 2,10,000 | PASS |
 | 111 | U7 | Registration screen | a new customer (next step: documents) | Documents first and open; the portal section folded | {'first': 'regDocs', 'open': True, 'portal': False, 'body':  | PASS |

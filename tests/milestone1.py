@@ -285,10 +285,13 @@ async def main():
         await ven.wait_for_selector("#solaraPanel :text('Saved in Solara')")
         await dash.bring_to_front()
         await dash.click(f'[data-reg="{cid}"]')
+        # the customer approves it in their own login; marked here from the dashboard
+        await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Approve the agreement')")
+        await dash.click("#regApproved")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Milestone 1 done')")
         await shot(dash, "4-milestone-done")
         g = sup.get(f"/api/registration/{cid}").json()
-        check("all six steps done for this customer", all(s["done"] for s in g["steps"]),
+        check("all seven steps done for this customer", all(s["done"] for s in g["steps"]),
               str([(s["key"], s["done"]) for s in g["steps"]]))
         check("no JavaScript errors in the dashboard", not errors, "; ".join(errors[:2]))
         print(f"  (whole run, automated: {time.time() - t0:.0f}s)")
@@ -298,7 +301,7 @@ async def main():
     check("the audit trail records each step", all(a in audit for a in (
         "Added customer", "Document extraction", "Confirmed extracted field", "Marked registered",
         "Marked accepted", "Sent documents for e-signature", "Customer e-signed documents",
-        "Marked agreement uploaded")), ", ".join(sorted(set(audit))))
+        "Marked agreement uploaded", "Marked customer approved")), ", ".join(sorted(set(audit))))
     print("\n  reset:", client("r.deshmukh").post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
     for f in FAIL:

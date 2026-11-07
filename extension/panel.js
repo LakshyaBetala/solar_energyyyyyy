@@ -35,13 +35,18 @@
     [/name of (the )?vendor|vendor name|registered vendor|select vendor/, 'vendor'],
     [/(applicant|consumer|customer|full|beneficiary) name|^name\b/, 'name'],
     [/sanctioned|connected load/, 'sanctioned_load'],
-    [/capacity/, 'capacity'],
+    [/capacity|\bk ?wp\b/, 'capacity'],                              // "Proposed kWp", read as "k wp"
     [/category/, 'category'],
+    [/\bgender\b/, 'gender'],                                         // from the Aadhaar QR
+    [/ifsc/, 'ifsc'],                                                 // subsidy bank details, from the passbook
+    [/account holder/, 'account_holder'],
+    [/account type/, 'account_type'],                                 // Savings, flagged for a check
+    [/bank name|select bank/, 'bank_name'],
     [/module (technology|type)|panel type/, 'module_type'],
     [/total cost|cost of rts|installation cost|project cost|quotation amount/, 'rts_cost'],
   ];
   const FILES = [[/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
-                 [/passbook|bank|cheque/, 'passbook'], [/roof|site photo/, 'roof']];
+                 [/passbook|bank|cheque/, 'passbook'], [/roof|site photo|pre ?installation/, 'roof']];
 
   // anything the person changed with their own keyboard or mouse is theirs: isTrusted is false for our events
   const touch = e => { if (e.isTrusted && e.target && e.target.dataset) e.target.dataset.solaraHuman = '1'; };
@@ -145,6 +150,46 @@
     return true;
   }
 
+  // ---------- the customer login's tracker ----------
+  // Ten stages, each "Upload Agreement / Completed / 07-11-2026 7:23 pm" (seen 7 Nov 2026). Turned into
+  // the same "Stage (State)" words as the vendor's list, for the first stage not Completed.
+  const STAGES = ['Registration', 'Application', 'Feasibility', 'Vendor Selection', 'Upload Agreement', 'Installation',
+    'Inspection', 'Project Commissioning', 'Subsidy Request', 'Subsidy Disbursal'];
+  const STAGE_RE = new RegExp(`\\b(${STAGES.map(s => s.replace(' ', '\\s+')).join('|')})\\s*` +
+    '(Completed|In\\s+Progress|Pending|Rejected|Returned?|Not\\s+Redeemed|Redeemed|Disbursed)\\b', 'gi');
+  const APP_RE = /\bNP-[A-Z0-9]+-\d{6,}\b/g;
+  function trackerRows() {
+    const cards = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) {
+      if (!/^\s*Subsidy\s+Disbursal\s*$/i.test(w.currentNode.nodeValue) || panel.contains(w.currentNode)) continue;
+      let p = w.currentNode.parentElement;   // up to the card that also shows its application number
+      while (p && p !== document.body && !(p.innerText.match(APP_RE) || []).length) p = p.parentElement;
+      if (p && p !== document.body) cards.add(p);
+    }
+    return [...cards].map(card => {
+      const nums = new Set(card.innerText.match(APP_RE));
+      const st = [...card.innerText.matchAll(STAGE_RE)].map(m => [m[1], m[2]].map(s => s.replace(/\s+/g, ' ')));
+      if (nums.size !== 1 || st.length < 5) return null;   // not a tracker we can read for sure: leave it
+      const cur = st.find(([, s]) => !/^completed$/i.test(s)) || st[st.length - 1];
+      return { app_no: [...nums][0], status: `${cur[0]} (${cur[1]})` };
+    }).filter(Boolean);
+  }
+
+  // ---------- the two logins side by side ----------
+  // The vendor and the customer login open in two tabs; what one finishes, the other is told.
+  const APPROVE_STEPS = 'In the customer login: Action &rarr; Submit Agreement Details &rarr; Approve &rarr; tick the declaration ' +
+    '&rarr; the customer reads you the SMS code &rarr; you press Verify &amp; Approve.';
+  const here = location.host + '/' + location.pathname.split('/')[1];
+  let handoff = null;
+  const banner = () => handoff && handoff.from !== here && Date.now() - handoff.at < 30 * 60 * 1000 ?
+    `<div id="solaraHandoff" style="margin-top:6px;padding:8px;border-radius:7px;background:#12303A;color:#BFE9D9">${esc(handoff.text)}</div>` : '';
+  const tell = text => chrome.storage.local.set({ handoff: { text, from: here, at: Date.now() } }).catch(() => {});
+  async function markApproved(cid, name, el) {
+    const rep = await ask({ type: 'report', body: { customer_id: cid, event: 'customer_approved' } });
+    el.textContent = rep.ok ? 'Saved in Solara: approved by the customer' : 'NOT saved: ' + rep.error;
+    if (rep.ok) tell(`${name} approved the agreement. Milestone 1 is done; installation can start.`);
+  }
+
   // ---------- the vendor's application lists ----------
   // My Application and Vendor Consent: read every row and bring the customers Solara knows up to date.
   function listRows(table) {
@@ -170,7 +215,17 @@
         : `Read ${list.rows.length} application(s). Nothing new for Solara.`) +
       ((d.problems || []).length ? `<div style="margin-top:6px;color:#F2C879">` + d.problems.map(u => `${esc(u.name)}: ${esc(u.what)}`).join('<br>') + '</div>' : '') +
       ((d.unknown || []).length ? `<div style="margin-top:6px;color:#8FA3B2">Statuses Solara does not know yet (nothing changed): ${esc(d.unknown.join(', '))}</div>` : '') +
+      (d.seen || []).filter(s => s.next && s.next.act === 'approve').map(s =>
+        `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#12303A"><b>${esc(s.name)}: the customer approves next</b>` +
+        `<div style="margin-top:3px;color:#BFE9D9">${APPROVE_STEPS}</div>` +
+        `<button data-approved="${esc(s.id)}" data-name="${esc(s.name)}" style="display:block;width:100%;margin-top:8px;padding:8px;border:0;border-radius:7px;cursor:pointer;font-weight:700;background:#24343F;color:#E8EEF2">I pressed Verify &amp; Approve: mark it approved</button></div>`).join('') +
       '</div>');
+    panel.querySelectorAll('[data-approved]').forEach(b => b.onclick = () => markApproved(b.dataset.approved, b.dataset.name, b));
+    if ((d.updated || []).some(u => /approved/.test(u.what))) tell(d.updated.filter(u => /approved/.test(u.what)).map(u => u.name).join(', ') +
+      ' approved the agreement on the portal. Installation can start.');
+    // the customer login shows one customer: the approval dialog opened from here is theirs
+    if (list.rows.length === 1 && (d.seen || []).length === 1)
+      chrome.storage.local.set({ current: { cid: d.seen[0].id, at: Date.now(), picked: true } }).catch(() => {});
   }
 
   async function attach(input, msg) {
@@ -194,7 +249,7 @@
   const btn = (id, text, primary) => `<button id="${id}" style="display:block;width:100%;margin-top:8px;padding:8px;border:0;border-radius:7px;` +
     `cursor:pointer;font-weight:700;${primary ? 'background:#2BB673;color:#04150D' : 'background:#24343F;color:#E8EEF2'}">${text}</button>`;
   const say = html => { panel.innerHTML = `<div style="display:flex;justify-content:space-between"><b style="color:#5FD3A8">Solara co-pilot</b>` +
-    `<span id="solaraRescan" style="cursor:pointer;color:#8FA3B2" title="Read this page again">&#8635;</span></div>` + html +
+    `<span id="solaraRescan" style="cursor:pointer;color:#8FA3B2" title="Read this page again">&#8635;</span></div>` + banner() + html +
     `<div style="margin-top:8px;text-align:right"><a href="#" id="solaraLayout" style="color:#8FA3B2;font-size:11px">Send this page's layout to Solara</a></div>`; };
   document.body.appendChild(panel);
   panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') scan(); if (e.target.id === 'solaraLayout') { e.preventDefault(); sendLayout(e.target); } });
@@ -230,6 +285,12 @@
 
   async function scan() {
     const root = scope();
+    if (/want the vendor to fill/i.test(root.innerText)) {
+      say('<div style="margin-top:4px"><b>Answer No.</b> You fill it here yourself; the Solara panel fills the form on the next page.</div>');
+      return;
+    }
+    const track = root === document.body ? trackerRows() : [];
+    if (track.length) return listMode({ status: true, rows: track });
     const consumer = labelled('Consumer Number', root, /^\d{9,14}$/) || one(/\b\d{12}\b/g, root);
     const app = labelled('Application Number', root, /^NP-/) || one(/\bNP-[A-Z0-9]+-\d{6,}\b/g, root);
     const fields = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) &&
@@ -328,6 +389,8 @@
     // after Submit the portal locks the box, which is exactly when the owner marks it done
     const agreementBox = [...root.querySelectorAll('input[type=file]')].some(el => /agreement/.test(labelOf(el)));
     const agreementReady = c.files.some(f => f.key === 'agreement');
+    // the customer login's Submit Agreement Details dialog: the OTP and Verify & Approve are the person's
+    const approveBox = !agreementBox && /verify\s*&\s*approve|submit agreement details/i.test(root.innerText);
     // a blank form says nothing about whose it is: the button names the customer, so a carried-over
     // customer is seen before anything is filled
     const pickable = customs.filter(x => isEmpty(x.el));
@@ -335,6 +398,7 @@
       (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
       (agreementBox && c.agreement_draft ? '<div style="margin-top:6px;color:#F2C879">This agreement is a DRAFT format; the client has not approved the wording yet.</div>' : '') +
       (agreementBox ? btn('solaraMarkUploaded', 'I pressed Submit: mark agreement uploaded') : '') +
+      (approveBox ? `<div style="margin-top:8px;color:#BFE9D9">${APPROVE_STEPS}</div>` + btn('solaraMarkApproved', 'I pressed Verify &amp; Approve: mark it approved') : '') +
       `<details style="margin-top:8px"><summary style="cursor:pointer;color:#8FA3B2">Copy a value</summary>` +
       c.fields.map((f, i) => `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-top:1px solid #23323E">` +
         `<div style="flex:1;min-width:0"><div style="color:#8FA3B2;font-size:11px">${esc(f.label)}</div><div style="word-break:break-all">${esc(f.value)}</div></div>` +
@@ -346,7 +410,10 @@
     if (mark) mark.onclick = async () => {
       const rep = await ask({ type: 'report', body: { customer_id: c.customer_id, event: 'agreement_uploaded' } });
       mark.textContent = rep.ok ? 'Saved in Solara: agreement uploaded' : 'NOT saved: ' + rep.error;
+      if (rep.ok) tell(`${c.name}'s agreement is uploaded. Now the customer approves it: ${APPROVE_STEPS.replace(/&rarr;/g, '>').replace(/&amp;/g, '&')}`);
     };
+    const appr = panel.querySelector('#solaraMarkApproved');
+    if (appr) appr.onclick = () => markApproved(c.customer_id, c.name, appr);
     const fill = panel.querySelector('#solaraFill');
     if (!fill) return;
     fill.onclick = async () => {
@@ -393,7 +460,13 @@
     };
   }
 
-  scan();
+  chrome.storage.local.get('handoff').then(x => { handoff = x.handoff || null; }, () => {}).finally(scan);
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area !== 'local' || !ch.handoff) return;
+    handoff = ch.handoff.newValue || null;
+    panel.querySelector('#solaraHandoff')?.remove();
+    panel.firstElementChild?.insertAdjacentHTML('afterend', banner());
+  });
   // single-page portals change screens without reloading; read the page again when they do
   let last = location.href;
   setInterval(() => { if (location.href !== last) { last = location.href; setTimeout(scan, 800); } }, 700);

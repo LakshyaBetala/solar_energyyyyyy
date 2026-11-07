@@ -221,8 +221,8 @@ async def main():
 
     # ---------------- R3 (portal): email ----------------
     st = sup.get(f"/api/registration/{bare}").json()
-    case("P3", "details", "a customer with no email", "'email' listed as missing (the portal verifies it by OTP)",
-         any("email" in x for x in st["missing"]), st["missing"])
+    case("P3", "details", "a customer with no email", "not missing: the portal's email is optional (7 Nov recording)",
+         not any("email" in x for x in st["missing"]), st["missing"])
 
     # ---------------- D14, R10: the public e-sign page ----------------
     sup.post(f"/api/registration/{ready}/mark", json={"step": "accepted"})
@@ -344,8 +344,8 @@ async def main():
         await pg.locator('.navitem[data-view="reg"]').click()
         await pg.locator(f'[data-reg="{u}"]').click()
         await pg.wait_for_selector("#r_email")
-        case("M3", "details form", "the email box", "marked as needed (*), not 'optional'",
-             await pg.locator('label[for="r_email"] .req').count() == 1 and "optional" not in (await pg.inner_text('label[for="r_email"]')).lower(),
+        case("M3", "details form", "the email box", "not marked as needed: the portal's email is optional",
+             await pg.locator('label[for="r_email"] .req').count() == 0,
              await pg.inner_text('label[for="r_email"]'))
         was = await pg.evaluate("document.querySelector('#r_kw').closest('.field').classList.contains('miss')")
         await pg.fill("#r_kw", "3")

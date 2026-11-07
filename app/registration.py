@@ -16,7 +16,14 @@ LATER = {"account_holder", "account_no", "ifsc", "passbook_unread"}  # not neede
 # what must be on file before the portal form can be filled
 # the live portal's profile step asks for an email and verifies it by OTP, so it is needed too
 REQUIRED = (("consumer_no", "consumer number"), ("name", "customer name"), ("mobile", "mobile"),
-            ("email", "email (the portal sends it an OTP)"), ("kw", "proposed capacity (kW)"))
+            ("kw", "proposed capacity (kW)"))
+GENDER = {"M": "Male", "F": "Female", "T": "Other", "MALE": "Male", "FEMALE": "Female", "TRANSGENDER": "Other"}
+# the bank's name as the portal's subsidy page lists it, from the IFSC's first four letters
+BANKS = {"SBIN": "State Bank of India", "MAHB": "Bank of Maharashtra", "HDFC": "HDFC Bank", "ICIC": "ICICI Bank",
+         "UTIB": "Axis Bank", "BKID": "Bank of India", "CNRB": "Canara Bank", "PUNB": "Punjab National Bank",
+         "UBIN": "Union Bank of India", "BARB": "Bank of Baroda", "IDIB": "Indian Bank", "KKBK": "Kotak Mahindra Bank",
+         "CBIN": "Central Bank of India", "IBKL": "IDBI Bank", "YESB": "Yes Bank", "IOBA": "Indian Overseas Bank",
+         "UCBA": "UCO Bank", "PSIB": "Punjab & Sind Bank", "INDB": "IndusInd Bank", "FDRL": "Federal Bank"}
 
 
 class Duplicate(ValueError):
@@ -82,7 +89,8 @@ def derived(cid):
     """Portal values Solara works out or defaults rather than reads from a document. The co-pilot
     fills them but tells the owner to check them."""
     _, d = closeout.data(cid)
-    return [k for k in ("module_type",) if not d.get(k)]  # roof area is measured on site, never guessed
+    # roof area is measured on site, never guessed; the bank's name comes from the IFSC, the account type is assumed
+    return [k for k in ("module_type",) if not d.get(k)] + ["bank_name", "account_type"]
 
 
 def suggest(cid):
@@ -108,7 +116,12 @@ def values(cid):
     rows = {r["field"]: r for r in extract.saved(cid)}
     bill = rows.get(extract.PRETTY["bill_name"])
     name = bill["value"] if bill and bill["status"] != "review" else (c["aadhaar_name"] or c["name"])
+    read = lambda label: (rows.get(label) or {}).get("value") if (rows.get(label) or {}).get("status") != "review" else None
+    ifsc = (read(extract.PRETTY["ifsc"]) or "").upper()
     return {**region(), "consumer_no": c["consumer_no"], "mobile": d.get("mobile"),
+            "gender": GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
+            "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
+            "account_type": "Savings" if ifsc else None,
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
@@ -172,6 +185,7 @@ def status(cid):
         ("accepted", "Accepted in vendor login", bool(d.get("accepted_at"))),
         ("signed", "Agreement e-signed", signed),
         ("uploaded", "Agreement uploaded", bool(d.get("agreement_uploaded_at"))),
+        ("approved", "Customer approved it on the portal", bool(d.get("agreement_approved_at"))),
     ]
     done = {k for k, _, ok in steps if ok}
     if not {"bill", "aadhaar"} <= kinds:
@@ -193,6 +207,8 @@ def status(cid):
               ("sign", "Send the agreement for e-sign")
     elif "uploaded" not in done:
         nxt = ("upload", "Upload the agreement on PM Surya Ghar")
+    elif "approved" not in done:
+        nxt = ("approve", "Approve the agreement in the customer's login")
     else:
         nxt = ("", "Milestone 1 done for this customer")
     t = lambda k: d.get(k)
@@ -204,7 +220,7 @@ def status(cid):
             "next": {"act": nxt[0], "label": nxt[1]}, "flagged": len(flagged), "missing": miss,
             "link_open": link_open, "elapsed_to_accepted": elapsed, "validation": validate(cid),
             "times": {k: t(k) for k in ("docs_at", "registered_at", "accepted_at",
-                                         "agreement_sent_at", "agreement_uploaded_at")}}
+                                         "agreement_sent_at", "agreement_uploaded_at", "agreement_approved_at")}}
 
 
 def save_details(cid, body, user):
@@ -287,6 +303,12 @@ def mark(cid, step, user, app_no=None, replace=False, from_portal=False, note=""
         if not check["ok"]:
             raise ValueError("the signed agreement does not verify: " + "; ".join(check["problems"]))
         closeout.mark(cid, user["username"], agreement_uploaded_at=db.now())
+    elif step == "customer_approved":
+        if not d.get("agreement_uploaded_at"):
+            raise ValueError("upload the agreement on the portal first")
+        if d.get("agreement_approved_at"):
+            return
+        closeout.mark(cid, user["username"], agreement_approved_at=db.now())
     else:
         raise ValueError("unknown step")
     db.audit(user["username"], user["role"], f"Marked {step.replace('_', ' ')}", cid, app_no or note)
@@ -312,12 +334,18 @@ def summary(cid):
 # them here. A status not listed changes nothing and is logged, so the live session shows what to add.
 ACCEPTED = re.compile(r"upload agreement|agreement \(pending\)", re.I)
 PAST_AGREEMENT = re.compile(r"installation|inspection|commission|subsidy|redeem", re.I)
+next_of = lambda cid: status(cid)["next"]  # from_portal_list's own `status` is the row's text
+# the vendor's part is filed and the customer still has to approve it in their login
+UPLOADED = re.compile(r"acceptance|upload agreement \((completed|approved)\)", re.I)
+# Installation opens only once the customer approved the agreement (customer login, 7 Nov 2026:
+# Upload Agreement Completed, Installation In Progress); a later stage implies it too
+APPROVED = re.compile(r"installation \((in progress|completed|approved)\)|inspection|commission|subsidy|redeem", re.I)
 
 
 def from_portal_list(rows, page, user):
     """The co-pilot read the vendor's application list: bring each customer Solara knows up to date.
     Only moves a customer forward, and only for statuses Solara knows."""
-    updated, unknown, problems = [], set(), []
+    updated, unknown, problems, seen = [], set(), [], []
     for row in rows[:300]:
         try:
             app = valid.app_no(row.get("app_no"))
@@ -329,22 +357,28 @@ def from_portal_list(rows, page, user):
             continue
         _, d = closeout.data(c["id"])
         accepted, past = bool(ACCEPTED.search(status)), bool(PAST_AGREEMENT.search(status))
+        uploaded, approved = past or bool(UPLOADED.search(status)), bool(APPROVED.search(status))
         if not (accepted or past):
             unknown.add(status)
             continue
         if not d.get("accepted_at"):
             mark(c["id"], "accepted", user, note=f"read from the portal list: {status}")
             updated.append({"id": c["id"], "name": c["name"], "what": "accepted in the vendor login"})
-        if past and not d.get("agreement_uploaded_at"):
-            try:
-                mark(c["id"], "agreement_uploaded", user, note=f"read from the portal list: {status}")
-                updated.append({"id": c["id"], "name": c["name"], "what": "agreement uploaded"})
-            except ValueError as ex:  # the portal is ahead of Solara: say so, mark nothing
-                problems.append({"id": c["id"], "name": c["name"], "what": str(ex)})
+        for step, on, what in (("agreement_uploaded", uploaded, "agreement uploaded"),
+                               ("customer_approved", approved, "customer approved the agreement")):
+            if on and not d.get(step.replace("customer_", "agreement_") + "_at"):
+                try:
+                    mark(c["id"], step, user, note=f"read from the portal: {status}")
+                    updated.append({"id": c["id"], "name": c["name"], "what": what})
+                    _, d = closeout.data(c["id"])
+                except ValueError as ex:  # the portal is ahead of Solara: say so, mark nothing
+                    problems.append({"id": c["id"], "name": c["name"], "what": str(ex)})
+                    break
+        seen.append({"id": c["id"], "name": c["name"], "next": next_of(c["id"])})
     if unknown:
         db.audit(user["username"], user["role"], "Co-pilot saw portal statuses Solara does not know", None,
                  f"{page}: " + "; ".join(sorted(unknown))[:300])
-    return {"ok": True, "updated": updated, "unknown": sorted(unknown), "problems": problems}
+    return {"ok": True, "updated": updated, "unknown": sorted(unknown), "problems": problems, "seen": seen}
 
 
 def save_layout(body, user):
@@ -371,8 +405,8 @@ def phone10(cid):
     return n if len(n) == 10 else ""
 
 
-def heads_up(cid):
-    """Before registering: tell the customer two codes are coming, so they keep the phone close.
+def heads_up(cid, why="register"):
+    """Before a call: tell the customer a code is coming, so they keep the phone close.
     The owner taps Send in WhatsApp; nothing is sent by Solara itself."""
     from urllib.parse import quote
     c, _ = closeout.data(cid)
@@ -380,10 +414,15 @@ def heads_up(cid):
     if not n:
         return None
     first = (c["aadhaar_name"] or c["name"]).split()[0]
-    text = (f"Namaskar {first}, I am registering your rooftop solar on PM Surya Ghar now. In the next few minutes "
-            f"you will get two codes: one by SMS and one by email. Please keep your phone with you and tell me the "
-            f"codes when I call.\nनमस्कार, मी आत्ता तुमची सौर नोंदणी करत आहे. काही मिनिटांत तुम्हाला दोन कोड येतील: एक SMS ने "
-            f"आणि एक ईमेलवर. मी फोन केल्यावर ते मला सांगा. - {vendor()['name']}")
+    if why == "approve":
+        text = (f"Namaskar {first}, I am approving your solar agreement on PM Surya Ghar now. You will get one code by "
+                f"SMS. Please tell me the code when I call.\nनमस्कार, मी आत्ता PM सूर्य घर वर तुमचा करार मंजूर करत आहे. "
+                f"तुम्हाला SMS ने एक कोड येईल. मी फोन केल्यावर तो मला सांगा. - {vendor()['name']}")
+    else:
+        text = (f"Namaskar {first}, I am registering your rooftop solar on PM Surya Ghar now. In the next few minutes "
+                f"you will get a code by SMS. Please keep your phone with you and tell me the code when I call.\n"
+                f"नमस्कार, मी आत्ता तुमची सौर नोंदणी करत आहे. काही मिनिटांत तुम्हाला SMS ने एक कोड येईल. मी फोन केल्यावर तो मला "
+                f"सांगा. - {vendor()['name']}")
     return {"phone": n, "tel": f"tel:+91{n}", "whatsapp": f"https://wa.me/91{n}?text={quote(text)}"}
 
 
@@ -416,6 +455,8 @@ def today(close_rows):
             waiting.append({**line, "text": f"{first} has the agreement to sign"})
         elif act == "upload":
             portal.append({**line, "text": f"Upload {first}'s signed agreement"})
+        elif act == "approve":
+            calls.append({**line, "text": f"Call {first} to approve the agreement in their login", "otp": heads_up(cid, "approve")})
     for x in close_rows:
         if x["uploaded"]:
             continue

@@ -58,7 +58,8 @@ FIELDS = [  # key, label, group
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
 SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           # pre-installation milestones, stamped when each step is done
-          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at")
+          "docs_at", "registered_at", "accepted_at", "agreement_sent_at", "agreement_uploaded_at",
+          "agreement_approved_at")
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,
