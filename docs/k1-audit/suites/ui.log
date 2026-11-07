@@ -1,43 +1,33 @@
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
   PASS  sign-in screen renders
+  PASS  the menu has five places: Today, Registration, Close-out, Audit Trail, Reports  — today, reg, closeout, audit, reports
+  PASS  no AI calling, number pool, agent runs or pipeline in the menu
+  PASS  the day opens on Today
+  PASS  the top bar shows who is signed in, nothing technical  — Signed in
+Rohit Deshmukh
+·
+supervisor
+  PASS  the OTP call to make is listed first
+  PASS  the call line shows the customer's number to tap
+  PASS  the call line carries the WhatsApp heads-up that two codes are coming
+  PASS  only the top line has the filled button
+  PASS  the menu badge counts the lines to do  — 6 vs 6
+  PASS  Register now opens that customer at the Register step, with the number to call
+  PASS  Check it opens the customer with the value to check in focus  — bill_name
+  PASS  a close-out line opens that customer in Close-out
+  PASS  audit opens
+  PASS  reports opens
+  PASS  a new customer is one name away, then one tap to ask for documents on WhatsApp
+  PASS  the owner is warned when the link would only open on this computer
+  PASS  the customer is asked for one thing: step 1 of 3, the electricity bill
+  PASS  the customer sees the installer's number for help
+  PASS  the customer page fits a phone  — 0px
   PASS  viewer signs in
-  PASS  viewer sees Run agent disabled
-  PASS  pipeline view renders
-  PASS  numbers view renders
-  PASS  calls view renders
-  PASS  audit view renders
-  PASS  reports view renders
-  PASS  docs view renders
-  PASS  Needs attention lists live follow-ups  — 9 items
-  PASS  stage order puts Installation before Net metering
-  PASS  commercial customer has no Run agent button (not eligible)
-  PASS  extraction populates fields
-  PASS  one field flagged for review
-  PASS  Run agent on SS-2047 starts SS-2047 (not whichever customer was last open)  — SS-2047
-  PASS  Abandon stops the run  — Stopped
-  PASS  workflow follows the customer
-  PASS  after Resend OTP the dialog shows the new code on top  — ⏸
-A new code was sent. The earlier code no longer works. It is at the top of the
-  PASS  operator is offered the approval button, not a disabled one  — Try to approve as operator
-  PASS  server refusal is shown to the operator  — approve requires the supervisor role; you are operator
-  PASS  rooftop run completed in the UI  — Completed
-  PASS  checkpoints appeared as dialogs: OTP (resent), OTP, CAPTCHA, correction, approval  — ['resend', 'otp', 'captcha', 'fix', 'approve', 'approve']
-  PASS  live frames reached the browser pane
-  PASS  evidence thumbnails rendered
-  PASS  encrypted screenshots decrypt and display
-  PASS  live log streamed
-  PASS  plan title names the workflow
-  PASS  SS-2049 opens on load enhancement
-  PASS  load enhancement completed in the UI  — Completed
-  PASS  DISCOM run checkpoints: OTP, approval  — ['otp', 'approve']
-  PASS  plan shows the DISCOM step list
-  PASS  pipeline shows the new rooftop application number
-  PASS  pipeline shows the DISCOM request
-  PASS  audit shows the refused approval and the real one
-  PASS  a checkpoint dialog can be dismissed and reopened
+  PASS  viewer cannot send links or documents from Today
   PASS  light theme applies  — rgb(238, 241, 244)
-  PASS  no horizontal overflow at 420px  — 0px
+  PASS  dark theme applies
+  PASS  Today has no sideways scroll at 420px  — 0px
   PASS  no JavaScript errors
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 
-  38 passed, 0 failed
+  26 passed, 0 failed

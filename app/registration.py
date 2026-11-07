@@ -363,3 +363,72 @@ def save_layout(body, user):
                               indent=1, ensure_ascii=False), encoding="utf-8")
     db.audit(user["username"], user["role"], "Co-pilot saved a page layout", None, f"{page}: {len(fields)} fields")
     return {"ok": True, "fields": len(fields), "file": out.name}
+
+
+def phone10(cid):
+    _, d = closeout.data(cid)
+    n = "".join(ch for ch in (d.get("mobile") or "") if ch.isdigit())[-10:]
+    return n if len(n) == 10 else ""
+
+
+def heads_up(cid):
+    """Before registering: tell the customer two codes are coming, so they keep the phone close.
+    The owner taps Send in WhatsApp; nothing is sent by Solara itself."""
+    from urllib.parse import quote
+    c, _ = closeout.data(cid)
+    n = phone10(cid)
+    if not n:
+        return None
+    first = (c["aadhaar_name"] or c["name"]).split()[0]
+    text = (f"Namaskar {first}, I am registering your rooftop solar on PM Surya Ghar now. In the next few minutes "
+            f"you will get two codes: one by SMS and one by email. Please keep your phone with you and tell me the "
+            f"codes when I call.\nनमस्कार, मी आत्ता तुमची सौर नोंदणी करत आहे. काही मिनिटांत तुम्हाला दोन कोड येतील: एक SMS ने "
+            f"आणि एक ईमेलवर. मी फोन केल्यावर ते मला सांगा. - {vendor()['name']}")
+    return {"phone": n, "tel": f"tel:+91{n}", "whatsapp": f"https://wa.me/91{n}?text={quote(text)}"}
+
+
+def today(close_rows):
+    """Everything to do now, across all customers, as one list in plain words. Each line is one action.
+    close_rows: the close-out summaries (built in main, beside their screen)."""
+    calls, todo, portal, waiting = [], [], [], []
+    for r in db.q(f"""SELECT id FROM customers WHERE workflow='rooftop_registration' AND stage IN
+                      ({",".join("?" * len(PRE_STAGES))}) ORDER BY id""", PRE_STAGES):
+        cid = r["id"]
+        c, d = closeout.data(cid)
+        st = status(cid)
+        act, first = st["next"]["act"], (c["name"] or "").split()[0]
+        line = {"cid": cid, "name": c["name"], "screen": "reg", "act": act, "phone": phone10(cid)}
+        if act == "docs":
+            open_link = db.one("SELECT 1 FROM doc_requests WHERE customer_id=? AND expires_at>?", (cid, db.now()))
+            (waiting if open_link else todo).append({**line, "text": f"{first} has the link for the bill and Aadhaar" if open_link
+                                                     else f"Get the bill and Aadhaar from {first}"})
+        elif act in ("check", "details"):
+            todo.append({**line, "text": f"Check what Solara read for {first}" if act == "check" else f"Add {first}'s missing details"})
+        elif act == "register":
+            calls.append({**line, "text": f"Call {first} for the OTP and register", "otp": heads_up(cid)})
+        elif act == "accept":
+            portal.append({**line, "text": f"Approve {first} in Vendor Consent"})
+        elif act == "vsig":
+            todo.append({**line, "text": "Add the company signature (once)"})
+        elif act == "sign":
+            todo.append({**line, "text": f"Send {first} the agreement to sign"})
+        elif act == "wait":
+            waiting.append({**line, "text": f"{first} has the agreement to sign"})
+        elif act == "upload":
+            portal.append({**line, "text": f"Upload {first}'s signed agreement"})
+    for x in close_rows:
+        if x["uploaded"]:
+            continue
+        first = (x["name"] or "").split()[0]
+        line = {"cid": x["id"], "name": x["name"], "screen": "closeout", "phone": phone10(x["id"])}
+        if x["waiting_customer"] and x["link_open"]:
+            waiting.append({**line, "act": "wait", "text": f"{first} has the installation papers to sign"})
+        elif x["missing"]:
+            todo.append({**line, "act": "fix", "text": f"Fill in {first}'s installation details"})
+        elif x["waiting_customer"]:
+            todo.append({**line, "act": "sign", "text": f"Send {first} the installation papers to sign"})
+        elif x["built"] < x["total"]:
+            todo.append({**line, "act": "build", "text": f"Make {first}'s MSEDCL documents"})
+        else:
+            portal.append({**line, "act": "upload", "text": f"Upload {first}'s six documents to MSEDCL"})
+    return {"calls": calls, "todo": todo, "portal": portal, "waiting": waiting}

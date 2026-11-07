@@ -23,7 +23,7 @@ To finish Milestone 1 on the real PM Surya Ghar portal, we need three things fro
 
 | # | What to send | What it is used for |
 |---|---|---|
-| F1 | Your company's name exactly as PM Surya Ghar shows it in the vendor list, plus the registered address and GST number | The agreement, and finding your company in the portal's vendor list |
+| F1 | Your company's name exactly as PM Surya Ghar shows it in the vendor list, plus the registered address, GST number, and the phone number customers should call for help | The agreement, and finding your company in the portal's vendor list |
 | F2 | The name of the person who signs agreements for the company. They also sign once on Solara's screen | Placed on every agreement, next to the customer's signature |
 | F3 | The panel type you usually install (for example Mono PERC, DCR), and the system sizes you usually sell | Filled on the application and shown as the kW buttons |
 | F4 | Your current agreement or quotation format, if you have one | So Solara's agreement matches what you already use |

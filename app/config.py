@@ -57,7 +57,8 @@ def vendor():
     import os
     return {"name": os.environ.get("SOLARA_VENDOR_NAME", "Demo Solar Solutions Pvt Ltd"),
             "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory"),
-            "phone": os.environ.get("SOLARA_VENDOR_PHONE", "")}
+            # the demo shows a placeholder so the customer page's help line is visible; live uses the real one or none
+            "phone": os.environ.get("SOLARA_VENDOR_PHONE") or ("" if live() else "+91 90000 00000")}
 
 
 def public_url(request, path):

@@ -551,3 +551,17 @@ a.btn{text-decoration:none}
   .rgsteps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}
 }
 @media (prefers-reduced-motion:reduce){.rgsec>summary::before,.rgv .field.miss input{transition:none}}
+
+/* ---- Today: one list of what to do now ---- */
+.tdpane{max-width:980px}
+.tdgroup{border-top:1px solid var(--line-soft);margin-top:10px}
+.tdlist{list-style:none;margin:0 0 6px;padding:0;display:grid}
+.tdrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;padding:12px 0;border-top:1px solid var(--line-soft)}
+.tdrow:first-child{border-top:0}
+.tdmain{display:grid;gap:3px;min-width:0}.tdmain b{font-weight:600}
+.tdmain a{color:var(--teal);font-weight:600;font-variant-numeric:tabular-nums}
+.tdact{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.tdrow.muted .tdmain b{font-weight:500;color:var(--fg-dim)}
+.rgv a.btn{color:inherit}
+@media (max-width:700px){.tdrow{grid-template-columns:minmax(0,1fr)}.tdact{justify-content:flex-start}}
+.rgv a:not(.btn){color:var(--teal)}

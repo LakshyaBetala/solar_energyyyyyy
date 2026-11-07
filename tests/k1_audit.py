@@ -290,8 +290,10 @@ async def main():
     read = {f["key"] for f in sup.get(f"/api/registration/{e2}").json()["fields"]}
     case("E2", "customer link", "the customer sends the bill PDF", "stored, read like an owner upload, and the page says received",
          r.status_code == 303 and "got=bill" in r.headers["location"] and got and "consumer_no" in read, (r.status_code, sorted(read)[:4]))
-    case("E2", "customer link", "the page after the upload", "shows received, never the bill's contents",
-         "Received" in pub.get(f"/up/{tok}").text and fx.NEW["consumer_no"] not in pub.get(f"/up/{tok}").text, "checked")
+    after = pub.get(f"/up/{tok}").text
+    case("E2", "customer link", "the page after the upload", "the bill ticked, the Aadhaar asked for next; never the bill's contents",
+         "&#10003; Electricity bill" in after and "<h1" in after and "Aadhaar card<span" in after
+         and fx.NEW["consumer_no"] not in after, "checked")
     r = pub.post(f"/up/{tok}/file", params={"kind": "ownership"}, files={"file": ("x.pdf", b"%PDF-1", "application/pdf")})
     case("E2", "customer link", "a document kind the link does not ask for", "refused", "err=type" in r.headers.get("location", ""), r.headers.get("location"))
     r = pub.post(f"/up/{tok}/email", data={"email": "not an email"})
@@ -299,8 +301,8 @@ async def main():
     r = pub.post(f"/up/{tok}/email", data={"email": "link.c@example.com"})
     case("E2", "customer link", "the customer types their email", "saved on the record", closeout.data(e2)[1].get("email") == "link.c@example.com", closeout.data(e2)[1].get("email"))
     shown = pub.get(f"/up/{tok}").text
-    case("L2", "customer link", "bill and email sent, Aadhaar not yet", "the page says what is still needed, and is not 'All done'",
-         "Still needed: Aadhaar card" in shown and "All done" not in shown, "checked")
+    case("L2", "customer link", "bill and email sent, Aadhaar not yet", "one thing asked: the Aadhaar, step 2 of 3; not 'All done'",
+         "Step 2 of 3" in shown and "Aadhaar card<span" in shown and "All done" not in shown, "checked")
     case("L1", "customer link", "a link made while Solara runs on this computer", "flagged: it will not open on the customer's phone",
          a["local"] is True and config.is_local("http://192.168.1.5:8900/up/x") and not config.is_local("https://solara.example.in/up/x"), a["local"])
     os.environ["SOLARA_PUBLIC_URL"] = "https://solara.example.in/"

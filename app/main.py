@@ -661,6 +661,13 @@ def _pre_install():
                 registration.PRE_STAGES)
 
 
+@app.get("/api/today")
+def today_list(user=Depends(current)):
+    """One list of what to do now, for every customer: calls, things to do here, things on the portals."""
+    rows = db.q(f"""SELECT id FROM customers WHERE stage IN ({",".join("?" * len(CLOSE_STAGES))}) ORDER BY id""", CLOSE_STAGES)
+    return registration.today([closeout_summary(r["id"]) for r in rows])
+
+
 @app.get("/api/registration")
 def registration_list(user=Depends(current)):
     return [registration.summary(r["id"]) for r in _pre_install()]
@@ -690,7 +697,7 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(), "otp": registration.heads_up(cid),
             "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
 
 
@@ -996,21 +1003,30 @@ def get_backup(name: str, user=Depends(need("supervisor"))):
 
 
 @app.post("/api/demo/reset")
-def demo_reset(user=Depends(need("supervisor"))):
+async def demo_reset(user=Depends(need("supervisor"))):
     if live():  # reset deletes every customer that is not demo data
         raise HTTPException(403, "reset is for the demo only and is switched off on a live install")
     for r in list(runner.RUNS.values()):
         if r.status in ("running", "held", "paused", "starting"):
             r.stop(user)
     runner.RUNS.clear()
+    corrected = [r["customer_id"] for r in db.q("SELECT DISTINCT customer_id FROM extractions WHERE note LIKE 'Checked by%'")]
     out = resetmod.reset()
+    # a value someone corrected during a rehearsal is not demo data: read those customers' documents afresh
+    for cid in corrected:
+        if db.one("SELECT 1 FROM customers WHERE id=?", (cid,)):
+            db.ex("DELETE FROM extractions WHERE customer_id=?", (cid,))
+            try:
+                await extract.run(cid, use_llm=False)
+            except Exception:
+                pass
     db.audit(user["username"], user["role"], "Reset demo environment", "", "runs and evidence cleared")
     return out
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})  # updates are seen on the next load
 
 
 class FreshStatic(StaticFiles):

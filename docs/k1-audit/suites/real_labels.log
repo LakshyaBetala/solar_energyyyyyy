@@ -7,7 +7,7 @@
   PASS  pmsg-consumer-login (PM Surya Ghar consumer login, live site 6 Nov 2026)  — 1 filled, 1 left alone
   PASS  pmsg-vendor-login (PM Surya Ghar vendor login, live site 7 Nov 2026)  — 0 filled, 3 left alone
   PASS  pmsg-apply (PM Surya Ghar Apply page dropdowns, live PrimeNG markup)  — 1 filled, 0 left alone
-  PASS  the page layout reaches Solara with field names, and none of the values on the page  — 20261107-151110_127-0-0-1-8900-portal-verify.json
+  PASS  the page layout reaches Solara with field names, and none of the values on the page  — 20261107-152951_127-0-0-1-8900-portal-verify.json
 
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
 

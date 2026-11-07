@@ -17,6 +17,7 @@ const TITLES = {
   pipeline: ['Pipeline', 'Every live application and the stage it is sitting at.'],
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
+  today: ['Today', 'What to do now, for every customer. Do the top line first.'],
   reg: ['Registration', 'From the customer’s documents to the agreement uploaded on PM Surya Ghar.'],
   closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
@@ -26,7 +27,7 @@ const TITLES = {
 };
 
 const S = {
-  view: 'pipeline', me: null, customers: [], numbers: [], calls: [], audit: [], llm: {},
+  view: 'today', today: null, me: null, customers: [], numbers: [], calls: [], audit: [], llm: {},
   runs: [], activeRun: null, callSel: 0, showEn: true, docCid: 'SS-2045', extract: null,
   reports: null, steps: [], events: [], shots: [], hold: null, runStatus: 'idle', speed: 1,
   headless: true, es: null, lastFrame: null, t0: null,
@@ -100,8 +101,10 @@ async function boot() {
     $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
     $('#runview').innerHTML = runView();
   }
+  S.view = 'today';  // every sign-in starts the day on what to do now
   if (S.activeRun) { attachRun(S.activeRun); S.view = 'run'; }
   render();
+  loadToday();
 }
 
 function counters() {
@@ -114,6 +117,7 @@ function counters() {
   $('#tagAudit').textContent = S.audit.length;
   $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
   $('#tagReg').textContent = S.reg.filter(x => x.done < x.total).length;
+  if (S.today && $('#tagToday')) $('#tagToday').textContent = S.today.calls.length + S.today.todo.length + S.today.portal.length;
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -527,6 +531,55 @@ async function loadExtract(cid) {
   if (S.view === 'docs') render();
 }
 
+/* ------------------------------ today: one list of what to do now ------------------------------ */
+async function loadToday() {
+  S.today = await api('/today').catch(() => null);
+  counters();
+  if (S.view === 'today') render();
+}
+const fmtPhone = n => n && n.length === 10 ? `${n.slice(0, 5)} ${n.slice(5)}` : (n || '');
+// the one button each line gets, by what the line asks for
+const TODAY_BTN = { docs: 'Send the WhatsApp link', sign: 'Send to sign', check: 'Check it', details: 'Add details',
+  register: 'Register now', accept: 'Open', upload: 'Open', vsig: 'Add signature', fix: 'Fill in', build: 'Make documents', wait: 'Open' };
+
+VIEWS.today = () => {
+  const t = S.today;
+  if (!t) return '<div class="rgv"><section class="rgpane"><p class="rgnote">Loading today’s list…</p></section></div>';
+  const op = can('operator') ? '' : ' disabled';
+  let lead = true;  // only the top line gets the filled button: do it first
+  const row = (x, muted) => { const go = !muted && lead; if (go) lead = false; return `<li class="tdrow${muted ? ' muted' : ''}">
+    <div class="tdmain"><b>${esc(x.text)}</b>
+      <span class="sub">${esc(x.name)} · ${esc(x.cid)}${x.phone ? ` · <a href="tel:+91${esc(x.phone)}">${fmtPhone(x.phone)}</a>` : ''}</span></div>
+    <div class="tdact">${x.otp ? `<a class="btn sm" href="${esc(x.otp.whatsapp)}" target="_blank" rel="noopener">WhatsApp: codes are coming</a>` : ''}
+      <button class="btn ${go ? 'go' : muted ? 'sm' : ''}" data-today="${esc(x.cid)}" data-screen="${x.screen}" data-act="${esc(x.act)}"${muted || ['accept', 'upload', 'check', 'details', 'register', 'fix', 'wait'].includes(x.act) ? '' : op}>${esc(muted ? 'Open' : TODAY_BTN[x.act] || 'Open')}</button></div></li>`; };
+  const group = (title, hint, items, muted) => !items.length ? '' : `<section class="tdgroup" aria-label="${esc(title)}">
+    <div class="rgsh"><h3>${title}</h3><span class="rgmeta">${hint}</span></div>
+    <ul class="tdlist">${items.map(x => row(x, muted)).join('')}</ul></section>`;
+  const n = t.calls.length + t.todo.length + t.portal.length;
+  const date = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `<div class="rgv"><section class="rgpane tdpane" aria-labelledby="tdTitle">
+    <header class="rghead"><h2 id="tdTitle">${n ? `${n} thing${n > 1 ? 's' : ''} to do` : 'Nothing to do right now'}</h2>
+      <p class="rgfacts">${date}${t.waiting.length ? ` · ${t.waiting.length} waiting for customers` : ''}</p></header>
+    ${n ? '' : `<div class="rgnext idle"><div class="rgnext-main"><div class="rgnext-txt"><span class="rgk">All caught up</span>
+      <p>A new customer? Add them and send them the WhatsApp link for their documents.</p></div>
+      <button class="btn go lg" id="todayNew"${op}>Add a new customer</button></div></div>`}
+    ${group('Calls to make', 'the customer reads out the OTP', t.calls)}
+    ${group('To do in Solara', 'one click each', t.todo)}
+    ${group('On the government website', 'the co-pilot fills it; you press Submit', t.portal)}
+    ${group('Waiting for the customer', 'nothing to do until they reply', t.waiting, true)}
+    ${n ? `<div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px"><button class="btn" id="todayNew"${op}>+ Add a new customer</button></div>` : ''}
+  </section></div>`;
+};
+
+async function todayAct(t) {
+  const cid = t.dataset.today, act = t.dataset.act;
+  if (t.dataset.screen === 'closeout') { S.view = 'closeout'; render(); await loadCo(cid); return; }
+  S.view = 'reg'; render(); await loadReg(cid);
+  if (act === 'docs') return regAskDocs();
+  if (act === 'sign') return regSendAgreement();
+  if (['check', 'details'].includes(act)) return regAct(act);
+}
+
 /* ------------------------------ registration (milestone 1) ------------------------------ */
 async function loadReg(cid) {
   if (cid && cid !== S.regCid) S.regOpen = {};
@@ -658,6 +711,7 @@ VIEWS.reg = () => {
   const next = `<div class="rgnext${act ? '' : ' idle'}">
     <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
     ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
+    ${act === 'register' && g.otp ? `<div class="rgline">Call ${esc((c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the two codes. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
     ${act === 'register' ? appField : ''}
     ${act === 'upload' ? `<div class="rgline">Pressed Submit on the portal without the co-pilot? <button class="btn sm" id="regUploaded"${op}>Mark the agreement uploaded</button></div>` : ''}
     ${issues}</div>`;
@@ -1105,7 +1159,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); if (S.view === 'today') loadToday(); return; }
 
   /* registration */
   if (t.dataset.reg) { loadReg(t.dataset.reg); return; }
@@ -1141,6 +1195,8 @@ document.addEventListener('click', async e => {
   if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); }
     $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
   if (t.id === 'regAskDocs') { regAskDocs(); return; }
+  if (t.dataset.today) { todayAct(t); return; }
+  if (t.id === 'todayNew') { S.view = 'reg'; render(); await loadReg(); $('#regNew')?.click(); return; }
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
@@ -1381,7 +1437,7 @@ function liveMode() {
   S.live = true;
   $$('.whoami, [data-demo], .railfoot .hint').forEach(el => { el.hidden = true; }); // hidden, not removed: counters still update them
   $('#u').value = ''; $('#p').value = '';
-  S.view = 'reg'; // the owner's day starts with Registration; the demo-era screens are hidden
+  S.view = 'today'; // the owner's day starts with what to do now
 }
 
 (function init() {

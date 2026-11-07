@@ -31,7 +31,7 @@
   PASS  Resend OTP made the portal text a second code
   PASS  the prompt after a resend says a new code was sent
   PASS  the code from before the resend is refused by the portal
-  PASS  application number read off the portal page  — NP-MHSED26-84069180
+  PASS  application number read off the portal page  — NP-MHSED26-46190848
   PASS  portal stored the bill spelling of the name
   PASS  OTP step records two attempts and the resend  — s.kale, 2 attempts, 1 resend
   PASS  correction step keeps the operator's decision
@@ -53,12 +53,12 @@
   PASS  the fourth resend is refused
 
   -- DISCOM: load enhancement, load reduction, new connection
-  PASS  load enhancement filed  — SR/MH/2026/420307
+  PASS  load enhancement filed  — SR/MH/2026/427069
   PASS  load enhancement checkpoints: OTP, OTP after resend, approval  — ['otp', 'otp', 'approve']
   PASS  DISCOM resend texted a second DISCOM code
   PASS  DISCOM stored 3 kW → 5 kW
   PASS  customer now waits on the DISCOM, next step is rooftop registration
-  PASS  refused: second load enhancement on the same connection  — SS-2049 already has DISCOM request SR/MH/2026/420307 on record
+  PASS  refused: second load enhancement on the same connection  — SS-2049 already has DISCOM request SR/MH/2026/427069 on record
   PASS  portal validation rejects a 'reduction' to a higher load  — RuntimeError: portal refused the request: ⚠ Requested load must be below 100.00 kW and at 
   PASS  load reduction filed (100 kW → 80 kW)
   PASS  new connection filed without a consumer number
@@ -68,10 +68,10 @@
   -- follow-ups, exports, backups
   PASS  follow-ups list the number about to expire as urgent  — 8 items
   PASS  follow-ups show DISCOM requests awaiting a decision
-  PASS  Excel export is a real workbook  — 11303 bytes
-  PASS  PDF run report is a real PDF with screenshots embedded  — 142387 bytes
+  PASS  Excel export is a real workbook  — 11329 bytes
+  PASS  PDF run report is a real PDF with screenshots embedded  — 142400 bytes
   PASS  operator CANNOT create a backup
-  PASS  backup holds the database and the encrypted documents  — 337 files
+  PASS  backup holds the database and the encrypted documents  — 377 files
   PASS  backup does NOT contain the vault key
 
   -- run controls

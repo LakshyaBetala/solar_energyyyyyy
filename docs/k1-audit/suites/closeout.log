@@ -6,7 +6,7 @@
   PASS  details typed on the screen are saved
   PASS  send gives a link and a ready WhatsApp message
   PASS  once the customer signs, the next action is generating the documents
-  PASS  all seven documents show their size, every one under 300 KB  — 71 KB, 70 KB, 62 KB, 61 KB, 53 KB, 169 KB, 67 KB
+  PASS  all seven documents show their size, every one under 300 KB  — 70 KB, 69 KB, 62 KB, 61 KB, 53 KB, 169 KB, 67 KB
   PASS  connect co-pilot shows a key once
   PASS  no JavaScript errors on the close-out screen
   reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
@@ -27,7 +27,7 @@
   PASS  vendor-only DCR declaration, datasheet and photo are ready  — {'agreement': 'needs_approval', 'wcr': 'needs_approval', 'annexure1': 'needs_approval', 'dcr_decl': 'ready', 'net_agreement': 'needs_approval', 'datasheet': 'ready', 'site_photo': 'ready'}
 
   -- customer e-sign
-  PASS  send-for-signature makes a link and a WhatsApp message to the customer's number  — https://wa.me/919028144520?text=Namaskar%20Asha%2C%20please%20read%20and%20sign%20your%20rooftop%20solar%20documents%20from%20Demo%20Solar%20Solutions%20Pvt%20Ltd%3A%20http%3A//127.0.0.1%3A8900/sign/uu_y-nM8rnGYFWuOJHZ18d12%0A%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%95%E0%A4%BE%E0%A4%B0%2C%20%E0%A4%A4%E0%A5%81%E0%A4%AE%E0%A4%9A%E0%A5%8D%E0%A4%AF%E0%A4%BE%20%E0%A4%9B%E0%A4%A4%E0%A4%BE%E0%A4%B5%E0%A4%B0%E0%A5%80%E0%A4%B2%20%E0%A4%B8%E0%A5%8C%E0%A4%B0%20%E0%A4%AA%E0%A5%8D%E0%A4%B0%E0%A4%95%E0%A4%B2%E0%A5%8D%E0%A4%AA%E0%A4%BE%E0%A4%9A%E0%A5%80%20%E0%A4%95%E0%A4%BE%E0%A4%97%E0%A4%A6%E0%A4%AA%E0%A4%A4%E0%A5%8D%E0%A4%B0%E0%A5%87%20%E0%A4%B5%E0%A4%BE%E0%A4%9A%E0%A5%82%E0%A4%A8%20%E0%A4%B8%E0%A4%B9%E0%A5%80%20%E0%A4%95%E0%A4%B0%E0%A4%A3%E0%A5%8D%E0%A4%AF%E0%A4%BE%E0%A4%B8%E0%A4%BE%E0%A4%A0%E0%A5%80%20%E0%A4%B9%E0%A5%80%20%E0%A4%B2%E0%A4%BF%E0%A4%82%E0%A4%95%20%E0%A4%89%E0%A4%98%E0%A4%A1%E0%A4%BE.%20The%20link%20is%20only%20for%20you%20and%20works%20for%207%20days.
+  PASS  send-for-signature makes a link and a WhatsApp message to the customer's number  — https://wa.me/919028144520?text=Namaskar%20Asha%2C%20please%20read%20and%20sign%20your%20rooftop%20solar%20documents%20from%20Demo%20Solar%20Solutions%20Pvt%20Ltd%3A%20http%3A//127.0.0.1%3A8900/sign/egX0fuqLNCGUuXrmlQ8t1jMe%0A%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%95%E0%A4%BE%E0%A4%B0%2C%20%E0%A4%A4%E0%A5%81%E0%A4%AE%E0%A4%9A%E0%A5%8D%E0%A4%AF%E0%A4%BE%20%E0%A4%9B%E0%A4%A4%E0%A4%BE%E0%A4%B5%E0%A4%B0%E0%A5%80%E0%A4%B2%20%E0%A4%B8%E0%A5%8C%E0%A4%B0%20%E0%A4%AA%E0%A5%8D%E0%A4%B0%E0%A4%95%E0%A4%B2%E0%A5%8D%E0%A4%AA%E0%A4%BE%E0%A4%9A%E0%A5%80%20%E0%A4%95%E0%A4%BE%E0%A4%97%E0%A4%A6%E0%A4%AA%E0%A4%A4%E0%A5%8D%E0%A4%B0%E0%A5%87%20%E0%A4%B5%E0%A4%BE%E0%A4%9A%E0%A5%82%E0%A4%A8%20%E0%A4%B8%E0%A4%B9%E0%A5%80%20%E0%A4%95%E0%A4%B0%E0%A4%A3%E0%A5%8D%E0%A4%AF%E0%A4%BE%E0%A4%B8%E0%A4%BE%E0%A4%A0%E0%A5%80%20%E0%A4%B9%E0%A5%80%20%E0%A4%B2%E0%A4%BF%E0%A4%82%E0%A4%95%20%E0%A4%89%E0%A4%98%E0%A4%A1%E0%A4%BE.%20The%20link%20is%20only%20for%20you%20and%20works%20for%207%20days.
   PASS  the request covers the four customer-signed documents  — ['agreement', 'wcr', 'annexure1', 'net_agreement']
   PASS  the link asks for the bill digits before showing anything
   PASS  documents cannot be read before the check

@@ -84,3 +84,24 @@ Also:
 **Needs the client:**
 - Where Solara runs (section 2), which decides whether the customer links work at all.
 - The installer's phone number for the customer page.
+
+## 4. Done after the audit (same day)
+
+Rohit asked for it much simpler. These are built and tested (the `ui` suite was rewritten for the simple UI: 26 checks):
+
+| Change | What Rohit sees |
+|---|---|
+| **The menu has five places for everyone:** Today, Registration, Close-out, Audit Trail, Reports | No AI Calling, Number Pool, Agent Runs, Document Intake or Pipeline. Their code is still in the repo; nothing links to it |
+| **Today is the home page,** and every sign-in starts there | One list of everything to do: *Calls to make*, *To do in Solara*, *On the government website*, *Waiting for the customer*. One line, one button; only the top line has the filled button ("do the top line first"); the menu badge counts the lines |
+| **OTP calls are built in** | The call line and the Register step show the customer's number to tap, and a ready WhatsApp message: "two codes are coming, keep your phone near". Rohit taps Send; Solara sends nothing by itself |
+| **The customer's page asks one thing at a time** | "Step 1 of 3: Electricity bill", one big button; then the Aadhaar; then the email. The optional items are folded away. At the end: "All done. Thank you" |
+| **The installer's phone number on the customer page** | "Need help? Call your installer". Set by `SOLARA_VENDOR_PHONE`; the demo shows a placeholder |
+| **No technical chips in the top bar** | Only who is signed in |
+| **The demo reset restores the demo exactly** | A correction made during a rehearsal is dropped, and that customer's documents are read again |
+
+Screens: [Today](k1-audit/ux/today.png) · [Register step with the OTP call](k1-audit/ux/register-call.png) · [customer page, step 1 of 3](k1-audit/ux/link-step1.png)
+
+**Still to do from section 3:**
+- Merge Registration and Close-out into one Customers page.
+- Plainer words on Close-out.
+- Test on real phones.

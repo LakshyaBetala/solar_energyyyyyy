@@ -92,7 +92,7 @@ text-decoration:underline;font-size:14px;cursor:pointer}}.pick input,.again inpu
 .pick:focus-within,.again:focus-within{{outline:3px solid #0B6E4F;outline-offset:2px}}
 .sending{{margin-top:8px;font-weight:700;color:#0B4F6C}}.todo{{background:#FFF4DE;color:#5C3D00;border-radius:8px;padding:12px 14px;margin-bottom:12px}}
 .done-all{{background:#E7F5EE;color:#0B5133;border-radius:10px;padding:16px;margin-bottom:12px}}.done-all b{{font-size:18px}}
-h2{{font-size:16px;margin:0 0 4px}}details summary{{cursor:pointer;color:#0B5C8C;font-size:14px;margin-top:6px}}</style>
+h2{{font-size:16px;margin:0 0 4px}}details summary{{cursor:pointer;color:#0B5C8C;font-size:14px;margin-top:6px}}.pick.big{{padding:22px 12px;font-size:19px;border-style:solid;background:#EEF6F3;margin-top:14px}}.pick.big .mr{{font-size:14px;font-weight:600}}.dots{{display:flex;gap:6px;align-items:center}}.dots .dot{{width:28px;height:6px;border-radius:3px;background:#D9DFE5}}.dots .dot.on{{background:#0B6E4F}}.dots .dot.now{{background:#7FB8A3}}.dots .small{{margin-left:6px}}.check{{list-style:none;margin:0 0 12px;padding:0 4px;display:grid;gap:6px;color:#5B6875}}.check li.done{{color:#0B5133;font-weight:600}}.check li.now{{color:#172029;font-weight:700}}.check form{{display:inline;margin-left:8px}}.opt summary{{color:#172029;font-size:15px}}</style>
 </head><body><div class="wrap"><div class="hd">{e(vendor()['name'])}</div>{body}</div>{UPLOAD_JS}</body></html>""", status_code=status)
 
 
@@ -111,6 +111,7 @@ def load(token):
 
 @router.get("/{token}", response_class=HTMLResponse)
 def show(token: str, got: str = "", err: str = ""):
+    """One thing at a time: the next item is big, with one button; a short list shows what is done."""
     r, stop = load(token)
     if stop:
         return stop
@@ -119,41 +120,51 @@ def show(token: str, got: str = "", err: str = ""):
     have = {x["kind"] for x in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
     email = d.get("email")
     first = e((c["aadhaar_name"] or c["name"]).split()[0])
-    still = [KINDS[k][0] for k in REQUIRED if k not in have] + ([] if email else ["Your email"])
-    top = ('<div class="done-all"><b>All done. Thank you.</b><span class="mr">सर्व मिळाले. धन्यवाद.</span>'
-           '<p style="margin:6px 0 0">You can close this page. Your installer will call you when the portal sends you a code.</p></div>'
-           if not still else f'<div class="todo"><b>Still needed: {e(", ".join(still))}</b><span class="mr">अजून हवे</span></div>')
+    steps = [("bill", "Electricity bill", "वीज बिल", "bill" in have), ("aadhaar", "Aadhaar card", "आधार कार्ड", "aadhaar" in have),
+             ("email", "Your email", "तुमचा ईमेल", bool(email))]
+    left = [s for s in steps if not s[3]]
+    phone = vendor().get("phone")
+    help_line = (f'<p class="small" style="text-align:center;margin-top:14px">Need help? Call your installer: '
+                 f'<a href="tel:{e(phone.replace(" ", ""))}"><b>{e(phone)}</b></a></p>') if phone else ""
     note = (f'<div class="err">{e(ERRORS[err])}</div>' if err in ERRORS else
-            f'<div class="ok">Received: {e(KINDS[got][0])}. / मिळाले.</div>' if got in KINDS and still else
-            '<div class="ok">Email saved. / ईमेल मिळाला.</div>' if got == "email" and still else "")
+            f'<div class="ok">&#10003; Got it: {e(KINDS[got][0])}. / मिळाले.</div>' if got in KINDS and left else
+            '<div class="ok">&#10003; Email saved. / ईमेल मिळाला.</div>' if got == "email" and left else "")
 
-    def item(k):
-        t, mr, why = KINDS[k]
-        ok = k in have
-        pick = (f'<label class="again">Send a different photo<input type="file" name="file" accept="image/*,application/pdf" data-up></label>'
-                if ok else f'<label class="pick">Take a photo or choose a file / फोटो पाठवा'
-                           f'<input type="file" name="file" accept="image/*,application/pdf" data-up></label>')
-        return (f'<div class="item"><div class="ih"><b>{t}</b><span class="mr" style="display:inline">/ {mr}</span>'
-                f'{"<span class=got>&#10003; Received / मिळाले</span>" if ok else ""}</div>'
-                f'{"" if ok else f"<div class=small>{why}</div>"}'
-                f'<form method="post" action="/up/{e(token)}/file?kind={k}" enctype="multipart/form-data">{pick}'
+    def upload(k, label, cls):
+        return (f'<form method="post" action="/up/{e(token)}/file?kind={k}" enctype="multipart/form-data">'
+                f'<label class="{cls}">{label}<input type="file" name="file" accept="image/*,application/pdf" data-up></label>'
                 f'<div class="sending" hidden>Sending… keep this page open / पाठवत आहे…</div>'
-                f'<noscript><button type="submit">Send</button></noscript></form></div>')
+                f'<noscript><button type="submit">Send</button></noscript></form>')
 
     email_form = (f'<form method="post" action="/up/{e(token)}/email"><input type="text" inputmode="email" name="email" '
-                  f'autocomplete="email" placeholder="name@example.com" aria-label="Email"><button type="submit">Save email / ईमेल पाठवा</button></form>')
-    email_item = (f'<div class="item"><div class="ih"><b>Your email</b><span class="mr" style="display:inline">/ तुमचा ईमेल</span>'
-                  f'{"<span class=got>&#10003; Received / मिळाले</span>" if email else ""}</div>'
-                  + (f'<details><summary>Change the email</summary>{email_form}</details>' if email else
-                     f'<div class="small">The PM Surya Ghar portal sends a code to this email while registering you.</div>{email_form}')
-                  + '</div>')
-    phone = vendor().get("phone")
-    return page(f"""{top}{note}<div class="card"><h1>Namaskar {first}<span class="mr">तुमची कागदपत्रे पाठवा</span></h1>
-<p class="small">For your rooftop solar registration on PM Surya Ghar. Your installer checks everything before anything is filed.</p>
-{''.join(item(k) for k in REQUIRED)}{email_item}</div>
-<div class="card"><h2>Optional, if you have them now <span class="mr" style="display:inline">/ असल्यास आत्ता पाठवा</span></h2>
-{''.join(item(k) for k in OPTIONAL)}</div>
-{f'<p class="small" style="text-align:center">Questions? Call your installer: <b>{e(phone)}</b></p>' if phone else ''}""")
+                  f'autocomplete="email" placeholder="name@example.com" aria-label="Email">'
+                  f'<button type="submit">Save email / ईमेल पाठवा</button></form>')
+    optional = (f'<details class="card opt"><summary><b>Optional:</b> bank passbook or a roof photo '
+                f'<span class="mr" style="display:inline">/ ऐच्छिक</span></summary>'
+                + "".join(f'<div class="item"><b>{KINDS[k][0]}</b> <span class="mr" style="display:inline">/ {KINDS[k][1]}</span>'
+                          f'{" <span class=got>&#10003; Received</span>" if k in have else ""}<div class="small">{KINDS[k][2]}</div>'
+                          f'{upload(k, "Send a different photo" if k in have else "Take a photo / फोटो पाठवा", "again" if k in have else "pick")}</div>'
+                          for k in OPTIONAL) + '</details>')
+
+    if not left:
+        return page(f"""<div class="done-all"><b>All done. Thank you, {first}.</b><span class="mr">सर्व मिळाले. धन्यवाद.</span>
+<p style="margin:6px 0 0">You can close this page. Your installer will call you when the portal sends you a code.</p></div>
+{optional}{help_line}""")
+
+    k, title, mr, _ = left[0]
+    n = steps.index(left[0]) + 1
+    why = KINDS[k][2] if k in KINDS else "The PM Surya Ghar portal sends a code to this email while registering you."
+    big = email_form if k == "email" else upload(k, "Take a photo or choose a file<span class=\"mr\">फोटो काढा किंवा फाइल निवडा</span>", "pick big")
+    dots = "".join(f'<span class="dot{" on" if s[3] else " now" if s is left[0] else ""}"></span>' for s in steps)
+    checklist = "".join(
+        f'<li class="{"done" if s[3] else "now" if s is left[0] else ""}">'
+        f'{"&#10003;" if s[3] else "&#9679;" if s is left[0] else "&#9675;"} {s[1]}'
+        + (upload(s[0], "Send a different photo", "again") if s[3] and s[0] != "email" else "") + "</li>"
+        for s in steps)
+    return page(f"""{note}<div class="card"><p class="small" style="margin:0 0 8px">Namaskar {first} · for your rooftop solar registration</p>
+<div class="dots" aria-label="Step {n} of 3">{dots}<span class="small">Step {n} of 3</span></div>
+<h1 style="margin-top:10px">{title}<span class="mr">{mr}</span></h1><p class="small">{why}</p>{big}</div>
+<ul class="check">{checklist}</ul>{optional}{help_line}""")
 
 
 @router.post("/{token}/file")
