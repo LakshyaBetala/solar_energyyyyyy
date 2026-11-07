@@ -6,7 +6,7 @@
   "expected": "12 x 200, 12 different IDs",
   "actual": "[200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200]",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D02",
@@ -15,7 +15,7 @@
   "expected": "400; the saved number kept",
   "actual": "(400, '170055509871')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D11",
@@ -24,7 +24,7 @@
   "expected": "400",
   "actual": "(400, 'the consumer number on an MSEDCL bill has 12 digits; this has 9')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D11",
@@ -33,7 +33,7 @@
   "expected": "400",
   "actual": "(400, 'the consumer number on an MSEDCL bill has 12 digits; this has 13')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D11",
@@ -42,7 +42,7 @@
   "expected": "400",
   "actual": "(400, 'that consumer number repeats one digit; check it on the bill')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D11",
@@ -51,7 +51,7 @@
   "expected": "accepted as 170055509871",
   "actual": "200",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -60,7 +60,7 @@
   "expected": "saved as 250000.50",
   "actual": "(200, '250000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -69,7 +69,7 @@
   "expected": "saved as 250000.50",
   "actual": "(200, '250000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -78,7 +78,7 @@
   "expected": "saved as 250000.75",
   "actual": "(200, '250000.75')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -87,7 +87,7 @@
   "expected": "saved as 250000.75",
   "actual": "(200, '250000.75')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -96,7 +96,7 @@
   "expected": "saved as 210000",
   "actual": "(200, '210000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -105,7 +105,7 @@
   "expected": "saved as 210000",
   "actual": "(200, '210000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -114,7 +114,7 @@
   "expected": "saved as 285000",
   "actual": "(200, '285000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -123,7 +123,7 @@
   "expected": "saved as 285000",
   "actual": "(200, '285000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -132,7 +132,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -141,7 +141,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -150,7 +150,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -159,7 +159,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -168,7 +168,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost should be between Rs 10,000 and Rs 2,500,000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -177,7 +177,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost should be between Rs 10,000 and Rs 2,500,000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -186,7 +186,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost should be between Rs 10,000 and Rs 2,500,000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -195,7 +195,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost should be between Rs 10,000 and Rs 2,500,000')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -204,7 +204,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D03",
@@ -213,7 +213,7 @@
   "expected": "400, nothing saved",
   "actual": "(400, 'the installation cost is an amount in rupees, like 285000 or 285000.50')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09",
@@ -222,7 +222,7 @@
   "expected": "400",
   "actual": "(400, \"the customer's name: use letters and spaces (a full stop, apostrophe or hyphen is fine); no digits or symbols\")",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09",
@@ -231,7 +231,7 @@
   "expected": "400",
   "actual": "(400, \"the customer's name: use letters and spaces (a full stop, apostrophe or hyphen is fine); no digits or symbols\")",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09",
@@ -240,7 +240,7 @@
   "expected": "400",
   "actual": "(400, \"the customer's name: use letters and spaces (a full stop, apostrophe or hyphen is fine); no digits or symbols\")",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09",
@@ -249,7 +249,7 @@
   "expected": "400",
   "actual": "(400, \"the customer's name: use letters and spaces (a full stop, apostrophe or hyphen is fine); no digits or symbols\")",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09",
@@ -258,7 +258,7 @@
   "expected": "400",
   "actual": "(400, \"the customer's name must be 3 to 80 characters\")",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -267,7 +267,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -276,7 +276,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -285,7 +285,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -294,7 +294,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -303,7 +303,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D09/R7",
@@ -312,7 +312,7 @@
   "expected": "accepted",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -321,7 +321,7 @@
   "expected": "200; only 7058 kept",
   "actual": "7058",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -330,7 +330,7 @@
   "expected": "400",
   "actual": "(400, 'this Aadhaar number does not pass the check-digit test; check each digit on the card')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -339,7 +339,7 @@
   "expected": "400",
   "actual": "(400, 'enter only the last 4 digits of the Aadhaar, e.g. 4471')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -348,7 +348,7 @@
   "expected": "400",
   "actual": "(400, 'enter only the last 4 digits of the Aadhaar, e.g. 4471')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -357,7 +357,7 @@
   "expected": "400",
   "actual": "(400, 'enter only the last 4 digits of the Aadhaar, e.g. 4471')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D10",
@@ -366,7 +366,7 @@
   "expected": "400",
   "actual": "(400, 'an Aadhaar number never starts with 0 or 1; check it on the card')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "R1",
@@ -375,7 +375,7 @@
   "expected": "only 7058 stored; the full number nowhere",
   "actual": "(200, '7058')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "R1",
@@ -384,7 +384,7 @@
   "expected": "the full number is not in the audit trail",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -393,7 +393,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has digits only; it has none')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -402,7 +402,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has digits only; it has none')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -411,7 +411,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has 10 digits and starts with 6, 7, 8 or 9')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -420,7 +420,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has 10 digits and starts with 6, 7, 8 or 9')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -429,7 +429,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has 10 digits and starts with 6, 7, 8 or 9')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D12",
@@ -438,7 +438,7 @@
   "expected": "400",
   "actual": "(400, 'the mobile number has 10 digits and starts with 6, 7, 8 or 9')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "M1",
@@ -447,7 +447,7 @@
   "expected": "accepted as 9028144599",
   "actual": "(200, '9028144599')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "M1",
@@ -456,7 +456,7 @@
   "expected": "accepted as 9028144599",
   "actual": "(200, '9028144599')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "M1",
@@ -465,7 +465,7 @@
   "expected": "accepted as 9028144599",
   "actual": "(200, '9028144599')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "M1",
@@ -474,7 +474,7 @@
   "expected": "accepted as 9028144599",
   "actual": "(200, '9028144599')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "M1",
@@ -483,7 +483,7 @@
   "expected": "room for '+91 90281 44599' (15)",
   "actual": "[16, 16]",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -492,7 +492,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -501,7 +501,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -510,7 +510,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -519,7 +519,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -528,7 +528,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -537,7 +537,7 @@
   "expected": "400, never 500",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:21"
  },
  {
   "id": "D13",
@@ -546,7 +546,7 @@
   "expected": "400 or 401, never 500",
   "actual": "401",
   "result": "PASS",
-  "at": "2026-11-07T14:13:27"
+  "at": "2026-11-07T15:11:22"
  },
  {
   "id": "M2",
@@ -555,7 +555,7 @@
   "expected": "400",
   "actual": "(400, 'a Maharashtra application number ends in 8 digits, like NP-MHSED26-12345678; check for a missed digit')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "D04",
@@ -564,7 +564,7 @@
   "expected": "saved",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "D04",
@@ -573,7 +573,7 @@
   "expected": "400; the first kept",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R6",
@@ -582,7 +582,7 @@
   "expected": "400 and no 'Replaced' audit row",
   "actual": "(400, 0)",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R6",
@@ -591,7 +591,7 @@
   "expected": "200 and one audit row",
   "actual": "(200, 1)",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "D05",
@@ -600,7 +600,7 @@
   "expected": "400",
   "actual": "(400, 'cannot register: upload the bill and Aadhaar and check what was read first')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "D05",
@@ -609,7 +609,7 @@
   "expected": "400",
   "actual": "400",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "D05",
@@ -618,7 +618,7 @@
   "expected": "400",
   "actual": "(400, 'cannot send the agreement: accept the customer in the vendor login first')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R8",
@@ -627,7 +627,7 @@
   "expected": "400",
   "actual": "(400, 'not ready to send: Vendor-consumer agreement (Missing: Agreement date)')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:28"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R4",
@@ -636,7 +636,7 @@
   "expected": "kept (the portal registered them)",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:29"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R2",
@@ -645,7 +645,7 @@
   "expected": "the typed mobile (the OTP phone) kept",
   "actual": "(200, '9890022222')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:29"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R3",
@@ -654,7 +654,7 @@
   "expected": "400",
   "actual": "(400, 'the consumer number has digits only (spaces and hyphens are fine)')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:29"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R3",
@@ -663,7 +663,7 @@
   "expected": "stored as 170055501234",
   "actual": "(200, '')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:29"
+  "at": "2026-11-07T15:11:23"
  },
  {
   "id": "R11",
@@ -672,7 +672,7 @@
   "expected": "the new bill's reading wins",
   "actual": "LT-I RES",
   "result": "PASS",
-  "at": "2026-11-07T14:13:30"
+  "at": "2026-11-07T15:11:25"
  },
  {
   "id": "R12",
@@ -681,7 +681,7 @@
   "expected": "the page loads (no 500)",
   "actual": "200",
   "result": "PASS",
-  "at": "2026-11-07T14:13:30"
+  "at": "2026-11-07T15:11:25"
  },
  {
   "id": "P3",
@@ -690,7 +690,7 @@
   "expected": "'email' listed as missing (the portal verifies it by OTP)",
   "actual": "['consumer number', 'mobile', 'email (the portal sends it an OTP)', 'proposed capacity (kW)']",
   "result": "PASS",
-  "at": "2026-11-07T14:13:30"
+  "at": "2026-11-07T15:11:25"
  },
  {
   "id": "D14",
@@ -699,7 +699,7 @@
   "expected": "the text is not shown",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:31"
+  "at": "2026-11-07T15:11:25"
  },
  {
   "id": "M6",
@@ -708,16 +708,16 @@
   "expected": "told in English and Marathi, with the tries left",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:31"
+  "at": "2026-11-07T15:11:26"
  },
  {
   "id": "R10",
   "area": "e-sign page",
   "input": "a 9000x9000 'signature' (20 KB)",
   "expected": "refused in under 2 s, server keeps serving",
-  "actual": "0.02s",
+  "actual": "0.03s",
   "result": "PASS",
-  "at": "2026-11-07T14:13:32"
+  "at": "2026-11-07T15:11:27"
  },
  {
   "id": "R7",
@@ -726,7 +726,7 @@
   "expected": "signed",
   "actual": "signed",
   "result": "PASS",
-  "at": "2026-11-07T14:13:32"
+  "at": "2026-11-07T15:11:27"
  },
  {
   "id": "R9",
@@ -735,7 +735,7 @@
   "expected": "a copy is kept at signing; the agreement verifies",
   "actual": "verified",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "D15",
@@ -744,7 +744,7 @@
   "expected": "no 404",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "P1",
@@ -753,7 +753,7 @@
   "expected": "consumer. and vendor.pmsuryaghar.gov.in included",
   "actual": "['https://rts.mahadiscom.in/RoofTopSolarVendor/*', 'https://pmsuryaghar.gov.in/*', 'https://vendor.pmsuryaghar.gov.in/*', 'https://consumer.pmsuryaghar.gov.in/*', 'https://solardcrportal.nise.res.in/*', 'http://127.0.0.1:8900/msedcl/*', 'http://127.0.0.1:8900/portal/*', 'http://127.0.0.1:8900/pmsg/*",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "P2",
@@ -762,7 +762,7 @@
   "expected": "the real login pages",
   "actual": "{'pmsg': 'https://consumer.pmsuryaghar.gov.in/consumer/#/login', 'pmsg_vendor': 'https://vendor.pmsuryaghar.gov.in/vendor/#/login', 'msedcl': 'https://rts.mahadiscom.in/RoofTopSolarVendor/'}",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "P4",
@@ -771,7 +771,7 @@
   "expected": "NP-MHSED26-12345678 accepted",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "E1",
@@ -780,7 +780,7 @@
   "expected": "saved as the portal's 'Ahilyanagar'",
   "actual": "Ahilyanagar",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "E1",
@@ -789,7 +789,7 @@
   "expected": "400; not a district on the portal",
   "actual": "(400, 'Atlantis is not a Maharashtra district on the portal; pick it from the list')",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "E1",
@@ -798,7 +798,7 @@
   "expected": "stored as 'Chhatrapati Sambhajinagar'",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "E1",
@@ -807,7 +807,7 @@
   "expected": "the portal's 36 Maharashtra districts",
   "actual": "36",
   "result": "PASS",
-  "at": "2026-11-07T14:13:33"
+  "at": "2026-11-07T15:11:28"
  },
  {
   "id": "E2",
@@ -816,7 +816,7 @@
   "expected": "200, greets them by first name, WhatsApp to their own number",
   "actual": "200",
   "result": "PASS",
-  "at": "2026-11-07T14:13:34"
+  "at": "2026-11-07T15:11:29"
  },
  {
   "id": "E2",
@@ -825,7 +825,7 @@
   "expected": "403",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:34"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
@@ -834,7 +834,7 @@
   "expected": "stored, read like an owner upload, and the page says received",
   "actual": "(303, ['address', 'amount', 'avg_units', 'bill_mobile'])",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
@@ -843,25 +843,25 @@
   "expected": "shows received, never the bill's contents",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
   "area": "customer link",
   "input": "a document kind the link does not ask for",
   "expected": "refused",
-  "actual": "/up/ypRt3ocMRorKHstDx2Vbx_t4?err=type",
+  "actual": "/up/lH2gdmlnqye2yzIorCg34Kjs?err=type",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
   "area": "customer link",
   "input": "a wrong email",
   "expected": "refused, nothing saved",
-  "actual": "/up/ypRt3ocMRorKHstDx2Vbx_t4?err=email",
+  "actual": "/up/lH2gdmlnqye2yzIorCg34Kjs?err=email",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
@@ -870,7 +870,43 @@
   "expected": "saved on the record",
   "actual": "link.c@example.com",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
+ },
+ {
+  "id": "L2",
+  "area": "customer link",
+  "input": "bill and email sent, Aadhaar not yet",
+  "expected": "the page says what is still needed, and is not 'All done'",
+  "actual": "checked",
+  "result": "PASS",
+  "at": "2026-11-07T15:11:30"
+ },
+ {
+  "id": "L1",
+  "area": "customer link",
+  "input": "a link made while Solara runs on this computer",
+  "expected": "flagged: it will not open on the customer's phone",
+  "actual": "True",
+  "result": "PASS",
+  "at": "2026-11-07T15:11:30"
+ },
+ {
+  "id": "L1",
+  "area": "customer link",
+  "input": "SOLARA_PUBLIC_URL set to the internet address",
+  "expected": "links use that address",
+  "actual": "https://solara.example.in/up/abc",
+  "result": "PASS",
+  "at": "2026-11-07T15:11:30"
+ },
+ {
+  "id": "L3",
+  "area": "dashboard",
+  "input": "the dashboard's script file",
+  "expected": "the browser checks for a newer copy on every load",
+  "actual": "checked",
+  "result": "PASS",
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
@@ -879,16 +915,16 @@
   "expected": "404",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
   "area": "customer link",
   "input": "the 31st file on one link",
   "expected": "refused; the owner sends a new link",
-  "actual": "/up/ypRt3ocMRorKHstDx2Vbx_t4?err=many",
+  "actual": "/up/lH2gdmlnqye2yzIorCg34Kjs?err=many",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E2",
@@ -897,7 +933,7 @@
   "expected": "410, expired",
   "actual": "checked",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:30"
  },
  {
   "id": "E3",
@@ -906,7 +942,7 @@
   "expected": "nothing marked; the status is reported",
   "actual": "{'ok': True, 'updated': [], 'unknown': ['Something new (Pending)'], 'problems': []}",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:31"
  },
  {
   "id": "E3",
@@ -915,7 +951,7 @@
   "expected": "marked accepted in Solara, no click",
   "actual": "[{'id': 'SS-2070', 'name': 'List Customer', 'what': 'accepted in the vendor login'}]",
   "result": "PASS",
-  "at": "2026-11-07T14:13:35"
+  "at": "2026-11-07T15:11:31"
  },
  {
   "id": "E3",
@@ -924,7 +960,7 @@
   "expected": "not marked uploaded; the gap is shown",
   "actual": "{'ok': True, 'updated': [], 'unknown': [], 'problems': [{'id': 'SS-2070', 'name': 'List Customer', 'what': 'the agreement is not signed by both sides yet'}]}",
   "result": "PASS",
-  "at": "2026-11-07T14:13:36"
+  "at": "2026-11-07T15:11:32"
  },
  {
   "id": "M3",
@@ -933,7 +969,7 @@
   "expected": "marked as needed (*), not 'optional'",
   "actual": "Email *",
   "result": "PASS",
-  "at": "2026-11-07T14:13:38"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "M4",
@@ -942,7 +978,7 @@
   "expected": "the 'missing' highlight goes as soon as it has a value",
   "actual": "(True, False)",
   "result": "PASS",
-  "at": "2026-11-07T14:13:38"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "M5",
@@ -951,7 +987,7 @@
   "expected": "read back as Rs 2,10,000 (a missed zero shows)",
   "actual": "Rs 2,10,000",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "U7",
@@ -960,7 +996,7 @@
   "expected": "Documents first and open; the portal section folded",
   "actual": "{'first': 'regDocs', 'open': True, 'portal': False, 'body': '15px', 'label': '13.5px', 'caps': 'none'}",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "U8",
@@ -969,7 +1005,7 @@
   "expected": "body 15px; labels at least 13px, not in capitals",
   "actual": "{'first': 'regDocs', 'open': True, 'portal': False, 'body': '15px', 'label': '13.5px', 'caps': 'none'}",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "U9",
@@ -978,7 +1014,7 @@
   "expected": "it stays open",
   "actual": "[True, True]",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "E4",
@@ -987,7 +1023,7 @@
   "expected": "capacity filled with 3; the button shows it is picked",
   "actual": "['3', '3 kW']",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  },
  {
   "id": "E4",
@@ -996,6 +1032,6 @@
   "expected": "a list of the portal's districts, not a text box",
   "actual": "SELECT:37",
   "result": "PASS",
-  "at": "2026-11-07T14:13:39"
+  "at": "2026-11-07T15:11:35"
  }
 ]

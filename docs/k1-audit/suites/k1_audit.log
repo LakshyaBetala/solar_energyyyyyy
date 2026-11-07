@@ -101,6 +101,10 @@
   PASS  E2     customer link: a document kind the link does not ask for
   PASS  E2     customer link: a wrong email
   PASS  E2     customer link: the customer types their email
+  PASS  L2     customer link: bill and email sent, Aadhaar not yet
+  PASS  L1     customer link: a link made while Solara runs on this computer
+  PASS  L1     customer link: SOLARA_PUBLIC_URL set to the internet address
+  PASS  L3     dashboard: the dashboard's script file
   PASS  E2     customer link: a made-up link
   PASS  E2     customer link: the 31st file on one link
   PASS  E2     customer link: after 7 days
@@ -120,4 +124,4 @@
 
   log: docs/k1-audit/k1_audit_log.md
 
-  111 passed, 0 failed
+  115 passed, 0 failed

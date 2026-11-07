@@ -8,7 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
                msedcl, pmsg, registration, intake, reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region
+from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
@@ -615,8 +616,8 @@ def closeout_sign(cid: str, request: Request, body: dict = Body(default={}),
         token, keys = esign.create(_cid(cid), body.get("docs"), user)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
-    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
-    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url),
+    url = config_public_url(request, f"/sign/{token}")
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url), "local": is_local(url),
             "docs": keys}
 
 
@@ -722,7 +723,7 @@ async def registration_document(cid: str, kind: str, file: UploadFile = File(...
 def registration_ask_docs(cid: str, request: Request, user=Depends(need("operator"))):
     """A link for the customer to send their own bill, Aadhaar and email from their phone."""
     url = intake.link(request, intake.create(_cid(cid), user))
-    return {"url": url, "whatsapp": intake.whatsapp(cid, url), "text": intake.share_text(cid, url)}
+    return {"url": url, "whatsapp": intake.whatsapp(cid, url), "text": intake.share_text(cid, url), "local": is_local(url)}
 
 
 @app.put("/api/registration/{cid}")
@@ -799,8 +800,8 @@ def registration_agreement(cid: str, request: Request, user=Depends(need("operat
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     closeout.mark(cid, user["username"], agreement_sent_at=db.now())
-    url = str(request.base_url).rstrip("/") + f"/sign/{token}"
-    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url)}
+    url = config_public_url(request, f"/sign/{token}")
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url), "local": is_local(url)}
 
 
 # ------------------------------- co-pilot extension -------------------------------
@@ -1012,4 +1013,14 @@ def index():
     return FileResponse(WEB / "index.html")
 
 
-app.mount("/static", StaticFiles(directory=WEB), name="static")
+class FreshStatic(StaticFiles):
+    """The browser asks each time whether the dashboard's files changed (a cheap 304 when not), so an
+    update is seen on the next page load instead of an old copy running from the cache. Set here, on the
+    static files only: a global HTTP middleware would wrap the live run stream too."""
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", FreshStatic(directory=WEB), name="static")

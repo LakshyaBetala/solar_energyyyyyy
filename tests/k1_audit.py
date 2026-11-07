@@ -298,6 +298,17 @@ async def main():
     case("E2", "customer link", "a wrong email", "refused, nothing saved", "err=email" in r.headers["location"] and not closeout.data(e2)[1].get("email"), r.headers["location"])
     r = pub.post(f"/up/{tok}/email", data={"email": "link.c@example.com"})
     case("E2", "customer link", "the customer types their email", "saved on the record", closeout.data(e2)[1].get("email") == "link.c@example.com", closeout.data(e2)[1].get("email"))
+    shown = pub.get(f"/up/{tok}").text
+    case("L2", "customer link", "bill and email sent, Aadhaar not yet", "the page says what is still needed, and is not 'All done'",
+         "Still needed: Aadhaar card" in shown and "All done" not in shown, "checked")
+    case("L1", "customer link", "a link made while Solara runs on this computer", "flagged: it will not open on the customer's phone",
+         a["local"] is True and config.is_local("http://192.168.1.5:8900/up/x") and not config.is_local("https://solara.example.in/up/x"), a["local"])
+    os.environ["SOLARA_PUBLIC_URL"] = "https://solara.example.in/"
+    pu = config.public_url(type("R", (), {"base_url": "http://127.0.0.1:8900/"})(), "/up/abc")
+    os.environ.pop("SOLARA_PUBLIC_URL")
+    case("L1", "customer link", "SOLARA_PUBLIC_URL set to the internet address", "links use that address", pu == "https://solara.example.in/up/abc", pu)
+    case("L3", "dashboard", "the dashboard's script file", "the browser checks for a newer copy on every load",
+         httpx.get(BASE + "/static/app.js").headers.get("cache-control") == "no-cache", "checked")
     case("E2", "customer link", "a made-up link", "404", pub.get("/up/not-a-real-token").status_code == 404, "checked")
     db.ex("UPDATE doc_requests SET uploads=30 WHERE token=?", (tok,))
     r = pub.post(f"/up/{tok}/file", params={"kind": "roof"}, files={"file": ("r.jpg", b"\xff\xd8\xff", "image/jpeg")})

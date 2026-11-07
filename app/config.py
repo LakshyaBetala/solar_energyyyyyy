@@ -56,4 +56,27 @@ def vendor():
     this module). The public repo never carries a client's identity."""
     import os
     return {"name": os.environ.get("SOLARA_VENDOR_NAME", "Demo Solar Solutions Pvt Ltd"),
-            "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory")}
+            "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory"),
+            "phone": os.environ.get("SOLARA_VENDOR_PHONE", "")}
+
+
+def public_url(request, path):
+    """A link the customer opens on their own phone. SOLARA_PUBLIC_URL is Solara's internet address
+    (for example https://solara.example.in); without it the link uses the address this request came in on."""
+    import os
+    base = (os.environ.get("SOLARA_PUBLIC_URL") or str(request.base_url)).rstrip("/")
+    return base + path
+
+
+def is_local(url):
+    """True when a link would open only on this computer or this office network, never on a customer's phone."""
+    import ipaddress
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if host in ("localhost", "") or host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False

@@ -589,6 +589,7 @@ const regKwChips = (g, val, op) => {
   const sug = g.suggest && g.suggest.kw, sizes = [...new Set([...REG_KW, ...(sug ? [sug] : [])])].sort((a, b) => a - b);
   return `<div class="kwchips" role="group" aria-label="Pick the capacity">${sizes.map(n => `<button type="button" class="chip${+val === n ? ' on' : ''}${n === sug ? ' sug' : ''}" data-usekw="${n}" aria-pressed="${+val === n}"${op}>${n} kW</button>`).join('')}</div>`;
 };
+const LOCAL_WARN = s => s.local ? '<div class="hint" style="color:var(--warn);margin-top:8px">This link only opens on this computer or office network, not on the customer\u2019s phone. Solara needs its internet address (SOLARA_PUBLIC_URL) before customers can use links.</div>' : '';
 const regFold = (id, title, meta, body, def) => {
   const open = (S.regOpen || {})[id] ?? def;
   return `<details class="rgsec" id="${id}" data-fold="${id}"${open ? ' open' : ''}>
@@ -721,7 +722,7 @@ async function regSendAgreement() {
   try {
     const s = await api(`/registration/${S.regCid}/agreement`, { method: 'POST', body: {} });
     modal('Agreement to the customer', 'They confirm the last 4 digits of their consumer number, read the agreement and sign with a finger. The link works for 7 days.',
-      `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+      `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>${LOCAL_WARN(s)}
        <div class="hint">With the customer? Open it on your phone and hand it over.</div>`,
       `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
        <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
@@ -734,7 +735,7 @@ async function regAskDocs() {
   try {
     const s = await api(`/registration/${S.regCid}/ask-docs`, { method: 'POST', body: {} });
     modal('Documents from the customer', 'They photograph the bill and the Aadhaar and type their email on their own phone. Everything comes back here to check. The link works for 7 days.',
-      `<div class="field"><label for="askUrl">Link</label><input type="text" readonly value="${esc(s.url)}" id="askUrl"></div>`,
+      `<div class="field"><label for="askUrl">Link</label><input type="text" readonly value="${esc(s.url)}" id="askUrl"></div>${LOCAL_WARN(s)}`,
       `<button class="btn" data-close>Close</button><button class="btn" id="askCopy">Copy link</button>
        ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : '<span class="hint">Add their mobile to send it on WhatsApp.</span>'}`);
   } catch (err) { toast(err.message, true); }
@@ -911,7 +912,7 @@ async function coAct(act) {
     try {
       const s = await api(`/closeout/${S.coCid}/sign`, { method: 'POST', body: {} });
       modal('Send to the customer', `${s.docs.length} document(s). The link works for 7 days and only after the customer enters the last 4 digits of their consumer number.`,
-        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>${LOCAL_WARN(s)}
          <div class="hint">At the site? Open it on your phone and hand it to the customer.</div>`,
         `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
          <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>

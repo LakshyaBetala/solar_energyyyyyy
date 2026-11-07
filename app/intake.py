@@ -12,7 +12,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, UploadFile, File, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from . import db, closeout, valid
-from .config import vendor
+from .config import vendor, public_url
 from .esign import CSS
 
 router = APIRouter(prefix="/up")
@@ -54,13 +54,46 @@ def whatsapp(cid, url):
     return f"https://wa.me/91{num}?text={quote(share_text(cid, url))}" if len(num) == 10 else None
 
 
+REQUIRED = ("bill", "aadhaar")      # with the email, what the portal needs to register them; the rest can come later
+OPTIONAL = ("passbook", "roof")
+
+# Big phone photos (3-8 MB) are slow on mobile data. Shrink only those, keep plenty of pixels for the
+# Aadhaar QR, and send the original if anything goes wrong. A PDF is never touched.
+UPLOAD_JS = """<script>
+async function shrink(f) {
+  if (!/^image\\//.test(f.type) || f.size < 3e6 || !window.createImageBitmap) return f;
+  const img = await createImageBitmap(f), s = Math.min(1, 3000 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const b = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+  return b && b.size < f.size ? new File([b], (f.name || 'photo').replace(/\\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : f;
+}
+document.querySelectorAll('input[data-up]').forEach(inp => inp.addEventListener('change', async () => {
+  const f = inp.files[0]; if (!f) return;
+  const form = inp.form, msg = form.querySelector('.sending');
+  msg.hidden = false; document.querySelectorAll('input[data-up]').forEach(x => { if (x !== inp) x.disabled = true; });
+  let file = f; try { file = await shrink(f); } catch (e) { file = f; }
+  const fd = new FormData(); fd.append('file', file, file.name || f.name);
+  try { const r = await fetch(form.action, { method: 'POST', body: fd }); location.href = r.url; }
+  catch (e) { msg.textContent = 'Could not send. Check the internet and try again. / पाठवता आले नाही, पुन्हा प्रयत्न करा.';
+              document.querySelectorAll('input[data-up]').forEach(x => { x.disabled = false; }); }
+}));
+</script>"""
+
+
 def page(body, status=200):
     return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Send your documents</title>
-<style>{CSS}.item{{border-top:1px solid #EDF0F3;padding:14px 0}}.item:first-child{{border-top:0}}
-.got{{color:#0B5133;font-weight:700}}.pick{{position:relative;display:block;margin-top:8px;padding:12px;border:2px dashed #7C8A97;
-border-radius:8px;text-align:center;font-weight:700;color:#0B4F6C;cursor:pointer}}.pick input{{position:absolute;opacity:0;width:1px;height:1px}}.pick:focus-within{{outline:3px solid #0B6E4F;outline-offset:2px}}</style>
-</head><body><div class="wrap"><div class="hd">{e(vendor()['name'])}</div>{body}</div></body></html>""", status_code=status)
+<style>{CSS}.item{{border-top:1px solid #EDF0F3;padding:14px 0}}.item:first-child{{border-top:0;padding-top:4px}}
+.ih{{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}}.got{{color:#0B5133;font-weight:700;white-space:nowrap}}
+.pick{{position:relative;display:block;margin-top:10px;padding:13px;border:2px dashed #7C8A97;border-radius:8px;text-align:center;
+font-weight:700;color:#0B4F6C;cursor:pointer}}.again{{position:relative;display:inline-block;margin-top:6px;color:#0B5C8C;
+text-decoration:underline;font-size:14px;cursor:pointer}}.pick input,.again input{{position:absolute;opacity:0;width:1px;height:1px}}
+.pick:focus-within,.again:focus-within{{outline:3px solid #0B6E4F;outline-offset:2px}}
+.sending{{margin-top:8px;font-weight:700;color:#0B4F6C}}.todo{{background:#FFF4DE;color:#5C3D00;border-radius:8px;padding:12px 14px;margin-bottom:12px}}
+.done-all{{background:#E7F5EE;color:#0B5133;border-radius:10px;padding:16px;margin-bottom:12px}}.done-all b{{font-size:18px}}
+h2{{font-size:16px;margin:0 0 4px}}details summary{{cursor:pointer;color:#0B5C8C;font-size:14px;margin-top:6px}}</style>
+</head><body><div class="wrap"><div class="hd">{e(vendor()['name'])}</div>{body}</div>{UPLOAD_JS}</body></html>""", status_code=status)
 
 
 def message(title, mr, text, status):
@@ -84,25 +117,43 @@ def show(token: str, got: str = "", err: str = ""):
     cid = r["customer_id"]
     c, d = closeout.data(cid)
     have = {x["kind"] for x in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
-    first = e((c["aadhaar_name"] or c["name"]).split()[0])
-    note = (f'<div class="err">{e(ERRORS[err])}</div>' if err in ERRORS else
-            f'<div class="ok">Received: {e(KINDS[got][0])}. Thank you. / मिळाले, धन्यवाद.</div>' if got in KINDS else
-            '<div class="ok">Email saved. Thank you. / ईमेल मिळाला.</div>' if got == "email" else "")
-    items = "".join(f"""<div class="item"><b>{t}</b> <span class="mr" style="display:inline">/ {mr}</span>
-<div class="small">{why}</div>{'<div class="got">&#10003; Received / मिळाले</div>' if k in have else ''}
-<form method="post" action="/up/{e(token)}/file?kind={k}" enctype="multipart/form-data">
-<label class="pick">{'Send it again' if k in have else 'Take a photo or choose a file'} / फोटो पाठवा
-<input type="file" name="file" accept="image/*,application/pdf" onchange="this.form.submit()"></label>
-<noscript><button type="submit">Send</button></noscript></form></div>""" for k, (t, mr, why) in KINDS.items())
     email = d.get("email")
-    return page(f"""{note}<div class="card"><h1>Namaskar {first}<span class="mr">तुमची कागदपत्रे पाठवा</span></h1>
+    first = e((c["aadhaar_name"] or c["name"]).split()[0])
+    still = [KINDS[k][0] for k in REQUIRED if k not in have] + ([] if email else ["Your email"])
+    top = ('<div class="done-all"><b>All done. Thank you.</b><span class="mr">सर्व मिळाले. धन्यवाद.</span>'
+           '<p style="margin:6px 0 0">You can close this page. Your installer will call you when the portal sends you a code.</p></div>'
+           if not still else f'<div class="todo"><b>Still needed: {e(", ".join(still))}</b><span class="mr">अजून हवे</span></div>')
+    note = (f'<div class="err">{e(ERRORS[err])}</div>' if err in ERRORS else
+            f'<div class="ok">Received: {e(KINDS[got][0])}. / मिळाले.</div>' if got in KINDS and still else
+            '<div class="ok">Email saved. / ईमेल मिळाला.</div>' if got == "email" and still else "")
+
+    def item(k):
+        t, mr, why = KINDS[k]
+        ok = k in have
+        pick = (f'<label class="again">Send a different photo<input type="file" name="file" accept="image/*,application/pdf" data-up></label>'
+                if ok else f'<label class="pick">Take a photo or choose a file / फोटो पाठवा'
+                           f'<input type="file" name="file" accept="image/*,application/pdf" data-up></label>')
+        return (f'<div class="item"><div class="ih"><b>{t}</b><span class="mr" style="display:inline">/ {mr}</span>'
+                f'{"<span class=got>&#10003; Received / मिळाले</span>" if ok else ""}</div>'
+                f'{"" if ok else f"<div class=small>{why}</div>"}'
+                f'<form method="post" action="/up/{e(token)}/file?kind={k}" enctype="multipart/form-data">{pick}'
+                f'<div class="sending" hidden>Sending… keep this page open / पाठवत आहे…</div>'
+                f'<noscript><button type="submit">Send</button></noscript></form></div>')
+
+    email_form = (f'<form method="post" action="/up/{e(token)}/email"><input type="text" inputmode="email" name="email" '
+                  f'autocomplete="email" placeholder="name@example.com" aria-label="Email"><button type="submit">Save email / ईमेल पाठवा</button></form>')
+    email_item = (f'<div class="item"><div class="ih"><b>Your email</b><span class="mr" style="display:inline">/ तुमचा ईमेल</span>'
+                  f'{"<span class=got>&#10003; Received / मिळाले</span>" if email else ""}</div>'
+                  + (f'<details><summary>Change the email</summary>{email_form}</details>' if email else
+                     f'<div class="small">The PM Surya Ghar portal sends a code to this email while registering you.</div>{email_form}')
+                  + '</div>')
+    phone = vendor().get("phone")
+    return page(f"""{top}{note}<div class="card"><h1>Namaskar {first}<span class="mr">तुमची कागदपत्रे पाठवा</span></h1>
 <p class="small">For your rooftop solar registration on PM Surya Ghar. Your installer checks everything before anything is filed.</p>
-{items}</div>
-<div class="card"><b>Your email</b> <span class="mr" style="display:inline">/ तुमचा ईमेल</span>
-<div class="small">The PM Surya Ghar portal sends a code to this email while registering you.</div>
-{'<div class="got">&#10003; Received / मिळाले</div>' if email else ''}
-<form method="post" action="/up/{e(token)}/email"><input type="text" inputmode="email" name="email" autocomplete="email"
-placeholder="name@example.com" aria-label="Email"><button type="submit">Save email / ईमेल पाठवा</button></form></div>""")
+{''.join(item(k) for k in REQUIRED)}{email_item}</div>
+<div class="card"><h2>Optional, if you have them now <span class="mr" style="display:inline">/ असल्यास आत्ता पाठवा</span></h2>
+{''.join(item(k) for k in OPTIONAL)}</div>
+{f'<p class="small" style="text-align:center">Questions? Call your installer: <b>{e(phone)}</b></p>' if phone else ''}""")
 
 
 @router.post("/{token}/file")
@@ -143,4 +194,4 @@ def take_email(token: str, email: str = Form("")):
 
 
 def link(request: Request, token):
-    return str(request.base_url).rstrip("/") + f"/up/{token}"
+    return public_url(request, f"/up/{token}")
