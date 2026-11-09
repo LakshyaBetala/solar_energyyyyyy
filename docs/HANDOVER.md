@@ -49,7 +49,7 @@ Week 7 is held in reserve. The detailed KPI for each milestone and who does what
 
 A new customer's documents go in once; the customer is **registered on PM Surya Ghar → the
 installer is selected as vendor → accepted in the vendor login → the vendor agreement is e-signed
-by the customer and uploaded**. All portal fields are filled by Solara; the owner types only OTPs
+by the customer, uploaded, and approved by the customer in their own login**. All portal fields are filled by Solara; the owner types only OTPs
 and CAPTCHAs, confirms anything Solara flagged, and presses every Submit.
 
 **Acceptance (KPI K1), all must pass on the client's real customers:**
@@ -58,7 +58,7 @@ and CAPTCHAs, confirms anything Solara flagged, and presses every Submit.
 |---|---|---|
 | 1 | 3 real new customers, each in **≤ 5 minutes of owner's time** from documents to "accepted in vendor login" | stopwatch; time waiting for the customer's OTP is not counted. Solara also shows "Documents to accepted" (includes waiting) |
 | 2 | **Customer details read automatically** from the documents; anything unclear is **flagged, never guessed** | the "What Solara read" card: every value has a source; unread items say why |
-| 3 | **Agreement e-signed** by the customer and **uploaded through Solara** | step 5 and 6 ticked on the Registration screen; the portal shows the agreement |
+| 3 | **Agreement e-signed** by the customer and **uploaded through Solara** | steps 5, 6 and 7 ticked on the Registration screen; the portal shows the agreement approved |
 | 4 | **Nothing typed by hand** except OTPs, CAPTCHA and fields Solara flagged | watch the owner; the co-pilot panel lists anything "left for you" |
 
 Status today: **built and passing in the sandbox** (section 5). What remains is proving it on the
@@ -97,6 +97,7 @@ security.**
 | 4 Accepted | approves the customer in Vendor Consent, then **I approved it** in Solara | stamps the time; times documents → accepted | `registration.mark("accepted")` |
 | 5 Agreement e-signed | **Send the agreement for e-sign** → WhatsApp or hands over the phone | the customer enters the last 4 digits of their consumer number, reads, signs once; the signature is bound to that exact document version | `esign.py`, `closeout.doc_hash` |
 | 6 Agreement uploaded | My Application → Update Agreement; **Fill** in the panel; Submit; **I pressed Submit** | finds the customer inside the dialog, fills the cost, attaches the signed PDF, marks the step | `panel.js formMode`; event `agreement_uploaded` |
+| 7 Customer approved | logged in as the customer (they read out the SMS code): Action → Submit Agreement Details → Approve → tick → Verify & Approve; then the panel's **I pressed Verify & Approve**, or **Mark it approved** in Solara | records the approval; also reads it from the customer login's ten-stage tracker; tells the vendor window | event `customer_approved`; `registration.from_portal_list` |
 
 The Registration screen always shows **one** next-action button, decided in
 `registration.status()`. If a user is ever unsure what to do, the button says it.
@@ -228,8 +229,9 @@ Use the sandbox first; then the same script on the real portals with the owner a
 | 10 | CAPTCHA, declaration, Submit | panel: "Application number NP-… saved in Solara"; dashboard step 3 ticked |
 | 11 | Vendor Consent → Approve; in Solara **I approved it** | step 4 ticked; "Documents to accepted" time shown |
 | 12 | **Send the agreement for e-sign**; open the link on a phone-sized window; wrong digits once, then right | wrong digits refused; after signing "Thank you"; step 5 ticked |
-| 13 | Vendor → Update Agreement → **Fill**, check, Submit, then **I pressed Submit** in the panel | cost filled and `…_agreement.pdf` attached; after marking, step 6 ticked and the button reads "Milestone 1 done" |
-| 14 | Sign in as `a.more` (viewer) | every button that changes something is disabled |
+| 13 | Vendor → Update Agreement → **Fill**, check, Submit, then **I pressed Submit** in the panel | cost filled and `…_agreement.pdf` attached; after marking, step 6 ticked and the button reads "Approve the agreement in the customer's login" |
+| 14 | The customer approves it in their login; press **Mark it approved** in Solara (on the real portal: the panel's "I pressed Verify & Approve") | step 7 ticked; the button reads "Milestone 1 done" |
+| 15 | Sign in as `a.more` (viewer) | every button that changes something is disabled |
 
 Record each run in a sheet: date, who, steps passed, anything odd, screenshots of anything odd.
 

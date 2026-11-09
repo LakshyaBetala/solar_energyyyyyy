@@ -14,15 +14,15 @@ CAPTCHA, declarations, Submit), by design.
 |---|---|---|---|---|---|
 | 1 | Log in as the customer | consumer.pmsuryaghar.gov.in, customer's mobile | owner, customer reads the OTP | mobile OTP + arithmetic CAPTCHA | 👤, Today shows the call |
 | 2 | Complete profile (first login only) | consumer | owner | — (email OTP only if an email is given) | ✅ name, state, district |
-| 3 | "Do you want the Vendor to fill the Application form?" | consumer | owner answers **No** | — | 🟡 not mentioned in the panel |
+| 3 | "Do you want the Vendor to fill the Application form?" | consumer | owner answers **No** | — | ✅ the panel says answer No |
 | 4 | Start a new application: fetch from the DISCOM | consumer (dialog) | owner | — | ✅ state, district, DISCOM, consumer no. |
-| 5 | Application form, submit | consumer | owner | — | 🟡 gender not filled (§2.5) |
+| 5 | Application form, submit | consumer | owner | — | ✅ gender, category, kWp, bill (§6) |
 | 6 | Feasibility | DISCOM, automatic | — | — | ✅ (auto-approved the same minute) |
 | 7 | Select vendor | consumer | owner | — | ✅ vendor name |
-| 8 | Subsidy bank details | consumer | owner | — | ❌ (§2.8) |
+| 8 | Subsidy bank details | consumer | owner | — | 🟡 type, bank, IFSC, holder, passbook; branch and account number typed (§6) |
 | 9 | Vendor Consent: Accept | vendor.pmsuryaghar.gov.in, owner's login | owner | email + password + CAPTCHA + OTP to owner's phone | ✅ (KPI 1) |
 | 10 | Upload Agreement | vendor | owner | — | ✅ cost + file |
-| 11 | **Customer approves the agreement** | consumer | owner, logged in as the customer | mobile OTP again if logged out | ❌ **not a step in Solara** |
+| 11 | **Customer approves the agreement** | consumer | owner, logged in as the customer | mobile OTP again if logged out | ✅ step 7 in Solara; the panel records it (§6) |
 | 12 | Site Feasibility Report | vendor | owner | — | 🟡 (§2.12) |
 | 13 | Bank loan (loan customers only) | consumer → Jan Samarth → Bank of Maharashtra portal | customer + owner | Aadhaar OTP, bank OTP + CAPTCHA | 🟡 Jan Samarth stand-in only (§2.13) |
 

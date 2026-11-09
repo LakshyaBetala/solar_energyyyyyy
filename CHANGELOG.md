@@ -1,10 +1,56 @@
 # Changelog
 
-All notable changes to Solara. This file lists **uncommitted** work on `feature/k1-completion-v2`,
-on top of commit `6a0c2ec` ("K1 completion: duplicates, validation, durable corrections, ...").
-Nothing below is committed yet.
+All notable changes to Solara on the KPI-1 branch, `k1-owner`, newest first. Which branch holds what,
+and what is next: [docs/BRANCHES.md](docs/BRANCHES.md). The client's 7 Nov walkthrough, broken down
+into every portal step and field: [docs/PRE_INSTALLATION_FIELDS.md](docs/PRE_INSTALLATION_FIELDS.md).
 
-## Unreleased
+## 2026-11-07: the owner's way of working, and the customer login (k1-owner)
+
+After the 7 Nov meeting with the owner: he works alone, logs in as each customer with their OTP, and
+walked through the whole pre-installation process on the real portal. All 10 suites are green after
+each change.
+
+### Added
+- **Today** is the home page: one list across all customers in plain words (calls to make, to do in
+  Solara, on the government website, waiting for the customer), one button per line.
+- **OTP calls**: the call line shows the customer's number to tap and a ready WhatsApp heads-up that
+  a code is coming. The owner taps Send; Solara sends nothing itself.
+- **Customer document link** (`/up/<token>`): the customer sends the bill, Aadhaar, passbook, roof
+  photo and email from their own phone, one thing at a time. Links use `SOLARA_PUBLIC_URL`.
+- **Seventh step, "Customer approved it on the portal"**: after the vendor uploads the agreement, the
+  customer approves it in their own login. Today shows the call; the co-pilot shows the steps in the
+  approval dialog and a mark button; the dashboard has "Mark it approved".
+- **The co-pilot reads the customer login's ten-stage tracker** (My Applications) and updates Solara:
+  agreement uploaded, customer approved. A tracker behind Solara moves nothing back.
+- **Vendor and customer logins side by side** from Today and the upload step. What one window marks
+  shows at once in the other window's panel; the dashboard refreshes when the owner comes back to it.
+- **More fields filled**: State, District and DISCOM dropdowns on the live portal; gender (Aadhaar QR);
+  subsidy bank details (account type, bank name from the IFSC, IFSC, holder); "Proposed kWp".
+- The co-pilot reads the vendor's **My Application** list and marks customers accepted.
+- **"Send this page's layout to Solara"**: the field names, types and choices of a real page, never values.
+- **Connect the Chrome helper** button on Today (it was only reachable from Close-out before).
+- Docs: `K1_AUDIT.md` (89 cases), `UX_AUDIT.md`, `K1_NEEDED_FROM_CLIENT.md`, `K1_FIRST_REAL_TRIAL.md`,
+  `PRE_INSTALLATION_FIELDS.md`, `BRANCHES.md`, `PRODUCT.md`, `DESIGN.md`.
+
+### Changed
+- **Email is optional**, as on the real portal. It no longer blocks registering, and there is no
+  email OTP unless one is entered.
+- The registration screen is built around one next step; 15px text; finished sections fold.
+- The menu shows five places: Today, Registration, Close-out, Audit Trail, Reports.
+- kW is one tap; district is the portal's own list of 36 Maharashtra districts.
+- Files sent to the portal: photos become JPEG under 2 MB (the pre-installation photo under 1 MB); a
+  PDF over 2 MB is refused with a message instead of failing on the portal.
+- "Do you want the Vendor to fill…": the panel says answer No.
+
+### Fixed
+- The customer's approval was silently not stored (`agreement_approved_at` was missing from the
+  allowed close-out keys).
+- A demo database with its documents removed crashed at startup on a customer with no address.
+- All 89 audit cases (53 passed on k1-rpx), among them: the e-sign page took 12.8 s on a huge
+  signature (now refused in 0.02 s), a viewer could type in a check box, "3.5 kW approx." crashed the
+  page, and the owner's OTP mobile could be replaced by the bill's.
+
+## 2026-11-04 to 06: K1 completion and validation (feature/k1-completion-v2, k1-rpx)
 
 ### Added
 - **Full Aadhaar number entry.** A 12-digit Aadhaar number can be typed in a new "Aadhaar number" box
