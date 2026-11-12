@@ -1,0 +1,33 @@
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+  PASS  sign-in screen renders
+  PASS  the menu has five places: Today, Registration, Close-out, Audit Trail, Reports  — today, reg, closeout, audit, reports
+  PASS  no AI calling, number pool, agent runs or pipeline in the menu
+  PASS  the day opens on Today
+  PASS  the top bar shows who is signed in, nothing technical  — Signed in
+Rohit Deshmukh
+·
+supervisor
+  PASS  the OTP call to make is listed first
+  PASS  the call line shows the customer's number to tap
+  PASS  the call line carries the WhatsApp heads-up that two codes are coming
+  PASS  only the top line has the filled button
+  PASS  the menu badge counts the lines to do  — 6 vs 6
+  PASS  Register now opens that customer at the Register step, with the number to call
+  PASS  Check it opens the customer with the value to check in focus  — bill_name
+  PASS  a close-out line opens that customer in Close-out
+  PASS  audit opens
+  PASS  reports opens
+  PASS  a new customer is one name away, then one tap to ask for documents on WhatsApp
+  PASS  the owner is warned when the link would only open on this computer
+  PASS  the customer is asked for one thing: step 1 of 3, the electricity bill
+  PASS  the customer sees the installer's number for help
+  PASS  the customer page fits a phone  — 0px
+  PASS  viewer signs in
+  PASS  viewer cannot send links or documents from Today
+  PASS  light theme applies  — rgb(238, 241, 244)
+  PASS  dark theme applies
+  PASS  Today has no sideways scroll at 420px  — 0px
+  PASS  no JavaScript errors
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  26 passed, 0 failed

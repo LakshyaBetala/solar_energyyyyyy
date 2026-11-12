@@ -393,6 +393,8 @@ cp .env.example .env
 ```
 
 ```ini
+# AI is off by default; both lines are needed to switch it on (last resort for unreadable bills)
+SOLARA_USE_AI=1
 ANTHROPIC_API_KEY=...
 # optional model override
 SOLARA_MODEL=claude-sonnet-5-5

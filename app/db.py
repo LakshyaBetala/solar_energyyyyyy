@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS sign_requests(
   expires_at TEXT, status TEXT, attempts INTEGER DEFAULT 0, verify_secret TEXT,
   signed_at TEXT, signer_name TEXT, ip TEXT, ua TEXT);
 -- role 'consumer' (per customer) or 'vendor' (customer_id NULL, the company's signatory)
+CREATE TABLE IF NOT EXISTS doc_requests(
+  token TEXT PRIMARY KEY, customer_id TEXT, created_by TEXT, created_at TEXT, expires_at TEXT,
+  uploads INTEGER DEFAULT 0, last_at TEXT);
 CREATE TABLE IF NOT EXISTS signatures(
   id INTEGER PRIMARY KEY, customer_id TEXT, role TEXT, name TEXT, path TEXT,
   created_at TEXT, request_token TEXT);

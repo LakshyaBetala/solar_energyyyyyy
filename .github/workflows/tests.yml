@@ -37,8 +37,16 @@ jobs:
         run: python tests/milestone2.py
       - name: Milestone 3 acceptance (K3)
         run: python tests/milestone3.py
+      - name: Milestone 4 acceptance (K4)
+        run: python tests/milestone4.py
+      - name: K1 completion (duplicates, validation, corrections, agreement evidence, co-pilot safety)
+        run: python tests/k1_complete.py
       - name: Co-pilot on the real portal labels
         run: python tests/real_labels.py
+      - name: Input rules and step order
+        run: python tests/validation.py
+      - name: KPI 1 audit (every registered defect and review finding)
+        run: python tests/k1_audit.py
       - name: Longevity (migrations, health, drift, pins)
         run: python tests/longevity.py
       - name: Live mode

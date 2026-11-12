@@ -130,7 +130,10 @@ async def add_label(cid, kind, raw, who):
             out.append({"id": dup["id"], "serial": s, "status": "repeat", "note": "already read from another photo"})
             continue
         other = _owner(s, cid)
-        status, note = ("clash", f"already on {other}; MNRE rejects a repeated serial") if other else ("read", "")
+        # since 26 May 2026 the national portal refuses a repeated serial outright (no undertaking route)
+        status, note = ("clash", f"already on {other}; the portal refuses a repeated serial") if other else ("read", "")
+        if other:
+            db.audit("field team", "field", "Serial repeat refused", cid, f"{s} is already on {other}")
         rid = db.ex("""INSERT INTO serial_reads(customer_id,kind,serial,source,photo,status,note,ts)
                        VALUES(?,?,?,?,?,?,?,?)""", (cid, kind, s, source, "", status, note, db.now()))
         _save_thumb(cid, rid, thumb)
@@ -157,6 +160,8 @@ def add_typed(cid, kind, serial, who):
     if db.one("SELECT 1 FROM serial_reads WHERE customer_id=? AND serial=? AND status<>'rejected'", (cid, s)):
         raise ValueError(f"{s} is already in the list")
     other = _owner(s, cid)
+    if other:
+        db.audit("field team", "field", "Serial repeat refused", cid, f"{s} is already on {other}")
     stamp_field(cid, who)
     return db.ex("""INSERT INTO serial_reads(customer_id,kind,serial,source,photo,status,note,ts)
                     VALUES(?,?,?,?,?,?,?,?)""", (cid, kind, s, "typed", "", "clash" if other else "read",

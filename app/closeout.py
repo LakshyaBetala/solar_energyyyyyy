@@ -13,6 +13,7 @@ import fitz  # PyMuPDF: shrinks manufacturer datasheets to fit the upload limit
 from PIL import Image, ExifTags
 from playwright.async_api import async_playwright
 from . import db, vault
+from .config import pdf_browser
 from .config import DOCS, DATA, MAX_UPLOAD_KB, vendor
 
 LIBRARY = DATA / "library"  # datasheets, uploaded once per module + inverter pair
@@ -79,7 +80,7 @@ SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           "sfr_at", "loan_at", "field_at", "serials_at", "dcr_at", "dcr_dealer_wait",
           "installation_at", "install_accepted_at", "paused_at", "paused_by", "paused_reason",
           "approved_sfr", "approved_loan", "approved_dcr", "approved_installation",
-          "approved_registration", "approved_msedcl", "photo_source")
+          "approved_registration", "approved_msedcl", "photo_source", "agreement_approved_at")
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,
@@ -274,7 +275,7 @@ def t_agreement(c, d, sig, V):
 supply, installation, commissioning and 5-year comprehensive maintenance of a rooftop solar (RTS)
 project/system along with warranty under PM Surya Ghar: Muft Bijli Yojana</p>
 <p style="text-align:center"><b>Between</b></p>
-<p><b>{e(c['aadhaar_name'])}</b>, having address {e(c['address'])}, {e(c['pin'])}, electricity
+<p><b>{e(c['aadhaar_name'] or c['name'])}</b>, having address {e(c['address'])}, {e(c['pin'])}, electricity
 consumer number {e(c['consumer_no'])} (hereinafter referred to as the first party, i.e.
 consumer / purchaser / owner of the system)</p>
 <p style="text-align:center"><b>And</b></p>
@@ -492,8 +493,14 @@ def png_from_data_url(url):
     raw = base64.b64decode(m.group(1))
     if len(raw) > 400_000:
         raise ValueError("signature image too large")
-    im = Image.open(io.BytesIO(raw)).convert("RGBA")
-    ink = sum(1 for px in im.getdata() if px[3] > 40)
+    try:
+        im = Image.open(io.BytesIO(raw))
+    except Exception:
+        raise ValueError("the signature could not be read; please sign again")
+    if im.width * im.height > 2400 * 1200:  # a pad is at most a few hundred pixels; refuse before decoding
+        raise ValueError("the signature could not be read; please sign again")
+    im = im.convert("RGBA")
+    ink = sum(im.getchannel("A").point(lambda a: 255 if a > 40 else 0).histogram()[255:])
     if ink < 150:
         raise ValueError("the signature is empty; draw it in the box")
     out = io.BytesIO()
@@ -519,6 +526,54 @@ def approval(cid, key):
     """The approval covering this document's current content, if any."""
     return db.one("SELECT * FROM approvals WHERE customer_id=? AND doc_key=? AND doc_hash=? "
                   "ORDER BY id DESC", (cid, key, doc_hash(key, cid)))
+
+
+def snapshot_path(token, key, cid):
+    return DOCS / cid / "esign" / f"{token}_{key}.html"
+
+
+def save_snapshot(token, key, cid):
+    """Keep, encrypted, the exact document the customer was sent to read."""
+    p = snapshot_path(token, key, cid)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    vault.write(p, unsigned_html(key, cid).encode())
+
+
+def snapshot_html(token, key, cid):
+    """The document as the customer saw it, or None if no copy was kept."""
+    p = snapshot_path(token, key, cid)
+    return vault.read(p).decode() if p.exists() else None
+
+
+def verify_agreement(cid):
+    """Is the agreement on file really the one this customer approved? Returns
+    {ok, problems, evidence}. Checks: an approval for the current content, a copy of what was
+    shown that still hashes to the approved value, the customer's own signature from the same
+    signing request, and the company signature."""
+    problems, ev = [], {}
+    a, s = approval(cid, "agreement", ), signature("consumer", cid)
+    if not a:
+        problems.append("the customer has not approved the current version of the agreement")
+    else:
+        req = db.one("SELECT * FROM sign_requests WHERE token=?", (a["request_token"],))
+        snap = snapshot_html(a["request_token"], "agreement", cid)
+        ev = {"approval_id": a["id"], "approved_at": a["ts"], "doc_hash": a["doc_hash"],
+              "token": a["request_token"][:6] + "…", "signer": req and req["signer_name"],
+              "signed_at": req and req["signed_at"], "ip": req and req["ip"],
+              "snapshot_kept": snap is not None}
+        if not req or req["customer_id"] != cid or req["status"] != "signed":
+            problems.append("the signing request is missing or belongs to another customer")
+        if snap is None:
+            problems.append("no copy of the document the customer was shown was kept")
+        elif hashlib.sha256(snap.encode()).hexdigest() != a["doc_hash"]:
+            problems.append("the copy the customer was shown does not match what they approved")
+    if not s:
+        problems.append("the customer's signature is missing")
+    elif s["customer_id"] != cid:
+        problems.append("the signature belongs to another customer")
+    if not signature("vendor"):
+        problems.append("the company signature has not been added")
+    return {"ok": not problems, "problems": problems, "evidence": ev}
 
 
 def signed_html(key, cid):
@@ -553,6 +608,10 @@ def status(cid):
     for key, slot, title, roles, need in DOCS_SPEC:
         miss = [LABEL.get(k, "site photo with GPS" if k == "lat" else k) for k in need if not d.get(k)]
         st, note = "ready", ""
+        if key == "agreement":  # the agreement prints these; a blank must never go to the customer
+            miss += [lbl for lbl, v in (("customer address", c["address"]), ("PIN code", c["pin"]),
+                                        ("consumer number", c["consumer_no"]), ("capacity", c["kw"]))
+                     if not v]
         if miss:
             st, note = "missing", "Missing: " + ", ".join(miss)
         elif key == "site_photo" and not (DOCS / cid / "site_photo.jpg").exists():
@@ -656,6 +715,7 @@ def save_photo(cid, raw, user, loc=None):
                              "wait a few seconds and take the photo again")
         got, source = (round(lat, 6), round(lng, 6)), f"phone location (±{acc:.0f} m)"
     if not got:
+        db.audit(str(user)[:40], "system", "Photo without GPS refused", cid, "site photo")
         raise ValueError("this photo has no GPS location. Take it with location turned on in "
                          "the phone camera, and send the original file, not a WhatsApp copy")
     if not in_india(*got):
@@ -707,7 +767,7 @@ async def build(cid, user):
     blobs = {}
     if htmls:
         async with async_playwright() as p:
-            b = await p.chromium.launch()
+            b = await pdf_browser(p)
             pg = await b.new_page()
             for k, h in htmls.items():
                 await pg.set_content(h, wait_until="load")

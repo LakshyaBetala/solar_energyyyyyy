@@ -49,7 +49,7 @@ Week 7 is held in reserve. The detailed KPI for each milestone and who does what
 
 A new customer's documents go in once; the customer is **registered on PM Surya Ghar → the
 installer is selected as vendor → accepted in the vendor login → the vendor agreement is e-signed
-by the customer and uploaded**. All portal fields are filled by Solara; the owner types only OTPs
+by the customer, uploaded, and approved by the customer in their own login**. All portal fields are filled by Solara; the owner types only OTPs
 and CAPTCHAs, confirms anything Solara flagged, and presses every Submit.
 
 **Acceptance (KPI K1), all must pass on the client's real customers:**
@@ -58,7 +58,7 @@ and CAPTCHAs, confirms anything Solara flagged, and presses every Submit.
 |---|---|---|
 | 1 | 3 real new customers, each in **≤ 5 minutes of owner's time** from documents to "accepted in vendor login" | stopwatch; time waiting for the customer's OTP is not counted. Solara also shows "Documents to accepted" (includes waiting) |
 | 2 | **Customer details read automatically** from the documents; anything unclear is **flagged, never guessed** | the "What Solara read" card: every value has a source; unread items say why |
-| 3 | **Agreement e-signed** by the customer and **uploaded through Solara** | step 5 and 6 ticked on the Registration screen; the portal shows the agreement |
+| 3 | **Agreement e-signed** by the customer and **uploaded through Solara** | steps 5, 6 and 7 ticked on the Registration screen; the portal shows the agreement approved |
 | 4 | **Nothing typed by hand** except OTPs, CAPTCHA and fields Solara flagged | watch the owner; the co-pilot panel lists anything "left for you" |
 
 Status today: **built and passing in the sandbox** (section 5). What remains is proving it on the
@@ -97,6 +97,7 @@ security.**
 | 4 Accepted | approves the customer in Vendor Consent, then **I approved it** in Solara | stamps the time; times documents → accepted | `registration.mark("accepted")` |
 | 5 Agreement e-signed | **Send the agreement for e-sign** → WhatsApp or hands over the phone | the customer enters the last 4 digits of their consumer number, reads, signs once; the signature is bound to that exact document version | `esign.py`, `closeout.doc_hash` |
 | 6 Agreement uploaded | My Application → Update Agreement; **Fill** in the panel; Submit; **I pressed Submit** | finds the customer inside the dialog, fills the cost, attaches the signed PDF, marks the step | `panel.js formMode`; event `agreement_uploaded` |
+| 7 Customer approved | logged in as the customer (they read out the SMS code): Action → Submit Agreement Details → Approve → tick → Verify & Approve; then the panel's **I pressed Verify & Approve**, or **Mark it approved** in Solara | records the approval; also reads it from the customer login's ten-stage tracker; tells the vendor window | event `customer_approved`; `registration.from_portal_list` |
 
 The Registration screen always shows **one** next-action button, decided in
 `registration.status()`. If a user is ever unsure what to do, the button says it.
@@ -230,9 +231,10 @@ Open <http://127.0.0.1:8900>, sign in as `r.deshmukh` / `demo` (supervisor) and 
 `extension/` folder. In Solara: Close-out → **Connect co-pilot** gives a key. Extension → Options →
 address `http://127.0.0.1:8900` and the key → Save.
 
-**AI key (needed for photos of bills and bank pages):** put `ANTHROPIC_API_KEY=...` in `.env`
-(gitignored). Never paste it into chat or commit it. Without it, bill PDFs with a text layer and
-Aadhaar QR still read; photos of bills are flagged for typing.
+**AI is off by default** and is never used for basic tasks. Bill PDFs with a text layer, the Aadhaar QR,
+validation and the Aadhaar number check all run on plain rules. Only if you set `SOLARA_USE_AI=1` **and**
+`ANTHROPIC_API_KEY=...` in `.env` (gitignored; never paste it into chat) is a model tried, and only for
+a bill the rules cannot read at all. Otherwise photos of bills are flagged for typing.
 
 **Live install (the client's machine or server):**
 
@@ -262,14 +264,15 @@ python tests/run_all.py          # every suite, one summary (server must be runn
 | `ui.py` | 41 | every dashboard view in a real browser, Today first |
 | `closeout.py` | 59 | e-sign consent rules, 300 KB pack, MSEDCL co-pilot (Milestone 2 work) |
 | `milestone1.py` | 44 | **K1 end to end** with the extension loaded, plus the failure paths |
+| `k1_complete.py` | 86 | **K1 completion**: duplicates, validation, uploads, mismatches, manual corrections surviving re-reads, Aadhaar privacy, the kept agreement copy and its verification, co-pilot safety on a synthetic portal page, dashboard |
 | `milestone2.py` | 81 | **K2 end to end**: feasibility report, Jan Samarth, field phone page and barcode serials (repeat, clash, unreadable), DCR with a dealer wait, 5 installation steps, acceptance, e-sign, MSEDCL; receipts free of OTP and Aadhaar |
 | `milestone3.py` | 42 | **K3**: ten customers at ten portal statuses, 10/10 stages match, mismatches flagged, Today groups and buttons, every control, monthly Excel and PDF |
-| `real_labels.py` | 10 | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report with its Yes/No questions, installation steps 1 and 2 with the inverter and module tables, DCR form, MSEDCL login): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
+| `real_labels.py` | | the co-pilot on the **real field labels** of the client's screens (vendor login, Upload Agreement, site feasibility report with its Yes/No questions, installation steps 1 and 2 with the inverter and module tables, DCR form, MSEDCL login, the customer login's tracker and approval): right values in, CAPTCHA/OTP/vendor-login/site-staff fields left alone |
 | `longevity.py` | 11 | old databases upgrade, dependencies pinned, health check, portal drift reported |
 | `live_mode.py` | 7 | fresh live install: empty, no demo accounts, reset refused, real portal links |
 
 `milestone1.py` with `SOLARA_SHOTS=docs/screenshots` saves the four reference screenshots
-(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs all nine, plus the linter, on every push.
+(`docs/screenshots/m1-*.png`). CI: `.github/workflows/tests.yml` runs every suite, plus the linter, on every push.
 
 ### Manual test script (do this 3 times before each client session)
 
@@ -289,8 +292,9 @@ Use the sandbox first; then the same script on the real portals with the owner a
 | 10 | CAPTCHA, declaration, Submit | panel: "Application number NP-… saved in Solara"; dashboard step 3 ticked |
 | 11 | Vendor Consent → Approve; in Solara **I approved it** | step 4 ticked; "Documents to accepted" time shown |
 | 12 | **Send the agreement for e-sign**; open the link on a phone-sized window; wrong digits once, then right | wrong digits refused; after signing "Thank you"; step 5 ticked |
-| 13 | Vendor → Update Agreement → **Fill**, check, Submit, then **I pressed Submit** in the panel | cost filled and `…_agreement.pdf` attached; after marking, step 6 ticked and the button reads "Milestone 1 done" |
-| 14 | Sign in as `a.more` (viewer) | every button that changes something is disabled |
+| 13 | Vendor → Update Agreement → **Fill**, check, Submit, then **I pressed Submit** in the panel | cost filled and `…_agreement.pdf` attached; after marking, step 6 ticked and the button reads "Approve the agreement in the customer's login" |
+| 14 | The customer approves it in their login; press **Mark it approved** in Solara (on the real portal: the panel's "I pressed Verify & Approve") | step 7 ticked; the button reads "Milestone 1 done" |
+| 15 | Sign in as `a.more` (viewer) | every button that changes something is disabled |
 
 Record each run in a sheet: date, who, steps passed, anything odd, screenshots of anything odd.
 
@@ -338,6 +342,7 @@ Start from a customer whose agreement is uploaded (run the Milestone 1 script fi
 | The real MSEDCL bill layout is **not yet tested** | `LABELS` in `extract.py` match our sample bill. Real bills may fall back to the AI model (needs the key) or get flagged | Intern B, with real sample bills |
 | Angular Material dropdowns (not native `<select>`) | the co-pilot fills native selects; custom dropdowns are listed as "left for you" | Intern A, if the real portal uses them |
 | Agreement template is a **draft** | it prints a "draft format" footer until the client's wording is in (`closeout.t_agreement`, `TEMPLATE_DRAFT`) | Intern B |
+| The agreement wording is a draft | see `docs/K1_STATUS.md` for what K1 code is done and what only the live portal or the client can settle |
 | Aadhaar QR signature is not verified | the QR data is trusted as printed | later, only if needed |
 | One machine, SQLite | fine for one office; PostgreSQL only if several branches use it | later |
 | **Jan Samarth was not seen** | `app/jansamarth.py` is a stand-in built from the client's description (basic details, address, Aadhaar OTP, bank and branch, in-principle letter). Real labels will differ | Intern A, first loan customer (A10) |

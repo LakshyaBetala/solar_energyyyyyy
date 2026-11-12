@@ -1,0 +1,9 @@
+  PASS  the server reports live mode
+  PASS  no demo accounts exist on a live install
+  PASS  a live install starts with no customers
+  PASS  the demo reset is refused on a live install
+  PASS  links open the real national portal logins
+  PASS  the sign-in screen shows no demo accounts or prefilled password
+  PASS  only the real screens are in the menu  — today, reg, closeout, audit, reports
+
+  7 passed, 0 failed

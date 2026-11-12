@@ -5,7 +5,8 @@
 """
 import re, subprocess, sys
 
-SUITES = ["smoke", "ui", "closeout", "milestone1", "milestone2", "milestone3", "real_labels", "longevity", "live_mode"]
+SUITES = ["smoke", "ui", "closeout", "milestone1", "k1_complete", "validation", "k1_audit", "milestone2", "milestone3", "milestone4",
+          "real_labels", "longevity", "live_mode"]
 total, failed = 0, []
 for s in SUITES:
     out = subprocess.run([sys.executable, f"tests/{s}.py"], capture_output=True, text=True,

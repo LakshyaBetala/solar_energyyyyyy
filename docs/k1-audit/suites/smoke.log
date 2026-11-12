@@ -1,0 +1,83 @@
+  PASS  demo resets to its opening state  — {"runnable": ["SS-2045", "SS-2047", "SS-2049", "SS-2050"], "runs_cleared": true}
+
+  -- access control
+  PASS  wrong password refused
+  PASS  passwords are salted scrypt, not plain hashes
+  PASS  viewer CANNOT start a run  — this action needs the operator role; you are viewer
+  PASS  sessions persist in the database, so a restart keeps people signed in
+  PASS  documents are NOT served without signing in
+  PASS  signed-in users get the decrypted document
+
+  -- data at rest
+  PASS  every customer document is encrypted on disk  — 40/40
+  PASS  raw file bytes are not a readable PDF
+
+  -- extraction
+  PASS  extraction parses the encrypted PDF  — 718 chars, 15 fields
+  PASS  bill / identity name mismatch is flagged  — ['Consumer name (bill)']
+  PASS  new-connection applicant parses without a bill (ownership proof instead)  — PLOT 7, SHIVKRUPA COLONY, MAKHMALABAD ROAD, NASHIK
+
+  -- refusal guards
+  PASS  refused: SS-2044 commercial is not eligible  — PM Surya Ghar covers residential consumers and housing societies; SS-2044 is commercial
+  PASS  refused: SS-2049 load too low  — plant 5 kW exceeds the sanctioned load 3 kW; file a load enhancement first
+  PASS  refused: SS-2050 no connection yet  — SS-2050 has no electricity connection yet; file a new connection first
+  PASS  refused: SS-2041 duplicate filing  — SS-2041 is already filed as NP-MHSED26-16118842; a second filing would be a duplicate
+  PASS  refused: SS-2045 wrong workflow  — SS-2045 already has connection 170038865021; use a load change instead
+
+  -- rooftop registration: resend the OTP, then type the old code
+  PASS  operator CANNOT approve a filing (server returns 403)  — approve requires the supervisor role; you are operator
+  PASS  run completed after a resend and a stale code
+  PASS  checkpoints: OTP, OTP after resend, OTP after rejection, CAPTCHA, correction, approval  — ['otp', 'otp', 'otp', 'captcha', 'fix', 'approve']
+  PASS  Resend OTP made the portal text a second code
+  PASS  the prompt after a resend says a new code was sent
+  PASS  the code from before the resend is refused by the portal
+  PASS  application number read off the portal page  — NP-MHSED26-46190848
+  PASS  portal stored the bill spelling of the name
+  PASS  OTP step records two attempts and the resend  — s.kale, 2 attempts, 1 resend
+  PASS  correction step keeps the operator's decision
+  PASS  validation step records it passed only after a correction  — passed after correction, retry 1
+  PASS  approval attributed to the supervisor
+  PASS  refused approval attempt is in the audit trail
+  PASS  screenshots captured, including the failures  — 6
+  PASS  screenshots are encrypted on disk
+  PASS  screenshots decrypt for signed-in users
+  PASS  no OTP value ever reaches the run log
+
+  -- rooftop registration, 'submit anyway' and the portal's own rejection
+  PASS  run recovered from a real portal rejection
+  PASS  checkpoints include the portal's rejection and a second approval  — ['otp', 'captcha', 'fix', 'approve', 'fix', 'approve']
+  PASS  the rejection carried the portal's error code VAL-0712
+
+  -- portal: resend works three times, then stops
+  PASS  three resends each confirm a new code
+  PASS  the fourth resend is refused
+
+  -- DISCOM: load enhancement, load reduction, new connection
+  PASS  load enhancement filed  — SR/MH/2026/427069
+  PASS  load enhancement checkpoints: OTP, OTP after resend, approval  — ['otp', 'otp', 'approve']
+  PASS  DISCOM resend texted a second DISCOM code
+  PASS  DISCOM stored 3 kW → 5 kW
+  PASS  customer now waits on the DISCOM, next step is rooftop registration
+  PASS  refused: second load enhancement on the same connection  — SS-2049 already has DISCOM request SR/MH/2026/427069 on record
+  PASS  portal validation rejects a 'reduction' to a higher load  — RuntimeError: portal refused the request: ⚠ Requested load must be below 100.00 kW and at 
+  PASS  load reduction filed (100 kW → 80 kW)
+  PASS  new connection filed without a consumer number
+  PASS  DISCOM stored the applicant from the identity document  — SUNITA RAMESH PATIL
+  PASS  new-connection customer has its request number and no further agent work
+
+  -- follow-ups, exports, backups
+  PASS  follow-ups list the number about to expire as urgent  — 8 items
+  PASS  follow-ups show DISCOM requests awaiting a decision
+  PASS  Excel export is a real workbook  — 11329 bytes
+  PASS  PDF run report is a real PDF with screenshots embedded  — 142400 bytes
+  PASS  operator CANNOT create a backup
+  PASS  backup holds the database and the encrypted documents  — 377 files
+  PASS  backup does NOT contain the vault key
+
+  -- run controls
+  PASS  a checkpoint refuses to open after Abandon (no hang)  — refused
+  PASS  pause takes effect between steps
+  PASS  abandon stops the run and nothing is filed  — stopped
+  PASS  demo left in its opening state  — ["SS-2045", "SS-2047", "SS-2049", "SS-2050"]
+
+  61 passed, 0 failed

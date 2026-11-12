@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from . import db, closeout
+from . import valid, db, closeout
 from .config import vendor
 
 router = APIRouter(prefix="/sign")
@@ -28,8 +28,15 @@ def create(cid, keys, user):
     bad = [k for k in keys if k not in st or "consumer" not in st[k]["signers"]
            or st[k]["state"] in ("missing", "blocked")]
     if bad:
-        raise ValueError("not ready to send: " + ", ".join(st[k]["title"] if k in st else k for k in bad))
+        raise ValueError("not ready to send: " + "; ".join(
+            (st[k]["title"] + (f" ({st[k]['note']})" if st[k]["note"] else "")) if k in st else k for k in bad))
+    c, d = closeout.data(cid)
+    # a customer still in milestone 1 gets the agreement only once accepted; one accepted before Solara is past it
+    if "agreement" in keys and c["stage"] in ("lead", "docs", "register", "feasible") and not d.get("accepted_at"):
+        raise ValueError("send the agreement after the customer is accepted in the vendor login")
     token = secrets.token_urlsafe(18)
+    for k in keys:
+        closeout.save_snapshot(token, k, cid)
     db.ex("""INSERT INTO sign_requests(token,customer_id,docs,created_by,created_at,expires_at,status)
              VALUES(?,?,?,?,?,?,'sent')""",
           (token, cid, json.dumps({k: closeout.doc_hash(k, cid) for k in keys}), user["username"],
@@ -119,13 +126,21 @@ def verified(request, r):
         request.cookies.get("sg_" + r["token"][:12], ""), r["verify_secret"])
 
 
+_ISSUED = set()  # messages this server has shown; a crafted ?error= link cannot add its own text
+
+
+def go_back(token, msg):
+    _ISSUED.add(msg)
+    return RedirectResponse(f"/sign/{token}?error=" + quote(msg), 303)
+
+
 # ------------------------------- routes -------------------------------
 @router.get("/{token}", response_class=HTMLResponse)
 def sign_get(token: str, request: Request, error: str = ""):
     r, stop = load(token)
     if stop:
         return stop
-    err = f'<div class="err">{e(error)}</div>' if error else ""
+    err = f'<div class="err">{e(error)}</div>' if error in _ISSUED else ""  # only text this server issued
     if not verified(request, r):
         return page(f"""{err}<div class="card"><h1>Confirm it is you
 <span class="mr">तुमची ओळख निश्चित करा</span></h1>
@@ -210,8 +225,9 @@ def sign_verify(token: str, digits: str = Form("")):
               (n, "locked" if n >= MAX_ATTEMPTS else r["status"], token))
         db.audit("customer", "customer", "E-sign check failed", r["customer_id"],
                  f"attempt {n} of {MAX_ATTEMPTS}")
-        return RedirectResponse(f"/sign/{token}?error=" + quote(
-            "Those digits do not match. Check the consumer number on your bill."), 303)
+        left = MAX_ATTEMPTS - n
+        return go_back(token, f"Those digits do not match. Check the consumer number on your bill ({left} tries left). "
+                              f"/ अंक जुळत नाहीत. बिलावरील ग्राहक क्रमांक तपासा (आणखी {left} प्रयत्न).")
     secret = secrets.token_urlsafe(16)
     db.ex("UPDATE sign_requests SET verify_secret=? WHERE token=?", (secret, token))
     resp = RedirectResponse(f"/sign/{token}", 303)
@@ -227,7 +243,12 @@ def sign_doc(token: str, key: str, request: Request):
         return stop
     if not verified(request, r) or key not in json.loads(r["docs"]):
         return message("Not available", "उपलब्ध नाही", "Open the link from the start.", 403)
-    return HTMLResponse(closeout.unsigned_html(key, r["customer_id"]))
+    # show the copy kept when the link was sent, so what they read is what they approve
+    shown = closeout.snapshot_html(token, key, r["customer_id"]) or closeout.unsigned_html(key, r["customer_id"])
+    # readable on a phone: added to what is sent only, so the approved document itself is unchanged
+    phone = ('<meta name="viewport" content="width=device-width,initial-scale=1">'
+             '<style>@media (max-width:700px){body{font-size:15px!important;padding:12px}td,th{font-size:14px}}</style>')
+    return HTMLResponse(phone + shown)
 
 
 @router.post("/{token}", response_class=HTMLResponse)
@@ -241,10 +262,10 @@ async def sign_post(token: str, request: Request):
     cid, docs = r["customer_id"], json.loads(r["docs"])
     approve = [k for k in form.getlist("approve") if k in docs]
     name = (form.get("name") or "").strip()
-    back = lambda msg: RedirectResponse(f"/sign/{token}?error=" + quote(msg), 303)
+    back = lambda msg: go_back(token, msg)
     if not approve:
         return back("Tick at least one document.")
-    if form.get("consent") != "yes" or len(name) < 3:
+    if form.get("consent") != "yes" or not valid.ok_name(name):
         return back("Enter your full name and tick the consent box.")
     changed = [k for k in approve if closeout.doc_hash(k, cid) != docs[k]]
     if changed:
@@ -252,11 +273,16 @@ async def sign_post(token: str, request: Request):
         return message("A document changed after this link was sent", "कागदपत्र बदलले आहे",
                        "Changed: " + ", ".join(titles[k] for k in changed) +
                        ". Nothing was signed. Ask the installer to send a fresh link.", 409)
+    for k in approve:  # a link sent before copies were kept: the content is unchanged (checked above), keep it now
+        if closeout.snapshot_html(token, k, cid) is None:
+            closeout.save_snapshot(token, k, cid)
     if not closeout.signature("consumer", cid):
         try:
             png = closeout.png_from_data_url(form.get("signature"))
         except ValueError as ex:
             return back(str(ex))
+        except Exception:  # a malformed or hostile signature value must not become a 500
+            return back("The signature could not be read. Please sign again.")
         closeout.save_signature("consumer", png, name, cid, token)
     ts = db.now()
     for k in approve:

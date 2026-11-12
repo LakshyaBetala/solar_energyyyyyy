@@ -16,7 +16,7 @@ Values that are read cleanly fill the customer record; flagged ones fill it once
 import base64, gzip, io, re, os, json, difflib, asyncio, sys, zlib
 from pathlib import Path
 from pypdf import PdfReader
-from . import db, vault
+from . import db, vault, valid
 from .config import ROOT
 
 ENV_FILE = ROOT / ".env"
@@ -35,7 +35,11 @@ load_env()
 
 
 def llm_status():
+    """AI is off unless SOLARA_USE_AI=1 is set AND a key is present. Reading a bill's text, the
+    Aadhaar QR, validation and every other basic task are plain rules and never call a model."""
     load_env()
+    if os.environ.get("SOLARA_USE_AI", "").lower() not in ("1", "true", "yes"):
+        return {"enabled": False, "provider": None, "model": None}
     if os.environ.get("ANTHROPIC_API_KEY"):
         return {"enabled": True, "provider": "anthropic",
                 "model": os.environ.get("SOLARA_MODEL", "claude-sonnet-5-5")}
@@ -226,6 +230,33 @@ def similarity(a, b):
     return min(1.0, base * 0.6 + ends * 0.2)
 
 
+def kind_of(key):
+    """Which uploaded document a field is read from."""
+    if key.startswith("aadhaar"):
+        return "aadhaar"
+    if key in LABELS or key == "bill_unread":
+        return "bill"
+    if key in PASSBOOK_LABELS or key == "passbook_unread":
+        return "passbook"
+    return "ownership"
+
+
+FULL_AADHAAR = re.compile(r"(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)")
+
+
+def refuse_aadhaar_number(key, value):
+    """A whole Aadhaar number is never stored. It is accepted only in the Aadhaar number box (checked,
+    then cut to the last 4 digits); in any other box it is refused with a pointer to that box."""
+    if key.startswith("aadhaar") and key != "aadhaar_masked" and FULL_AADHAAR.search(value or ""):
+        raise ValueError("that is an Aadhaar number: type it in the Aadhaar number box under Details "
+                         "(Solara checks it and keeps only the last 4 digits). This box is for the name")
+
+
+def _record(customer_id):
+    from . import closeout
+    return closeout.data(customer_id)
+
+
 def mask_account(v):
     d = re.sub(r"\D", "", v or "")
     return ("X" * 6 + d[-4:]) if len(d) >= 4 else v
@@ -240,7 +271,9 @@ def _unread(why):
     return _f("not read", 0, "—", "review", why)
 
 
-async def run(customer_id, use_llm=True):
+async def run(customer_id, use_llm=True, fresh=None):
+    """fresh: the kind of document just uploaded; operator corrections to fields read from it are
+    dropped (the document changed), corrections to every other field are kept."""
     c = db.one("SELECT * FROM customers WHERE id=?", (customer_id,))
     if not c:
         raise ValueError(f"unknown customer {customer_id}")
@@ -259,7 +292,7 @@ async def run(customer_id, use_llm=True):
         found = len(fields)
         primary = found < 4  # the parser does not know this bill's layout
         use_text = len(bill_text.strip()) >= 200
-        if model and (use_text or (primary and imgs)):
+        if model and primary and (use_text or imgs):   # only when the rules cannot read this bill at all
             try:
                 got = await llm_read("bill", st, text=bill_text if use_text else None,
                                      image=None if use_text else imgs[0])
@@ -340,6 +373,19 @@ async def run(customer_id, use_llm=True):
         fields["pin"]["status"] = "review"
         fields["pin"]["note"] = f"CRM record holds {c['pin']}."
     cno = fields.get("consumer_no", {}).get("value") or c["consumer_no"]
+    # conflicts between documents, and between a document and what a person already entered
+    if fields.get("pin") and fields.get("aadhaar_pin") and fields["pin"]["value"] != fields["aadhaar_pin"]["value"]:
+        fields["aadhaar_pin"]["status"] = "review"
+        fields["aadhaar_pin"]["note"] = (f"The bill's PIN is {fields['pin']['value']}. Confirm only if "
+                                         "the customer lives elsewhere; the bill PIN is what is filed.")
+    if fields.get("consumer_no") and c["consumer_no"] and fields["consumer_no"]["value"] != c["consumer_no"]:
+        fields["consumer_no"]["status"] = "review"
+        fields["consumer_no"]["note"] = f"The record already holds {c['consumer_no']}."
+    _, rec = _record(customer_id)
+    rec_mobile = re.sub(r"\D", "", rec.get("mobile") or "")[-10:]
+    if fields.get("bill_mobile") and rec_mobile and fields["bill_mobile"]["value"] != rec_mobile:
+        fields["bill_mobile"]["status"] = "review"
+        fields["bill_mobile"]["note"] = f"The record holds {rec_mobile}, typed by hand."
     dupes = db.q("SELECT id FROM customers WHERE consumer_no=? AND id<>?", (cno, customer_id)) if cno else []
     if dupes:
         fields.setdefault("consumer_no", _f(cno, 99, "bill"))
@@ -347,6 +393,16 @@ async def run(customer_id, use_llm=True):
         fields["consumer_no"]["note"] = "Same consumer number appears on " + \
                                         ", ".join(d["id"] for d in dupes)
 
+    # a person's corrections survive a re-read, unless the document they corrected was replaced
+    for r in saved(customer_id):
+        key = KEY_OF.get(r["field"])
+        newer = (r["ts"] or "") >= ((docs.get(kind_of(key)) or {}).get("uploaded_at") or "")  # not for a replaced document
+        if key and r["note"].startswith("Checked by") and kind_of(key) != fresh and key in PRETTY and newer:
+            fields[key] = _f(r["value"], 100, r["source"], "ok", r["note"])
+    if "aadhaar_name" in fields and fields["aadhaar_name"]["status"] == "ok":
+        fields.pop("aadhaar_unread", None)
+    if "consumer_no" in fields and fields["consumer_no"]["status"] == "ok":
+        fields.pop("bill_unread", None)
     db.ex("DELETE FROM extractions WHERE customer_id=?", (customer_id,))
     rows = []
     for k in ORDER:
@@ -466,27 +522,63 @@ def apply_to_record(customer_id, only=None, overwrite=False):
             db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, customer_id))
     _, d = closeout.data(customer_id)
     extra = {"mobile": ok.get("bill_mobile"), "sanctioned_load": ok.get("sanctioned_load"),
-             "tariff": ok.get("tariff"), "district": ok.get("aadhaar_district"),
+             "tariff": ok.get("tariff"), "district": valid.district(ok.get("aadhaar_district") or "", strict=False),
              "aadhaar_last4": (ok.get("aadhaar_masked") or "")[-4:] or None}
-    extra = {k: v for k, v in extra.items() if v and (overwrite or not d.get(k))}
+    # the mobile the owner typed is the one the OTP goes to: a bill never replaces it
+    extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "mobile") or not d.get(k))}
     if extra:
         closeout.save(customer_id, extra, "extraction")
 
 
 def confirm(customer_id, key, value, user):
-    """A person checked a field against the document: store their value and file it."""
+    """A person checked a field against the document: store their value and file it. The source
+    and what was read are kept in the note. An unread document is resolved by typing the field
+    it should have given."""
     label = PRETTY.get(key)
-    if not label or not db.one("SELECT 1 FROM extractions WHERE customer_id=? AND field=?",
-                               (customer_id, label)):
+    row = db.one("SELECT * FROM extractions WHERE customer_id=? AND field=?", (customer_id, label))         if label else None
+    if not row:
         raise KeyError(key)
-    value = " ".join(str(value).split())
+    from . import valid
+    value = " ".join(valid.text(value, "value").split())
     if not value:
         raise ValueError("enter the value as it appears on the document")
-    db.ex("""UPDATE extractions SET value=?, status='ok', confidence=100, note=?
-             WHERE customer_id=? AND field=?""",
-          (value, f"Checked by {user['name']}", customer_id, label))
-    apply_to_record(customer_id, only={key, "account_no", "ifsc"}, overwrite=True)
-    db.audit(user["username"], user["role"], "Confirmed extracted field", customer_id, label)
+    refuse_aadhaar_number(key, value)
+    if key in ("aadhaar_name", "bill_name", "owner_name", "account_holder"):
+        value = valid.name(value, "the name")
+    elif key == "aadhaar_masked":
+        value = f"XXXX XXXX {valid.aadhaar_any(value)}"   # a full number is checked, then only 4 digits kept
+    elif key in ("pin", "aadhaar_pin", "property_pin"):
+        value = valid.pin(value)
+    elif key == "ifsc":
+        value = valid.ifsc(value)
+    elif key == "consumer_no":
+        value = valid.consumer_no(value)
+    elif key == "bill_mobile":
+        value = valid.mobile(value)
+    if key == "aadhaar_unread":
+        real = "aadhaar_name"  # typed text becomes the name, so it is checked as a name below
+    elif key == "bill_unread":
+        real = "consumer_no"
+        try:
+            value = valid.consumer_no(value)
+        except ValueError:
+            raise ValueError("type the 12-digit consumer number printed on the bill; the name goes in Details")
+    else:
+        real = key
+    if real == "aadhaar_name":
+        value = valid.name(value, "the name on the Aadhaar")
+    was = row["value"] if row["value"] != "not read" else None
+    note = f"Checked by {user['name']}" + (f" (read as “{was}”)" if was and was != value else "")
+    if real != key:
+        db.ex("DELETE FROM extractions WHERE customer_id=? AND field=?", (customer_id, label))
+        db.ex("""INSERT INTO extractions(customer_id,field,value,confidence,source,status,note,ts)
+                 VALUES(?,?,?,?,?,?,?,?)""",
+              (customer_id, PRETTY[real], value, 100, "typed from the document", "ok", note, db.now()))
+    else:
+        db.ex("""UPDATE extractions SET value=?, status='ok', confidence=100, note=?, ts=?
+                 WHERE customer_id=? AND field=?""", (value, note, db.now(), customer_id, label))
+    apply_to_record(customer_id, only={real, "account_no", "ifsc"}, overwrite=True)
+    db.audit(user["username"], user["role"], "Confirmed extracted field", customer_id, PRETTY[real])
 
 
 def saved(customer_id):

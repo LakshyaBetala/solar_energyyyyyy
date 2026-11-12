@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from playwright.async_api import async_playwright
 from . import db, vault
+from .config import pdf_browser
 from .config import EXPORTS
 
 HEAD = Font(bold=True, color="FFFFFF", size=10)
@@ -133,7 +134,7 @@ figcaption{{font-size:9px;color:#5E6B78;padding-top:3px}}
 async def run_report_pdf(run_id):
     path = EXPORTS / f"solara_run{run_id}_{datetime.now():%Y%m%d_%H%M}.pdf"
     async with async_playwright() as p:
-        b = await p.chromium.launch()
+        b = await pdf_browser(p)
         page = await b.new_page()
         await page.set_content(_run_report_html(run_id), wait_until="load")
         await page.pdf(path=str(path), format="A4", print_background=True,
@@ -153,7 +154,7 @@ async def html_pdf(markup, js=False):
     """Render HTML to PDF with the network cut off: a portal page saved as a receipt can neither
     run its scripts nor call home from our server."""
     async with async_playwright() as p:
-        b = await p.chromium.launch()
+        b = await pdf_browser(p)
         ctx = await b.new_context(java_script_enabled=js)
         page = await ctx.new_page()
         await page.route("**/*", lambda route: route.continue_() if route.request.url.startswith("data:")
@@ -260,3 +261,45 @@ th{{background:#EEF2F6}}.k{{display:inline-block;margin-right:22px}}.k b{{displa
     path = EXPORTS / f"solara_{month}.pdf"
     path.write_bytes(await html_pdf(markup))
     return path
+
+
+def everything_zip():
+    """All of the client's data in plain files: a workbook of every customer and their record, every
+    document decrypted in a folder per customer, and the whole audit trail. For leaving Solara, an
+    accountant, or a regulator; it holds Aadhaar copies, so it is made only by a supervisor, on request."""
+    import csv, io, zipfile
+    from . import closeout
+    out = EXPORTS / f"solara_everything_{datetime.now():%Y%m%d_%H%M%S}.zip"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Customers"
+    keys = sorted({k for r in db.q("SELECT data FROM closeout") for k in json.loads(r["data"] or "{}")})
+    cols = ["id", "name", "aadhaar_name", "consumer_no", "kw", "category", "stage", "application_no", "pin", "address"]
+    rows = []
+    for c in db.q("SELECT * FROM customers ORDER BY id"):
+        _, d = closeout.data(c["id"])
+        rows.append([c[k] for k in cols] + [str(d.get(k, "")) if d.get(k) is not None else "" for k in keys])
+    _sheet(ws, cols + keys, rows, [14] * (len(cols) + len(keys)))
+    book = io.BytesIO()
+    wb.save(book)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("customers.xlsx", book.getvalue())
+        audit = io.StringIO()
+        w = csv.writer(audit)
+        w.writerow(["time", "who", "role", "action", "customer", "detail"])
+        for a in db.q("SELECT ts, actor, role, action, target, detail FROM audit ORDER BY id"):
+            w.writerow(list(a.values()))
+        z.writestr("audit_trail.csv", audit.getvalue())
+        missing = []
+        for d in db.q("SELECT customer_id, filename, path FROM documents ORDER BY customer_id, id"):
+            try:
+                z.writestr(f"documents/{d['customer_id']}/{Path(d['filename']).name}", vault.read(Path(d["path"])))
+            except Exception as ex:  # a file gone from disk is listed, never silently skipped
+                missing.append(f"{d['customer_id']}/{d['filename']}: {type(ex).__name__}")
+        z.writestr("README.txt", "Everything Solara holds for your company, in plain files.\n"
+                   "customers.xlsx: one row per customer with every recorded detail.\n"
+                   "documents/: each customer's documents, decrypted.\n"
+                   "audit_trail.csv: who did what, and when, since the start.\n"
+                   "This archive holds Aadhaar copies: keep it like the paper files.\n" +
+                   ("\nNot included (file missing):\n" + "\n".join(missing) + "\n" if missing else ""))
+    return out

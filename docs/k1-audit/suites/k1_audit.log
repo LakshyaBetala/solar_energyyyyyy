@@ -1,0 +1,127 @@
+
+  -- the defect register (K1-D01 .. D15)
+  PASS  D01    create customer: 12 customers added at the same moment
+  PASS  D02    details: consumer no.: 'abc' over a saved number
+  PASS  D11    details: consumer no.: '123456789'
+  PASS  D11    details: consumer no.: '1234567890123'
+  PASS  D11    details: consumer no.: '000000000000'
+  PASS  D11    details: consumer no.: '1700-5550-9871' (hyphens)
+  PASS  D03    registration page: cost: '250000.50'
+  PASS  D03    closeout page: cost: '250000.50'
+  PASS  D03    registration page: cost: '2,50,000.75'
+  PASS  D03    closeout page: cost: '2,50,000.75'
+  PASS  D03    registration page: cost: '₹2,10,000'
+  PASS  D03    closeout page: cost: '₹2,10,000'
+  PASS  D03    registration page: cost: 'Rs 285000'
+  PASS  D03    closeout page: cost: 'Rs 285000'
+  PASS  D03    registration page: cost: 'Rs 1.5 lakh'
+  PASS  D03    closeout page: cost: 'Rs 1.5 lakh'
+  PASS  D03    registration page: cost: '-250000'
+  PASS  D03    closeout page: cost: '-250000'
+  PASS  D03    registration page: cost: '0'
+  PASS  D03    closeout page: cost: '0'
+  PASS  D03    registration page: cost: '999999999999'
+  PASS  D03    closeout page: cost: '999999999999'
+  PASS  D03    registration page: cost: 'abc'
+  PASS  D03    closeout page: cost: 'abc'
+  PASS  D09    details: name: '123'
+  PASS  D09    details: name: '@@@ ###'
+  PASS  D09    details: name: 'Priya1234'
+  PASS  D09    details: name: '<script>x</script>'
+  PASS  D09    details: name: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+  PASS  D09/R7 details: name: 'A. K. Sharma'
+  PASS  D09/R7 details: name: 'D’Souza Maria'
+  PASS  D09/R7 details: name: "Mary D'Souza"
+  PASS  D09/R7 details: name: 'प्रिया कुलकर्णी'
+  PASS  D09/R7 details: name: 'कऱ्हाडे\u200d संजय'
+  PASS  D09/R7 details: name: 'Rajendra Kumar Venkataraman Subramaniam Iyer'
+  PASS  D10    details: Aadhaar: a valid full number 9999 4105 7058
+  PASS  D10    details: Aadhaar: '9999 4105 7050'
+  PASS  D10    details: Aadhaar: 'abcd'
+  PASS  D10    details: Aadhaar: '12'
+  PASS  D10    details: Aadhaar: '99999999'
+  PASS  D10    details: Aadhaar: '0123 4567 8901'
+  PASS  R1     close-out page: Aadhaar: full number in 'last 4 digits only'
+  PASS  R1     audit trail: after the Aadhaar was typed
+  PASS  D12    registration page: mobile: 'abcdefghij'
+  PASS  D12    closeout page: mobile: 'abcdefghij'
+  PASS  D12    registration page: mobile: '12345'
+  PASS  D12    closeout page: mobile: '12345'
+  PASS  D12    registration page: mobile: '5028144599'
+  PASS  D12    closeout page: mobile: '5028144599'
+  PASS  M1     details: mobile: '+91 90281 44599'
+  PASS  M1     details: mobile: '+91-90281-44599'
+  PASS  M1     details: mobile: '090281 44599'
+  PASS  M1     details: mobile: '9028144599'
+  PASS  M1     dashboard boxes: maxlength of the mobile boxes
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'name': 123}
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'kw': [1]}
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'mobile': {'a': 1}}
+  PASS  D13    wrong-typed input: /api/closeout/SS-2063 {'mobile': [1]}
+  PASS  D13    wrong-typed input: /api/closeout/SS-2063 {'aadhaar_last4': {'x': 1}}
+  PASS  D13    wrong-typed input: /api/customers {'name': ['a']}
+  PASS  D13    wrong-typed input: login with a number as username
+  PASS  M2     application no.: a Maharashtra number one digit short
+  PASS  D04    application no.: first number NP-MHSED26-35226411
+  PASS  D04    application no.: an operator registers again with another number
+  PASS  R6     application no.: a supervisor replaces it with a number already on another customer
+  PASS  R6     application no.: a supervisor replaces it correctly
+  PASS  D05    step order: register a customer with no documents (typed by hand)
+  PASS  D05    step order: accept before registering
+  PASS  D05    step order: send the agreement before the vendor accepted (Registration)
+  PASS  R8     step order: send the agreement before the vendor accepted (Close-out route)
+  PASS  R4     co-pilot: number read off the portal for a customer Solara thought not ready
+  PASS  R2     extraction: confirm the bill's mobile when the owner typed another
+  PASS  R3     extraction: confirm the consumer number with 'abc'
+  PASS  R3     extraction: confirm it as '1700 5550 1234'
+  PASS  R11    extraction: a hand correction to the bill, then a new bill uploaded
+  PASS  R12    registration page: sanctioned load read as '3.5 kW approx.'
+  PASS  P3     details: a customer with no email
+  PASS  D14    e-sign page: ?error= with crafted text
+  PASS  M6     e-sign page: wrong last-4 digits
+  PASS  R10    e-sign page: a 9000x9000 'signature' (20 KB)
+  PASS  R7     e-sign page: the customer signs as 'D’Souza Priya' (curly apostrophe)
+  PASS  R9     e-sign evidence: a link sent before copies were kept is signed
+  PASS  D15    dashboard: GET /favicon.ico
+
+  -- what the live portal showed
+  PASS  P1     co-pilot: manifest hosts
+  PASS  P2     dashboard links: live 'Open customer registration' / 'Open vendor login'
+  PASS  P4     rules: valid.app_no on 8-digit MH numbers
+
+  -- less work for the owner
+  PASS  E1     details: district: the old name 'Ahmednagar'
+  PASS  E1     details: district: 'Atlantis'
+  PASS  E1     extraction: district: Aadhaar QR says 'Aurangabad'
+  PASS  E1     dashboard: the district list
+  PASS  E2     customer link: the customer opens it
+  PASS  E2     customer link: a viewer asks for a link
+  PASS  E2     customer link: the customer sends the bill PDF
+  PASS  E2     customer link: the page after the upload
+  PASS  E2     customer link: a document kind the link does not ask for
+  PASS  E2     customer link: a wrong email
+  PASS  E2     customer link: the customer types their email
+  PASS  L2     customer link: bill and email sent, Aadhaar not yet
+  PASS  L1     customer link: a link made while Solara runs on this computer
+  PASS  L1     customer link: SOLARA_PUBLIC_URL set to the internet address
+  PASS  L3     dashboard: the dashboard's script file
+  PASS  E2     customer link: a made-up link
+  PASS  E2     customer link: the 31st file on one link
+  PASS  E2     customer link: after 7 days
+  PASS  E3     co-pilot: My Application: a status Solara does not know, and a number on no customer
+  PASS  E3     co-pilot: My Application: the customer listed as 'Upload Agreement (Pending)'
+  PASS  E3     co-pilot: My Application: the portal is past the agreement, Solara has no signed one
+
+  -- the Registration screen (manual review findings)
+  PASS  M3     details form: the email box
+  PASS  M4     details form: type 3 into the highlighted capacity box
+  PASS  M5     details form: type 210000 as the cost
+  PASS  U7     Registration screen: a new customer (next step: documents)
+  PASS  U8     Registration screen: text size and labels
+  PASS  U9     Registration screen: open the folded portal section, then the screen redraws
+  PASS  E4     Registration screen: tap the 3 kW button
+  PASS  E4     Registration screen: the district box
+
+  log: docs/k1-audit/k1_audit_log.md
+
+  115 passed, 0 failed

@@ -30,6 +30,12 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from app import db, closeout  # noqa: E402
 import fixtures as fx  # noqa: E402
 
+
+def today_items(sup):
+    """Today's lines, flat: each with its list (calls, todo, portal, waiting) and its words."""
+    t = sup.get("/api/today").json()
+    return [{**x, "group": g, "title": x["text"]} for g in ("calls", "todo", "portal", "waiting") for x in t[g]]
+
 BASE = "http://127.0.0.1:8900"
 EXT = Path(__file__).resolve().parent.parent / "extension"
 PASS, FAIL = [], []
@@ -148,7 +154,7 @@ async def main():
     g = sup.get(f"/api/filing/{cid}").json()
     check("after the agreement the customer is on the Installation list, next is the site visit",
           any(x["id"] == cid for x in sup.get("/api/filing").json()) and g["next"]["act"] == "details", g["next"]["label"])
-    check("Today lists the customer's next step", any(x["cid"] == cid for x in sup.get("/api/today").json()["items"]))
+    check("Today lists the customer's next step", any(x["cid"] == cid for x in today_items(sup)))
 
     # ---------------- guard rails ----------------
     print("\n  -- guard rails")
@@ -269,9 +275,8 @@ async def main():
         await js.wait_for_timeout(1500)
         check("the co-pilot never types the Aadhaar number or the OTP",
               await js.input_value("#aad") == "" and await js.input_value("#otp") == "")
-        today = sup.get("/api/today").json()
         check("Today shows the OTP call while the portal waits for it",
-              any(x["cid"] == cid and x["group"] == "calls" and "OTP" in x["title"] for x in today["items"]))
+              any(x["cid"] == cid and x["group"] == "calls" and "OTP" in x["title"] for x in today_items(sup)))
         await js.fill("#aad", "123456784471")                       # the customer types these
         await js.fill("#otp", "246810")
         await js.click("#btnNext")
@@ -346,7 +351,7 @@ async def main():
               by.get("PE55026A318410", {}).get("note", ""))
         check("a label with no readable code is flagged, not guessed", reads["unread"] == 1)
         check("Today shows the serials waiting for confirmation", any(x["cid"] == cid and "serial" in x["title"].lower()
-                                                                   for x in sup.get("/api/today").json()["items"]))
+                                                                   for x in today_items(sup)))
         g = sup.get(f"/api/filing/{cid}").json()
         check("nothing reaches the record before a person confirms it", not g["data"].get("module_serials"))
         await dash.reload()
@@ -418,7 +423,7 @@ async def main():
         await panel_says(dcr, "waiting for the dealer")
         g = sup.get(f"/api/filing/{cid}").json()
         check("a panel the dealer has not transferred: refused, and Solara shows 'waiting for the dealer'",
-              g["next"]["act"] == "dealer" and any(x["cid"] == cid and x["group"] == "dealer" for x in sup.get("/api/today").json()["items"]))
+              g["next"]["act"] == "dealer" and any(x["cid"] == cid and x["group"] == "waiting" for x in today_items(sup)))
         db.ex("INSERT OR IGNORE INTO dcr_stock(serial,credited_at) VALUES(?,?)", (SERIALS[-1], db.now()))  # the dealer transfers it
         await dcr.goto(f"{BASE}/dcr/b2c")
         await dcr.wait_for_selector("#can")
@@ -487,7 +492,7 @@ async def main():
         check("installation marked filed in Solara, receipt kept", bool(g["times"]["installation_at"]) and
               any(r["step"] == "installation" for r in g["receipts"]))
         check("next: the customer accepts on their phone (their own step, shown as a call)",
-              g["next"]["act"] == "ask_accept" and any(x["cid"] == cid and x["group"] == "calls" for x in sup.get("/api/today").json()["items"]))
+              g["next"]["act"] == "ask_accept" and any(x["cid"] == cid and x["group"] == "calls" for x in today_items(sup)))
         sup.post("/pmsg/vendor/sandbox/advance", data={"app": APP_NO})   # the customer accepts with their OTP
         await pm.goto(f"{BASE}/pmsg/vendor/applications")
         await panel_says(pm, "updated in Solara")

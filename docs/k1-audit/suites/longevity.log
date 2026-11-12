@@ -1,0 +1,21 @@
+
+  -- database upgrades
+  PASS  an old database gains the missing columns
+  PASS  its data is kept
+  PASS  its version is recorded
+  PASS  upgrading twice is harmless
+  PASS  a database that already has the columns upgrades without error
+
+  -- dependencies
+  PASS  every dependency is pinned to one exact version
+
+  -- health check
+  PASS  health covers database, key, backups, disk, portals, AI  — database, key, backups, disk, portals, ai
+  PASS  the database and key are healthy  — integrity ok, schema 2/2 · the vault key opens the documents
+  PASS  the co-pilot's report of unfilled fields is accepted
+  PASS  health shows the drift: which page and which fields  — fields left unfilled: pmsuryaghar.gov.in/consumer/apply: Name of Scheme, Roof Type (1x)
+  PASS  a fresh backup turns the backup check green  — last backup 0 h ago
+
+  reset: ['SS-2045', 'SS-2047', 'SS-2049', 'SS-2050']
+
+  11 passed, 0 failed

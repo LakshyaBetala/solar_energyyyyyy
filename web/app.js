@@ -14,12 +14,12 @@ const STAGES = [
 const stage = k => STAGES.find(s => s[0] === k) || STAGES[0];
 
 const TITLES = {
-  today: ['Today', 'Everything that needs a person today, with the screen to open for each. Worked out live from every customer.'],
   inst: ['Installation', 'Agreement uploaded to six documents on MSEDCL: feasibility report, loan, field photos and serials, DCR, the 5 installation steps.'],
   pipeline: ['Pipeline', 'Every live application and the stage it is sitting at.'],
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
-  reg: ['Registration', 'New customer to registered, accepted and agreement uploaded. Upload the documents once; the co-pilot fills PM Surya Ghar.'],
+  today: ['Today', 'What to do now, for every customer. Do the top line first.'],
+  reg: ['Registration', 'From the customer’s documents to the customer approving the agreement on PM Surya Ghar.'],
   closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],
@@ -48,7 +48,7 @@ async function api(path, opts = {}) {
   if (r.status === 401) { S.me = null; showGate('Your session expired. Sign in again.'); throw new Error('unauthorised'); }
   const txt = await r.text();
   let data; try { data = txt ? JSON.parse(txt) : null; } catch { data = txt; }
-  if (!r.ok) throw new Error((data && data.detail) || r.statusText);
+  if (!r.ok) { const err = new Error((data && data.detail) || r.statusText); err.status = r.status; err.data = data; throw err; }
   return data;
 }
 
@@ -82,6 +82,7 @@ async function login(username, password) {
 
 /* ------------------------------ boot ------------------------------ */
 async function boot() {
+  S.view = 'today';  // every sign-in starts the day on what to do now; a click while the data loads still wins
   if (!$('#runview')) { // before any request: a click while the data loads must find its containers
     $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
     $('#runview').innerHTML = runView();
@@ -104,8 +105,13 @@ async function boot() {
     ? `Extraction also runs through ${S.llm.provider}/${S.llm.model}`
     : 'No API key configured; extraction uses the deterministic parser only';
   counters();
+  if (!$('#runview')) {
+    $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
+    $('#runview').innerHTML = runView();
+  }
   if (S.activeRun) { attachRun(S.activeRun); S.view = 'run'; }
   render();
+  loadToday();
 }
 
 function counters() {
@@ -119,9 +125,7 @@ function counters() {
   $('#tagCo').textContent = S.co.filter(x => !x.uploaded).length;
   $('#tagReg').textContent = S.reg.filter(x => x.done < x.total).length;
   $('#tagInst').textContent = (S.inst || []).filter(x => x.done < x.total).length;
-  const todo = S.today ? S.today.items.length : 0;
-  $('#tagToday').textContent = todo;
-  $('#tagToday').className = 'tag' + (S.today && S.today.items.some(x => x.sev === 'bad') ? ' hot' : '');
+  if (S.today && $('#tagToday')) $('#tagToday').textContent = S.today.calls.length + S.today.todo.length + S.today.portal.length;
   const live = ['running', 'held', 'paused', 'starting'].includes(S.runStatus);
   $('#tagRun').textContent = live ? (S.runStatus === 'held' ? 'held' : 'live') : S.runStatus;
   $('#tagRun').className = 'tag' + (live ? ' live' : S.runStatus === 'failed' || S.runStatus === 'stopped' ? ' hot' : '');
@@ -545,6 +549,88 @@ async function loadExtract(cid) {
   if (S.view === 'docs') render();
 }
 
+/* ------------------------------ today: one list of what to do now ------------------------------ */
+async function loadToday() {
+  [S.today, S.board] = await Promise.all([api('/today').catch(() => null), api('/board').catch(() => null)]);
+  counters();
+  if (S.view === 'today' || S.view === 'pipeline') render();
+}
+// The vendor login on the left, the customer login on the right: upload in one, the customer approves in
+// the other, and the Solara panel in each says what the other finished. Named windows are reused.
+function sideBySide(p) {
+  const w = Math.floor(screen.availWidth / 2), at = x => `popup,left=${x},top=0,width=${w},height=${screen.availHeight}`;
+  const a = window.open(p.pmsg_vendor, 'solaraVendor', at(0)), b = window.open(p.pmsg, 'solaraCustomer', at(w));
+  toast(a && b ? 'Vendor login on the left, customer login on the right. The Solara panel in each tells the other what is done.'
+    : 'Chrome blocked one window: click the blocked pop-up icon in the address bar, choose Always allow, then press again.');
+}
+// what the co-pilot saved on the portal shows here as soon as the owner comes back to Solara
+window.addEventListener('focus', async () => {
+  if (S.view === 'today') return loadToday();
+  if (S.view !== 'reg' || !S.regCid || !S.regData) return;
+  const fresh = await api('/registration/' + S.regCid).catch(() => null);
+  const sig = g => g && g.steps.map(s => +s.done).join('') + g.next.act;
+  // only a step that moved re-draws the page, so nothing half-typed is lost on every focus
+  if (fresh && sig(fresh) !== sig(S.regData)) {
+    S.regData = fresh; S.reg = await api('/registration').catch(() => S.reg); render(); toast('Updated from the portal.');
+  }
+});
+const fmtPhone = n => n && n.length === 10 ? `${n.slice(0, 5)} ${n.slice(5)}` : (n || '');
+// the one button each line gets, by what the line asks for
+const TODAY_BTN = { docs: 'Send the WhatsApp link', sign: 'Send to sign', check: 'Check it', details: 'Add details',
+  register: 'Register now', approve: 'Approve now', accept: 'Open', upload: 'Open', vsig: 'Add signature', fix: 'Fill in', build: 'Make documents', wait: 'Open',
+  otp: 'Open', loan: 'Open Jan Samarth', ask_accept: 'Send the steps', roof: 'Add the photo', field: 'Send the field link', serials: 'Check serials',
+  closeout: 'Open', sfr: 'Open the portal', dcr: 'Open the DCR portal', installation: 'Open the portal', msedcl: 'Open MSEDCL', portal: 'Check it' };
+// lines whose button does something in Solara itself (a viewer only looks)
+const TODAY_DOES = ['docs', 'sign', 'vsig', 'build', 'field'];
+
+VIEWS.today = () => {
+  const t = S.today;
+  if (!t) return '<div class="rgv"><section class="rgpane"><p class="rgnote">Loading today’s list…</p></section></div>';
+  const op = can('operator') ? '' : ' disabled';
+  let lead = true;  // only the top line gets the filled button: do it first
+  const row = (x, muted) => { const go = !muted && lead; if (go) lead = false; return `<li class="tdrow${muted ? ' muted' : ''}${x.sev === 'bad' ? ' urgent' : ''}">
+    <div class="tdmain"><b>${esc(x.text)}</b>
+      <span class="sub">${esc(x.name)} · ${esc(x.cid)}${x.phone ? ` · <a href="tel:+91${esc(x.phone)}">${fmtPhone(x.phone)}</a>` : ''}${x.detail ? ` · ${esc(x.detail)}` : ''}</span></div>
+    <div class="tdact">${x.otp ? `<a class="btn sm" href="${esc(x.otp.whatsapp)}" target="_blank" rel="noopener">WhatsApp: codes are coming</a>` : ''}
+      <button class="btn ${go ? 'go' : muted ? 'sm' : ''}" data-today="${esc(x.cid)}" data-screen="${x.screen}" data-act="${esc(x.act)}"${!muted && TODAY_DOES.includes(x.act) ? op : ''}>${esc(muted ? 'Open' : TODAY_BTN[x.act] || 'Open')}</button></div></li>`; };
+  const group = (title, hint, items, muted, key) => !items.length ? '' : `<section class="tdgroup" data-group="${key}" aria-label="${esc(title)}">
+    <div class="rgsh"><h3>${title}</h3><span class="rgmeta">${hint}</span></div>
+    <ul class="tdlist">${items.map(x => row(x, muted)).join('')}</ul></section>`;
+  const n = t.calls.length + t.todo.length + t.portal.length;
+  const date = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  return `<div class="rgv"><section class="rgpane tdpane" aria-labelledby="tdTitle">
+    <header class="rghead"><h2 id="tdTitle">${n ? `${n} thing${n > 1 ? 's' : ''} to do` : 'Nothing to do right now'}</h2>
+      <p class="rgfacts">${date}${t.waiting.length ? ` · ${t.waiting.length} waiting for customers` : ''}</p></header>
+    ${n ? '' : `<div class="rgnext idle"><div class="rgnext-main"><div class="rgnext-txt"><span class="rgk">All caught up</span>
+      <p>A new customer? Add them and send them the WhatsApp link for their documents.</p></div>
+      <button class="btn go lg" id="todayNew"${op}>Add a new customer</button></div></div>`}
+    ${group('Calls to make', 'the customer reads out the OTP', t.calls, false, 'calls')}
+    ${group('To do in Solara', 'one click each', t.todo, false, 'todo')}
+    ${group('On the government website', 'the co-pilot fills it; you press Submit', t.portal, false, 'portal')}
+    ${group('Waiting', 'for the customer, the dealer or the field team', t.waiting, true, 'waiting')}
+    ${group('Paused', 'off the lists above until resumed', (t.paused || []).map(p => ({ ...p, screen: 'inst', act: 'paused',
+      text: `Paused: ${p.reason || 'no reason given'}`, detail: `${p.by}, ${(p.at || '').slice(5, 16).replace('T', ' ')}` })), true, 'paused')}
+    <div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px">${n ? `<button class="btn" id="todayNew"${op}>+ Add a new customer</button>` : ''}
+      <button class="btn sm" id="sideBySide">Open vendor + customer logins side by side</button>
+      <button class="btn sm" id="coKey"${op}>Connect the Chrome helper</button></div>
+  </section>
+  <section class="rgpane tdboard" aria-label="Every customer">${boardCard()}
+    <div class="row" style="padding:12px 2px;gap:9px;flex-wrap:wrap"><b>Monthly report</b><input type="month" id="month" value="${thisMonth()}" style="width:170px">
+      <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button>
+      <span class="hint">every customer with each step's date, the portal's status, and the audit trail</span></div>
+  </section></div>`;
+};
+
+async function todayAct(t) {
+  const cid = t.dataset.today, act = t.dataset.act;
+  if (t.dataset.screen === 'closeout') { S.view = 'closeout'; render(); await loadCo(cid); return; }
+  if (t.dataset.screen === 'inst') { S.view = 'inst'; render(); await loadInst(cid); if (!['portal', 'paused'].includes(act)) instAct(act); return; }
+  S.view = 'reg'; render(); await loadReg(cid);
+  if (act === 'docs') return regAskDocs();
+  if (act === 'sign') return regSendAgreement();
+  if (['check', 'details'].includes(act)) return regAct(act);
+}
+
 /* ------------------------------ registration (milestone 1) ------------------------------ */
 // the latest request wins: a slower, older answer must not redraw over what the owner is typing
 const seq = {};
@@ -552,6 +638,7 @@ const latest = k => { const n = (seq[k] || 0) + 1; seq[k] = n; return () => seq[
 
 async function loadReg(cid) {
   const still = latest('reg');
+  if (cid && cid !== S.regCid) S.regOpen = {};
   if (cid) S.regCid = cid;
   const list = await api('/registration');
   const id = S.regCid && list.some(x => x.id === S.regCid) ? S.regCid : list[0] && list[0].id;
@@ -561,81 +648,183 @@ async function loadReg(cid) {
   if (S.view === 'reg') render();
 }
 
+const REG_REQ = ['name', 'mobile', 'consumer_no', 'kw'];
 const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
 const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+
+/* Input rules for the registration forms. The server enforces the same ones; these show the
+   problem while typing, before Save. */
+const VD = ['0123456789', '1234067895', '2340178956', '3401289567', '4012395678', '5987604321', '6598710432', '7659821043', '8765932104', '9876543210'];
+const VP = ['0123456789', '1576283094', '5803796142', '8916043527', '9453126870', '4286573901', '2793806415', '7046913258'];
+const verhoeff = n => { let c = 0; [...n].reverse().forEach((ch, i) => { c = +VD[c][+VP[i % 8][+ch]]; }); return c === 0; };
+const REG_RULES = {
+  aadhaar: { hint: 'Last 4 digits, from the QR. A full number is checked, then cut to the last 4', max: 16, mode: 'numeric', check: v => {
+    v = v.trim(); if (!v) return ''; if (/^[Xx*]{4}[ -]?[Xx*]{4}[ -]?\d{4}$/.test(v) || /^\d{4}$/.test(v)) return '';
+    if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, '');
+    return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^[01]/.test(n) ? 'Never starts with 0 or 1' : verhoeff(n) ? '' : 'Check digit does not match; check each digit on the card'; } },
+  name: { hint: 'As on the Aadhaar', max: 60, check: v => !v ? 'Required' : v.trim().length < 3 ? 'At least 3 characters' : /[^\p{L}\p{M} .'-]/u.test(v) ? 'Use letters and spaces (a full stop, apostrophe or hyphen is fine)' : '' },
+  mobile: { hint: '10 digits. The portal sends the OTP here', max: 16, mode: 'numeric', check: v => { const n = v.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); return !v ? '' : !n ? 'Digits only' : /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting with 6, 7, 8 or 9'; } },
+  email: { hint: 'The portal sends an OTP here', max: 120, check: v => !v || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? '' : 'Does not look like an email' },
+  consumer_no: { hint: '12 digits, printed on the bill', max: 16, mode: 'numeric', check: v => { if (!v) return ''; if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, ''); return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^(\d)\1+$/.test(n) ? 'Repeats one digit; check the bill' : ''; } },
+  kw: { hint: '0.5 to 10, e.g. 3 or 3.3', max: 6, mode: 'decimal', check: v => !v ? '' : !/^\d+(\.\d+)?$/.test(v.trim()) ? 'A number, e.g. 3.3' : +v < 0.5 || +v > 10 ? 'Between 0.5 and 10 kW' : '' },
+  rts_cost: { hint: 'In rupees, e.g. 285000', max: 14, mode: 'decimal', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); if (!/^\d+(\.\d{1,2})?$/.test(t)) return 'An amount in rupees; up to 2 decimals'; return +t < 10000 || +t > 2500000 ? 'Between Rs 10,000 and Rs 25,00,000' : ''; } },
+  district: { hint: 'Optional', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  app_no: { hint: 'Copied by the co-pilot; type only if it missed', max: 40, check: v => { v = v.trim().toUpperCase(); return !v ? '' : !/^NP-[A-Z0-9]+-\d{6,}$/.test(v) ? 'Looks like NP-MHSED26-12345678' : /^NP-MHSED/.test(v) && v.split('-').pop().length !== 8 ? 'Ends in 8 digits; check for a missed digit' : ''; } }
+};
+const regFieldCheck = inp => {
+  const r = REG_RULES[inp.dataset.r || inp.dataset.rule]; if (!r) return true;
+  const msg = r.check(inp.value), box = inp.closest('.field') || inp.parentElement;
+  inp.classList.toggle('bad', !!msg); inp.setAttribute('aria-invalid', msg ? 'true' : 'false');
+  const e = box.querySelector('.ferr'); if (e) e.textContent = msg;
+  if (inp.value.trim()) box.classList.remove('miss');
+  // the amount in lakh notation, so a missed zero is seen before the agreement is printed
+  if (inp.dataset.r === 'rts_cost' && box.querySelector('.fhint')) { const t = inp.value.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim();
+    box.querySelector('.fhint').textContent = inp.value && !msg ? 'Rs ' + Number(t).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : r.hint; }
+  return !msg;
+};
+const regFormOk = scope => $$(scope).map(regFieldCheck).every(Boolean);
+const regSyncButtons = () => {
+  const d = $('#regSave'); if (d && can('operator')) d.disabled = !regFormOk('#regDetails [data-r]');
+  const c = $('#regCreate'); if (c) c.disabled = !($('#nName').value.trim().length >= 3 && regFormOk('#nName,#nMobile'));
+};
+
+/* The Registration screen: one next step at the top, then only the section that step needs.
+   Sections the owner opens or closes stay that way until another customer is picked. */
+const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Registered', accepted: 'Accepted', signed: 'E-signed', uploaded: 'Uploaded', approved: 'Customer approved' };
+const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
+const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'],
+  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar']];
+const REG_KW = [1, 2, 3, 4, 5];
+const regKwChips = (g, val, op) => {
+  const sug = g.suggest && g.suggest.kw, sizes = [...new Set([...REG_KW, ...(sug ? [sug] : [])])].sort((a, b) => a - b);
+  return `<div class="kwchips" role="group" aria-label="Pick the capacity">${sizes.map(n => `<button type="button" class="chip${+val === n ? ' on' : ''}${n === sug ? ' sug' : ''}" data-usekw="${n}" aria-pressed="${+val === n}"${op}>${n} kW</button>`).join('')}</div>`;
+};
+const LOCAL_WARN = s => s.local ? '<div class="hint" style="color:var(--warn);margin-top:8px">This link only opens on this computer or office network, not on the customer\u2019s phone. Solara needs its internet address (SOLARA_PUBLIC_URL) before customers can use links.</div>' : '';
+const regFold = (id, title, meta, body, def) => {
+  const open = (S.regOpen || {})[id] ?? def;
+  return `<details class="rgsec" id="${id}" data-fold="${id}"${open ? ' open' : ''}>
+    <summary><h3>${title}</h3><span class="rgmeta">${meta}</span></summary><div class="rgbody">${body}</div></details>`;
+};
+const regWhy = (g, act) => {
+  const c = g.customer, first = esc((c.name || '').split(' ')[0]);
+  const unsure = g.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key)).map(f => esc(f.field));
+  return {
+    docs: 'Add the electricity bill (the PDF from the MSEDCL website, or a photo) and the Aadhaar. Solara reads them as soon as they are uploaded.',
+    check: `Solara is not sure about: ${unsure.join(', ') || 'the PIN code'}. Compare with the document, then confirm.`,
+    details: g.steps[2].done ? 'The agreement prints the installation cost from the vendor’s quote.' : `Still needed: ${g.missing.map(m => esc(m.replace(/\s*\(.*\)$/, ''))).join(', ')}.`,
+    register: 'With the customer on the phone, open the portal. The co-pilot fills the form; you type the OTP and press Submit. It copies the application number back here.',
+    accept: `In the vendor login, open Vendor Consent and approve ${first}. Then open My Application: the co-pilot reads the list and updates Solara.`,
+    vsig: 'Once only: add the company signature that goes on every agreement.',
+    sign: 'The customer gets a WhatsApp link, enters the last 4 digits of the consumer number, reads the agreement and signs on the phone.',
+    wait: 'The link is with the customer and works for 7 days. Send it again if they cannot find it.',
+    upload: 'In the vendor login: My Application, then Update Agreement. The co-pilot attaches the signed PDF and the cost; you press Submit.',
+    approve: `The portal needs ${first} to approve the uploaded agreement in their own login: My Applications, Submit Agreement Details, Approve, tick the declaration, Verify & Approve. Call them for the login code.`,
+    '': g.elapsed_to_accepted != null ? `Documents to accepted took ${regMin(g.elapsed_to_accepted)}, including the wait for the customer’s OTP.` : 'Registered, accepted, and the agreement is on the portal.'
+  }[act] || '';
+};
+
 VIEWS.reg = () => {
   const list = S.reg || [], g = S.regData;
-  const top = `<div class="kpis">
-    <div class="kpi"><div class="k">In progress</div><div class="v num">${list.filter(x => x.done < x.total).length}</div><div class="d">new customers not yet through</div></div>
-    <div class="kpi"><div class="k">Ready to register</div><div class="v num">${list.filter(x => x.next.act === 'register').length}</div><div class="d">documents read, details complete</div></div>
-    <div class="kpi"><div class="k">Waiting for e-sign</div><div class="v num">${list.filter(x => x.next.act === 'wait').length}</div><div class="d">agreement link with the customer</div></div>
-    <div class="kpi"><div class="k">Milestone 1 done</div><div class="v num">${list.filter(x => x.done === x.total).length}</div><div class="d">registered, accepted, agreement uploaded</div></div></div>`;
-  const left = `<div class="card"><div class="ch"><h3>Customers</h3><span class="spacer"></span>
-    <button class="btn sm go" id="regNew"${can('operator') ? '' : ' disabled'}>+ New customer</button></div>
+  const n = k => list.filter(k).length, inProg = n(x => x.done < x.total), waiting = n(x => x.next.act === 'wait'), done = n(x => x.done === x.total);
+  const left = `<aside class="card rglist"><div class="ch"><h3>Customers</h3><span class="spacer"></span>
+    <button class="btn sm" id="regNew"${can('operator') ? '' : ' disabled'}>+ New customer</button></div>
+    ${list.length ? `<p class="rgcount">${inProg} in progress${waiting ? ` · ${waiting} waiting for e-sign` : ''}${done ? ` · ${done} done` : ''}</p>` : ''}
     <div class="colist">${list.length ? list.map(x => `<button data-reg="${x.id}" aria-current="${x.id === S.regCid}">
-      <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
-      <div><span class="pill ${x.done === x.total ? 'ok' : x.next.act === 'wait' ? 'info' : x.next.act === 'register' ? 'live' : 'warn'}">${x.done === x.total ? 'Done' : esc(x.next.label)}</span>
-      <span class="sub">${x.done}/${x.total}</span></div></button>`).join('') : '<div class="cb hint">No customers yet. Press New customer.</div>'}</div></div>`;
-  if (!g) return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}<div></div></div></div>`;
-  const c = g.customer, d = g.data, v = g.values, op = can('operator') ? '' : ' disabled';
+      <span class="row" style="justify-content:space-between;gap:8px"><b>${esc(x.name)}</b><span class="sub mono">${x.id}</span></span>
+      <span class="row" style="justify-content:space-between;gap:8px"><span class="rgstate ${x.done === x.total ? 'ok' : x.next.act === 'wait' ? 'info' : x.next.act === 'register' ? 'live' : 'warn'}">${x.done === x.total ? 'Done' : esc(x.next.label)}</span>
+      <span class="sub">${x.done} of ${x.total}</span></span></button>`).join('') : '<p class="rgnote" style="padding:14px">No customers yet. Press New customer and type their name.</p>'}</div></aside>`;
+  if (!g) return `<div class="rgv"><div class="cowrap">${left}<div></div></div></div>`;
+
+  const c = g.customer, d = g.data, v = g.values, op = can('operator') ? '' : ' disabled', act = g.next.act;
+  const stepDone = k => g.steps.find(s => s.key === k).done, regd = stepDone('registered');
   const docs = Object.fromEntries(g.documents.map(x => [x.kind, x]));
   const flagged = g.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key));
+  const fp = g.fields.find(f => f.key === 'pin'), fa = g.fields.find(f => f.key === 'aadhaar_pin');
+  const pinConflict = !!(fp && fa && fp.value !== fa.value && fp.value !== 'not read' && fa.value !== 'not read'
+    && (fp.status === 'review' || fa.status === 'review'));
   const fieldRow = f => {
-    const later = REG_LATER.includes(f.key), rev = f.status === 'review';
-    return `<div class="fld ${rev && !later ? 'review' : ''}" data-field="${esc(f.key)}">
-      <div class="fk">${esc(f.field)} <span style="opacity:.7">&middot; ${esc(f.source)}</span>${later ? ' <span class="pill idle">needed later</span>' : ''}</div>
-      ${rev && !later ? `<div class="row" style="gap:6px;margin-top:4px"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="type it as on the document" style="flex:1">
-        <button class="btn sm go" data-confirm="${esc(f.key)}"${op}>Confirm</button></div>` : `<div class="fv">${esc(f.value)}</div>`}
-      ${f.note ? `<div class="fk" style="color:${rev ? 'var(--warn)' : 'var(--fg-dim)'};letter-spacing:0;text-transform:none;font-size:11px;line-height:1.5">${esc(f.note)}</div>` : ''}</div>`;
+    const later = REG_LATER.includes(f.key), rev = f.status === 'review' && !later;
+    return `<div class="fld ${rev ? 'review' : ''}" data-field="${esc(f.key)}">
+      <div class="fk">${esc(f.field)} <span class="sub">· ${esc(f.source)}</span>${later ? ' <span class="pill idle">needed later</span>' : ''}</div>
+      ${rev ? `<div class="row" style="gap:8px;grid-column:1/-1"><input type="text" data-fval="${esc(f.key)}" value="${esc(f.value === 'not read' ? '' : f.value)}" placeholder="${f.key === 'aadhaar_masked' ? 'last 4 digits only, e.g. 4471' : 'type it as on the document'}" maxlength="80" style="flex:1" aria-label="${esc(f.field)}"${op}>
+        <button class="btn go" data-confirm="${esc(f.key)}"${op}>Confirm</button></div>` : `<div class="fv">${esc(f.value)}</div>`}
+      ${f.note ? `<div class="fnote${rev ? ' warn' : ''}">${esc(f.note)}</div>` : ''}</div>`;
   };
-  const det = [['name', 'Customer name', c.name], ['mobile', 'Mobile (gets the portal OTP)', d.mobile], ['email', 'Email (optional)', d.email],
-    ['consumer_no', 'Consumer number', c.consumer_no], ['kw', 'Proposed capacity (kW)', c.kw], ['rts_cost', 'Installation cost, Rs (for the agreement)', d.rts_cost],
-    ['district', 'District', d.district]];
-  const stepDone = k => g.steps.find(s => s.key === k).done;
-  return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}
-  <div class="grid" style="gap:12px">
-    <div class="card raise"><div class="ch"><div><h3>${esc(c.name)}</h3>
-      <div class="sub mono">${c.id} · consumer ${esc(c.consumer_no || '—')} · ${c.kw ? c.kw + ' kW' : 'capacity —'} · application ${esc(c.application_no || '—')}</div></div>
-      <span class="spacer"></span>
-      <button class="btn ${g.next.act ? 'go' : ''}" id="regNext" data-act="${g.next.act}"${g.next.act && (g.next.act === 'vsig' || can('operator')) ? '' : ' disabled'}>${esc(g.next.label)}</button></div>
-      <div class="cb"><div class="costeps" style="grid-template-columns:repeat(6,minmax(0,1fr))">${g.steps.map((s, i) =>
-        `<div class="${s.done ? 'done' : ''}">${s.done ? '&#10003;' : i + 1}. ${esc(s.label)}</div>`).join('')}</div>
-      ${g.elapsed_to_accepted != null ? `<div class="hint" style="margin-top:8px">Documents to accepted: <b class="mono">${regMin(g.elapsed_to_accepted)}</b> (includes waiting for the customer's OTP)</div>` : ''}</div></div>
 
-    <div class="two">
-      <div class="card" id="regDocs"><div class="ch"><h3>Documents</h3><span class="spacer"></span><span class="hint">PDF or photo</span></div>
-        <div class="cb" style="display:grid;gap:8px">${Object.entries(g.doc_kinds).map(([k, label]) => `<div class="docrow">
-          <span class="pill ${docs[k] ? 'ok' : ['bill', 'aadhaar'].includes(k) ? 'warn' : 'idle'}">${docs[k] ? 'on file' : ['bill', 'aadhaar'].includes(k) ? 'needed' : 'optional'}</span>
-          <span class="nm">${esc(label)}${docs[k] ? `<div class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</div>` : ''}</span>
-          <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${op}></label></div>`).join('')}
-          <div class="hint">Aadhaar is read from its QR code on this computer; nothing is sent out.${g.llm.enabled ? '' : ' Photos of bills and bank pages need the AI key; the PDF from the MSEDCL website reads without it.'}</div></div></div>
+  /* the next step: one action, one line on why, and whatever that step needs right beside it */
+  const cur = g.steps.findIndex(s => !s.done);
+  const steps = `<ol class="rgsteps" aria-label="Progress: ${g.steps.filter(s => s.done).length} of ${g.steps.length} steps done">${g.steps.map((s, i) =>
+    `<li class="${s.done ? 'done' : ''}${i === cur ? ' cur' : ''}" title="${esc(s.label)}"${i === cur ? ' aria-current="step"' : ''}><span class="dot" aria-hidden="true">${s.done ? '&#10003;' : i + 1}</span>${REG_SHORT[s.key]}</li>`).join('')}</ol>`;
+  const appField = `<div class="field rgapp"><label for="regApp">Application number</label>
+    <div class="row" style="gap:8px"><input type="text" id="regApp" data-rule="app_no" placeholder="NP-MHSED26-…" value="${esc(c.application_no || '')}" maxlength="40" autocomplete="off" aria-describedby="h_regApp"${op}>
+    <button class="btn" id="regAppSave" data-has="${esc(c.application_no || '')}"${op}>${c.application_no ? 'Replace number' : 'Save number'}</button></div>
+    <div class="fhint" id="h_regApp">${c.application_no ? 'Replace it only after checking the number on the portal' : esc(REG_RULES.app_no.hint)}</div><div class="ferr" role="alert"></div></div>`;
+  const primary = !act ? `<p class="rgstatus" id="regNext">&#10003; ${esc(g.next.label)}</p>`
+    : act === 'wait' ? `<p class="rgstatus" id="regNext">${esc(g.next.label)}</p><button class="btn" id="regSign"${op}>Send the link again</button>`
+    : `<button class="btn ${act === 'check' ? '' : 'go '}lg" id="regNext" data-act="${act}"${act === 'vsig' || can('operator') ? '' : ' disabled'}>${esc(act === 'details' && !regd ? 'Add the missing details' : g.next.label)}</button>`;
+  // an issue already shown beside its value under "Check what was read" is not repeated here
+  const open = g.validation.issues.filter(i => !flagged.some(f => f.note && f.note === i.message));
+  const issues = !regd && open.length ? `<div class="rgissues" id="regIssues"><p>Also needed before registering:</p><ul>${open.map(i =>
+    `<li><b>${REG_KIND[i.kind] || esc(i.kind)}</b><span>${esc(i.kind === 'missing' ? i.field[0].toUpperCase() + i.field.slice(1) : i.message)}</span></li>`).join('')}</ul></div>` : '';
+  const next = `<div class="rgnext${act ? '' : ' idle'}">
+    <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
+    ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
+    ${['register', 'approve'].includes(act) && g.otp ? `<div class="rgline">Call ${esc((c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the code. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
+    ${act === 'approve' ? `<div class="rgline">Approved on the portal without the co-pilot? <button class="btn sm" id="regApproved"${op}>Mark it approved</button></div>` : ''}
+    ${act === 'register' ? appField : ''}
+    ${act === 'upload' ? `<div class="rgline">Pressed Submit on the portal without the co-pilot? <button class="btn sm" id="regUploaded"${op}>Mark the agreement uploaded</button></div>` : ''}
+    ${issues}</div>`;
 
-      <div class="card" id="regDetails"><div class="ch"><h3>Details for the portal</h3><span class="spacer"></span>
-        <button class="btn sm pri" id="regSave"${op}>Save</button></div>
-        <div class="cb cofields" style="grid-template-columns:1fr 1fr">${det.map(([k, label, val]) => `<div class="field${g.missing.some(m => label.toLowerCase().startsWith(m.split(' ')[0])) && !val ? ' miss' : ''}"><label>${esc(label)}</label>
-          <input type="text" data-r="${k}" value="${esc(val ?? '')}"${op}></div>`).join('')}</div></div>
-    </div>
+  /* sections, the current one first */
+  const onFile = ['bill', 'aadhaar', 'passbook', 'roof'].filter(k => docs[k]).length;
+  const docsSec = regFold('regDocs', 'Documents', `${onFile} of ${Object.keys(g.doc_kinds).length} on file`,
+    Object.entries(g.doc_kinds).map(([k, label]) => `<div class="docrow">
+      <span class="pill ${docs[k] ? 'ok' : ['bill', 'aadhaar'].includes(k) ? 'warn' : 'idle'}">${docs[k] ? 'on file' : ['bill', 'aadhaar'].includes(k) ? 'needed' : 'later'}</span>
+      <span class="nm">${esc(label)}${docs[k] ? `<span class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</span>` : ''}</span>
+      <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${op}></label></div>`).join('')
+    + `<p class="rgnote">The Aadhaar is read from its QR code on this computer; only the last 4 digits are kept.${g.llm.enabled ? '' : ' A photo of a bill or bank page is flagged for you to type.'}</p>`,
+    act === 'docs' || (!stepDone('documents') && onFile < Object.keys(g.doc_kinds).length));
+  const pinCard = !pinConflict ? '' : `<div class="fld review" id="regPin"><div class="fk">PIN code: the bill and the Aadhaar disagree</div>
+    <div class="fnote" style="grid-column:1/-1">The portal and the agreement use the PIN you pick: the one where the customer lives and the meter is.</div>
+    <div class="row" style="gap:8px;grid-column:1/-1">
+      <button class="btn go" data-pinpick="${esc(fp.value)}"${op}>Use ${esc(fp.value)} <span class="sub">(bill)</span></button>
+      <button class="btn" data-pinpick="${esc(fa.value)}"${op}>Use ${esc(fa.value)} <span class="sub">(Aadhaar)</span></button></div></div>`;
+  const shownFlags = flagged.filter(f => !(pinConflict && ['pin', 'aadhaar_pin'].includes(f.key)));
+  const readSec = !(pinConflict || shownFlags.length) ? '' : `<section class="rgsec" id="regRead"><div class="rgsh"><h3>Check what was read</h3>
+    <span class="rgmeta">${shownFlags.length + (pinConflict ? 1 : 0)} to confirm</span></div><div class="rgbody rgflags">${pinCard}${shownFlags.map(fieldRow).join('')}</div></section>`;
+  const rest = g.fields.filter(f => !flagged.includes(f));
+  const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
+    `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
+  const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, kw: c.kw,
+    rts_cost: d.rts_cost, district: d.district, aadhaar: d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+  const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
+  const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
+    `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
+      ${k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
+        ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
+      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
+      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
+    <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button></div>`, !stepDone('details') || ['check', 'details'].includes(act));
+  const portalSec = regFold('regPortal', 'On PM Surya Ghar', c.application_no ? esc(c.application_no) : 'not registered yet',
+    `<dl class="rgfiled">${[['Name filed', v.name], ['Consumer number', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
+      ['State', v.state], ['District', v.district], ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><dt>${k}</dt><dd>${esc(x || 'not yet')}</dd></div>`).join('')}</dl>
+    <div class="row" style="gap:8px"><a class="btn" href="${esc(g.portals.pmsg)}" target="_blank" rel="noopener">Open customer registration</a>
+      <a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open vendor login</a></div>
+    ${act === 'register' ? '' : appField}
+    ${stepDone('signed') ? `<p class="rgline" id="regAgrCheck">Signed agreement: ${g.agreement.check.ok ? 'verified (approval, kept copy and signatures match)' : 'NOT verified: ' + esc(g.agreement.check.problems.join('; '))}</p>` : ''}
+    ${g.requests.length ? `<p class="rgline">Agreement link: ${g.requests.map(r => `${esc(r.status === 'signed' ? 'signed by ' + r.signer_name : r.status)} (${esc(r.created_at.slice(5, 16).replace('T', ' '))})`).join(' · ')}</p>` : ''}
+    ${g.agreement.draft ? '<p class="rgline warn">The agreement wording is a DRAFT format. The client must approve it before the first real customer signs.</p>' : ''}`,
+    stepDone('details'));
+  const first = { docs: docsSec, check: readSec, details: detSec }[act] ?? (stepDone('details') ? portalSec : '');
+  const order = [first, ...[docsSec, readSec, detSec, allSec, portalSec].filter(x => x !== first)];
 
-    <div class="card" id="regRead"><div class="ch"><h3>What Solara read</h3><span class="spacer"></span>
-      <span class="pill ${!g.fields.length ? 'idle' : flagged.length ? 'warn' : 'ok'}">${!g.fields.length ? 'nothing yet' : flagged.length ? flagged.length + ' to check' : 'all clear'}</span></div>
-      <div class="cb" style="display:grid;gap:1px;padding:7px">${g.fields.length ? [...flagged, ...g.fields.filter(f => !flagged.includes(f))].map(fieldRow).join('')
-        : '<div class="hint" style="padding:16px;text-align:center">Upload the bill and the Aadhaar. Solara reads them straight away.</div>'}</div></div>
-
-    <div class="card"><div class="ch"><h3>On PM Surya Ghar</h3><span class="spacer"></span><span class="hint">the co-pilot fills these; you press every Submit</span></div>
-      <div class="cb" style="display:grid;gap:10px">
-        <div class="sumgrid">${[['Name filed', v.name], ['Consumer no.', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
-          ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><div class="k">${k}</div><div class="v" style="font-size:12.5px;font-family:var(--font-ui);font-weight:500;line-height:1.35">${esc(x || '—')}</div></div>`).join('')}</div>
-        <div class="row"><a class="btn" href="${esc(g.portals.pmsg)}" target="_blank" rel="noopener">Open customer registration</a>
-          <input type="text" id="regApp" placeholder="NP-MHSED26-…" value="${esc(c.application_no || '')}" style="width:190px"${op}>
-          <button class="btn sm" id="regAppSave"${op}>Save application no.</button></div>
-        <div class="row"><a class="btn" href="${esc(g.portals.pmsg_vendor)}" target="_blank" rel="noopener">Open vendor login</a>
-          <button class="btn sm" id="regAccepted"${stepDone('registered') && !stepDone('accepted') ? op : ' disabled'}>${stepDone('accepted') ? '&#10003; Accepted' : 'Mark accepted'}</button>
-          <button class="btn sm" id="regSign"${stepDone('accepted') && !stepDone('signed') && d.rts_cost ? op : ' disabled'}>Send agreement for e-sign</button>
-          <button class="btn sm" id="regUploaded"${stepDone('signed') && !stepDone('uploaded') ? op : ' disabled'}>${stepDone('uploaded') ? '&#10003; Agreement uploaded' : 'Mark agreement uploaded'}</button></div>
-        ${g.requests.length ? `<div class="sub">Agreement link: ${g.requests.map(r => `${esc(r.status === 'signed' ? 'signed by ' + r.signer_name : r.status)} (${esc(r.created_at.slice(5, 16).replace('T', ' '))})`).join(' · ')}</div>` : ''}
-      </div></div>
-  </div></div></div>`;
+  return `<div class="rgv"><div class="cowrap">${left}
+  <section class="rgpane" aria-labelledby="rgName">
+    <header class="rghead"><h2 id="rgName">${esc(c.name)}</h2>
+      <p class="rgfacts">${c.id} · consumer ${esc(c.consumer_no || 'not read yet')} · ${c.kw ? esc(c.kw) + ' kW' : 'capacity not set'}${c.application_no ? ' · ' + esc(c.application_no) : ''}</p></header>
+    ${steps}${next}${order.join('')}
+  </section></div></div>`;
 };
 
 async function regPost(path, body) {
@@ -647,7 +836,7 @@ async function regSendAgreement() {
   try {
     const s = await api(`/registration/${S.regCid}/agreement`, { method: 'POST', body: {} });
     modal('Agreement to the customer', 'They confirm the last 4 digits of their consumer number, read the agreement and sign with a finger. The link works for 7 days.',
-      `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+      `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>${LOCAL_WARN(s)}
        <div class="hint">With the customer? Open it on your phone and hand it over.</div>`,
       `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
        <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
@@ -656,9 +845,19 @@ async function regSendAgreement() {
   } catch (err) { toast(err.message, true); }
 }
 
+async function regAskDocs() {
+  try {
+    const s = await api(`/registration/${S.regCid}/ask-docs`, { method: 'POST', body: {} });
+    modal('Documents from the customer', 'They photograph the bill and the Aadhaar and type their email on their own phone. Everything comes back here to check. The link works for 7 days.',
+      `<div class="field"><label for="askUrl">Link</label><input type="text" readonly value="${esc(s.url)}" id="askUrl"></div>${LOCAL_WARN(s)}`,
+      `<button class="btn" data-close>Close</button><button class="btn" id="askCopy">Copy link</button>
+       ${s.whatsapp ? `<a class="btn go" href="${esc(s.whatsapp)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : '<span class="hint">Add their mobile to send it on WhatsApp.</span>'}`);
+  } catch (err) { toast(err.message, true); }
+}
+
 async function regAct(act) {
   const g = S.regData;
-  const go = sel => { const el = $(sel); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return el; };
+  const go = sel => { const el = $(sel); if (el) { const f = el.closest('details'); if (f) f.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } return el; };
   if (act === 'docs') return go('#regDocs');
   if (act === 'check') { const el = go('#regRead .fld.review input'); if (el) el.focus(); return; }
   if (act === 'details') { go('#regDetails'); const m = $$('#regDetails input').find(i => !i.value); if (m) m.focus(); return; }
@@ -672,7 +871,8 @@ async function regAct(act) {
   }
   if (act === 'vsig') return coAct('vsig');
   if (act === 'sign' || act === 'wait') return regSendAgreement();
-  if (act === 'upload') { window.open(g.portals.pmsg_vendor, '_blank'); toast('My Application → Update Agreement → press Attach in the Solara panel → Submit.'); }
+  if (act === 'upload') { sideBySide(g.portals); setTimeout(() => toast('Left: My Application → Update Agreement → Attach in the Solara panel → Submit. Right: the customer approves it next.'), 2500); }
+  if (act === 'approve') { window.open(g.portals.pmsg, '_blank'); toast('Log in as the customer (they read you the code) → My Applications → Submit Agreement Details → Approve → tick → Verify & Approve.'); }
 }
 
 /* ------------------------------ close-out ------------------------------ */
@@ -830,7 +1030,7 @@ async function coAct(act) {
     try {
       const s = await api(`/closeout/${S.coCid}/sign`, { method: 'POST', body: {} });
       modal('Send to the customer', `${s.docs.length} document(s). The link works for 7 days and only after the customer enters the last 4 digits of their consumer number.`,
-        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>
+        `<div class="field"><label>Link</label><input type="text" readonly value="${esc(s.url)}" id="signUrl"></div>${LOCAL_WARN(s)}
          <div class="hint">At the site? Open it on your phone and hand it to the customer.</div>`,
         `<button class="btn" data-close>Close</button><button class="btn" id="signCopy">Copy link</button>
          <a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Customer is here: open</a>
@@ -840,41 +1040,8 @@ async function coAct(act) {
   }
 }
 
-/* ------------------------------ today (milestone 3) ------------------------------ */
-const TODAY_GROUPS = [['calls', 'Calls to make', 'OTPs and the customer\'s own approvals'], ['esign', 'E-signs', 'links to send or chase'],
-  ['uploads', 'To file on a portal', 'the co-pilot fills; you press Submit'], ['dealer', 'Waiting for the dealer', 'panels not yet transferred on the DCR portal'],
-  ['field', 'From the field', 'site photos and panel labels'], ['checks', 'To check', 'details, serial numbers, portal mismatches']];
+/* ------------------------------ the board (milestone 3), shown under Today ------------------------------ */
 const thisMonth = () => new Date().toISOString().slice(0, 7);
-
-async function loadToday() {
-  [S.today, S.board] = await Promise.all([api('/today'), api('/board')]);
-  if (S.view === 'today' || S.view === 'pipeline') render();
-}
-
-VIEWS.today = () => {
-  const t = S.today;
-  if (!t) return '<div class="card"><div class="cb hint">Loading…</div></div>';
-  const by = g => t.items.filter(x => x.group === g);
-  return `<div class="grid" style="gap:14px">
-  <div class="kpis">${TODAY_GROUPS.slice(0, 4).map(([g, n, d]) => `<div class="kpi"><div class="k">${n}</div>
-    <div class="v num">${by(g).length}</div><div class="d">${d}</div></div>`).join('')}</div>
-  <div class="two">${TODAY_GROUPS.map(([g, n, d]) => `<div class="card" data-group="${g}"><div class="ch"><h3>${n}</h3><span class="spacer"></span>
-    <span class="hint">${d}</span></div><div class="cb" style="padding:0">${by(g).length ? by(g).map(x => `<div class="todo">
-      <span class="pill ${x.sev === 'bad' ? 'bad' : x.sev === 'warn' ? 'warn' : 'info'} mono">${esc(x.cid)}</span>
-      <div style="min-width:0"><div>${esc(x.title)}</div><div class="sub">${esc(x.name)}${x.detail ? ' · ' + esc(x.detail) : ''}</div></div>
-      <button class="btn sm" data-goto="${esc(x.view)}" data-cid="${esc(x.cid)}" data-gact="${esc(x.act)}">Open</button></div>`).join('')
-    : '<div class="hint" style="padding:12px 14px">Nothing here.</div>'}</div></div>`).join('')}</div>
-  <div class="two">
-    <div class="card"><div class="ch"><h3>Paused</h3><span class="spacer"></span><span class="hint">not on the lists above until resumed</span></div>
-      <div class="cb" style="padding:0">${t.paused.length ? t.paused.map(p => `<div class="todo"><span class="pill idle mono">${esc(p.cid)}</span>
-        <div><div>${esc(p.name)}</div><div class="sub">${esc(p.reason)} · ${esc(p.by)}, ${esc((p.at || '').slice(5, 16).replace('T', ' '))}</div></div>
-        <button class="btn sm" data-goto="inst" data-cid="${esc(p.cid)}">Open</button></div>`).join('') : '<div class="hint" style="padding:12px 14px">No customer is paused.</div>'}</div></div>
-    <div class="card"><div class="ch"><h3>Monthly report</h3></div><div class="cb" style="display:grid;gap:9px">
-      <div class="row"><input type="month" id="month" value="${thisMonth()}" style="width:170px">
-        <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button></div>
-      <div class="hint">Every customer with each step's date and the portal's status, everything filed in the month, and the audit trail.</div></div></div>
-  </div></div>`;
-};
 
 function stageDots(row, stages) {
   return `<span class="dots" title="${esc(row.stage_name)}">${stages.map((s, i) =>
@@ -1224,6 +1391,10 @@ VIEWS.reports = () => {
 };
 
 /* ------------------------------ events ------------------------------ */
+document.addEventListener('click', e => {
+  const sm = e.target.closest('summary'), f = sm && sm.parentElement;
+  if (f && f.dataset.fold) (S.regOpen ||= {})[f.dataset.fold] = !f.open;
+});
 document.addEventListener('click', async e => {
   const t = e.target.closest('button,a[data-goto]'); if (!t) return;
 
@@ -1302,18 +1473,38 @@ document.addEventListener('click', async e => {
   if (t.id === 'regNext') { regAct(t.dataset.act); return; }
   if (t.id === 'regNew') {
     modal('New customer', 'Just the name to start. Everything else comes from the documents.',
-      `<div class="field"><label for="nName">Customer name</label><input type="text" id="nName" autocomplete="off"></div>
-       <div class="field"><label for="nMobile">Mobile (optional)</label><input type="text" id="nMobile" inputmode="numeric" autocomplete="off"></div>`,
-      '<button class="btn" data-close>Cancel</button><button class="btn go" id="regCreate">Add customer</button>');
+      `<div class="field"><label for="nName">Customer name</label><input type="text" id="nName" data-rule="name" maxlength="60" autocomplete="off" aria-describedby="nNameHint">
+         <div class="fhint" id="nNameHint">As on the Aadhaar. Letters only, at least 3.</div><div class="ferr" role="alert"></div></div>
+       <div class="field"><label for="nMobile">Mobile (optional)</label><input type="text" id="nMobile" data-rule="mobile" inputmode="numeric" maxlength="16" autocomplete="off">
+         <div class="fhint">10 digits. Used to spot a customer who is already on file.</div><div class="ferr" role="alert"></div></div>`,
+      '<button class="btn" data-close>Cancel</button><button class="btn go" id="regCreate" disabled>Add customer</button>');
     $('#nName').focus(); return;
   }
   if (t.id === 'regCreate') {
     try {
-      const g = await api('/customers', { method: 'POST', body: { name: $('#nName').value, mobile: $('#nMobile').value } });
+      const g = await api('/customers', { method: 'POST', body: { name: $('#nName').value, mobile: $('#nMobile').value,
+        allow_duplicate: t.dataset.force === $('#nName').value + '|' + $('#nMobile').value } });
       closeModal(); await loadReg(g.customer.id); toast('Added. Now upload the bill and the Aadhaar.');
-    } catch (err) { toast(err.message, true); }
+    } catch (err) {
+      if (err.status === 409) {   // looks like someone already on file: open them, or add on purpose
+        t.dataset.force = $('#nName').value + '|' + $('#nMobile').value; t.textContent = 'Add as a new customer anyway';
+        $('#regDupe') || $('#nMobile').closest('.field').insertAdjacentHTML('afterend', `<div id="regDupe" class="hint" style="color:var(--warn)"></div>`);
+        $('#regDupe').innerHTML = esc(err.message) + '<br>' + err.data.duplicates.map(m => `<button class="btn sm" data-reg="${esc(m.id)}" data-close>Open ${esc(m.id)}</button>`).join(' ');
+      } else toast(err.message, true);
+    }
     return;
   }
+  if (t.dataset.pinpick) {
+    const v = t.dataset.pinpick;
+    if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
+    return;
+  }
+  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
+  if (t.id === 'regAskDocs') { regAskDocs(); return; }
+  if (t.dataset.today) { todayAct(t); return; }
+  if (t.id === 'sideBySide') return sideBySide(S.today.portals);
+  if (t.id === 'todayNew') { S.view = 'reg'; render(); await loadReg(); $('#regNew')?.click(); return; }
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
@@ -1325,10 +1516,17 @@ document.addEventListener('click', async e => {
     catch (err) { toast(err.message, true); }
     return;
   }
-  if (t.id === 'regAppSave') { if (await regPost('/mark', { step: 'registered', app_no: $('#regApp').value })) toast('Application number saved'); return; }
+  if (t.id === 'regAppSave') {
+    const v = $('#regApp').value.trim().toUpperCase(), had = t.dataset.has;
+    if (!regFieldCheck($('#regApp')) || !v) { toast('Type the application number as NP-MHSED26-12345678', true); return; }
+    if (had && v !== had && !confirm(`This customer is already registered as ${had}.\nReplace it with ${v}? Only do this after checking the portal.`)) return;
+    if (await regPost('/mark', { step: 'registered', app_no: v, replace: !!had && v !== had })) toast('Application number saved');
+    return;
+  }
   if (t.id === 'regAccepted' || t.id === 'regAcceptedModal') { closeModal(); if (await regPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
   if (t.id === 'regSign') { regSendAgreement(); return; }
-  if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Milestone 1 done for this customer.'); return; }
+  if (t.id === 'regUploaded') { if (await regPost('/mark', { step: 'agreement_uploaded' })) toast('Agreement marked uploaded. Next: the customer approves it in their login.'); return; }
+  if (t.id === 'regApproved') { if (await regPost('/mark', { step: 'customer_approved' })) toast('Approved by the customer. Milestone 1 done for this customer.'); return; }
 
   /* close-out */
   if (t.dataset.co) { loadCo(t.dataset.co); return; }
@@ -1348,8 +1546,8 @@ document.addEventListener('click', async e => {
     } catch (err) { toast(err.message, true); }
     return;
   }
-  if (t.id === 'signCopy') {
-    try { await navigator.clipboard.writeText($('#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
+  if (t.id === 'signCopy' || t.id === 'askCopy') {
+    try { await navigator.clipboard.writeText($(t.id === 'askCopy' ? '#askUrl' : '#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
     return;
   }
   if (t.id === 'coKey') {
@@ -1485,6 +1683,10 @@ document.addEventListener('click', async e => {
   if (t.id === 'togglemr') { S.showEn = !S.showEn; render(); return; }
 });
 
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset && (t.dataset.r || t.dataset.rule)) { regFieldCheck(t); regSyncButtons(); }
+});
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
   if (e.target.id === 'runcid') pickRunCustomer(e.target.value);
@@ -1492,6 +1694,7 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
   if (e.target.dataset.doc && e.target.files[0]) {
+    (S.regOpen ||= {}).regDocs = true;  // the owner is adding documents: keep the list open after the last one
     const fd = new FormData(); fd.append('file', e.target.files[0]);
     toast('Reading the document…');
     try {
@@ -1554,7 +1757,7 @@ function liveMode() {
   S.live = true;
   $$('.whoami, [data-demo], .railfoot .hint').forEach(el => { el.hidden = true; }); // hidden, not removed: counters still update them
   $('#u').value = ''; $('#p').value = '';
-  if (['run', 'numbers', 'calls', 'docs'].includes(S.view)) S.view = 'today';
+  S.view = 'today'; // the owner's day starts with what to do now
 }
 
 (function init() {

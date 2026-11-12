@@ -7,6 +7,7 @@ data/documents, so extraction later parses a real file rather than a hard-coded 
 import asyncio, json
 from playwright.async_api import async_playwright
 from . import db, vault
+from .config import pdf_browser
 from .config import DOCS
 
 BILL_CSS = """
@@ -129,7 +130,7 @@ async def generate(customer_ids=None):
         tuple(customer_ids or ()))
     made = []
     async with async_playwright() as p:
-        b = await p.chromium.launch()
+        b = await pdf_browser(p)
         page = await b.new_page(viewport={"width": 820, "height": 1100})
         for c in cust:
             pc = db.one("SELECT * FROM portal_consumers WHERE consumer_no=?", (c["consumer_no"],))                 if c["consumer_no"] else None

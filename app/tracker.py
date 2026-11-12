@@ -152,73 +152,54 @@ def timeline(cid):
 
 # ------------------------------- today -------------------------------
 # next action -> (group on Today, severity)
-K1_GROUP = {"check": ("checks", "warn"), "docs": ("checks", "info"), "details": ("checks", "info"),
-            "accept": ("uploads", "warn"), "sign": ("esign", "warn"), "vsig": ("esign", "warn"),
-            "wait": ("esign", "info"), "upload": ("uploads", "warn")}
-K1_TITLE = {"accept": "Approve in Vendor Consent, then mark it",
-            "wait": "Agreement link is with the customer: remind them",
-            "upload": "Upload the signed agreement on PM Surya Ghar"}
-K2_GROUP = {"loan": ("calls", "warn"), "ask_accept": ("calls", "warn"), "dealer": ("dealer", "info"),
-            "serials": ("checks", "warn"), "details": ("checks", "info"), "roof": ("checks", "info"),
-            "wait_field": ("field", "info"), "field": ("field", "warn"), "vsig": ("esign", "warn")}
+# each filing step after the agreement, by the list it goes on in Today and the screen its button opens
+K2_LINE = {"loan": ("calls", "inst"), "ask_accept": ("calls", "inst"),
+           "details": ("todo", "inst"), "roof": ("todo", "inst"), "vsig": ("todo", "inst"), "field": ("todo", "inst"),
+           "serials": ("todo", "inst"), "closeout": ("todo", "closeout"),
+           "sfr": ("portal", "inst"), "dcr": ("portal", "inst"), "installation": ("portal", "inst"),
+           "msedcl": ("portal", "closeout"), "dealer": ("waiting", "inst"), "wait_field": ("waiting", "inst")}
 
 
-def _m(cid):
-    return closeout.data(cid)
-
-
-def today():
-    """Everything a person has to do, grouped, each with the screen to open. Derived live."""
-    items = []
-    add = lambda group, sev, cid, name, title, view, act="", detail="": items.append(
-        {"group": group, "sev": sev, "cid": cid, "name": name, "title": title, "view": view, "act": act,
-         "detail": detail})
-    paused = []
+def today(close_rows=()):
+    """Everything to do now, across all customers, in the owner's words, one line and one button each:
+    calls to make, things to do in Solara, things on a government website, who we are waiting for.
+    Registration lines come from registration.today; the filings after the agreement from filing.status.
+    close_rows: the close-out summaries (built in main, beside their screen)."""
+    lists = {"calls": [], "todo": [], "portal": [], "waiting": []}
+    paused, skip, otp_calls = [], set(), []
     since = (datetime.now() - timedelta(hours=3)).isoformat(timespec="seconds")
     otp_seen = {r["target"]: (r["ts"], r["detail"]) for r in db.q(
         "SELECT target, ts, detail FROM audit WHERE action='Co-pilot waiting for OTP' AND ts>? ORDER BY id", (since,))}
     for r in db.q("SELECT id FROM customers WHERE workflow='rooftop_registration' AND stage<>'disbursed' ORDER BY id"):
         cid = r["id"]
-        c, d = _m(cid)
+        c, d = closeout.data(cid)
         if d.get("paused_at"):
             paused.append({"cid": cid, "name": c["name"], "reason": d.get("paused_reason"), "by": d.get("paused_by"),
                            "at": d.get("paused_at")})
+            skip.add(cid)
             continue
-        mob = d.get("mobile") or ""
-        # resolved once anything was filed for them after the co-pilot saw the OTP box
-        if cid in otp_seen and any(str(v) > otp_seen[cid][0] for k, v in d.items() if k.endswith("_at")):
-            del otp_seen[cid]
-        if cid in otp_seen:
-            add("calls", "bad", cid, c["name"], f"The portal is waiting for {c['name']}'s OTP: call {mob}", "reg",
-                "", otp_seen[cid][1])
-        if c["stage"] in registration.PRE_STAGES and not d.get("agreement_uploaded_at"):
-            st = registration.status(cid)  # still in milestone 1
-            a, label = st["next"]["act"], st["next"]["label"]
-            if a == "register":
-                if cid not in otp_seen:
-                    add("calls", "warn", cid, c["name"], f"Register {c['name']}: call them for the portal OTP ({mob})", "reg", a)
-            elif a in K1_GROUP:
-                g, sv = K1_GROUP[a]
-                add(g, sv, cid, c["name"], K1_TITLE.get(a, label), "reg", a)
-            continue
-        if not c["application_no"]:
-            continue
-        s = filing.status(cid)
-        a, label = s["next"]["act"], s["next"]["label"]
+        line = {"cid": cid, "name": c["name"], "phone": registration.phone10(cid)}
+        first = (c["name"] or "").split()[0] if c["name"] else cid
+        # the co-pilot saw an OTP box: resolved once anything was filed for them after that
+        if cid in otp_seen and not any(str(v) > otp_seen[cid][0] for k, v in d.items() if k.endswith("_at")):
+            otp_calls.append({**line, "screen": "reg", "act": "otp", "sev": "bad", "detail": otp_seen[cid][1],
+                              "text": f"The portal is waiting for {first}'s OTP: call now"})
+        if (c["stage"] in registration.PRE_STAGES and not d.get("agreement_uploaded_at")) or not c["application_no"]:
+            continue  # still registering: registration.today has their line
+        skip.add(cid)
+        a, label = filing.status(cid)["next"].values()
         if a:
-            g, sv = K2_GROUP.get(a, ("uploads", "warn"))
-            if a == "closeout" and "e-sign" in label:
-                g = "esign"
-            if a == "closeout" and label.startswith("Close-out: complete"):
-                g, sv = "checks", "info"
-            add(g, sv, cid, c["name"], label, "closeout" if a in ("closeout", "msedcl") else "inst", a)
+            lst, screen = K2_LINE.get(a, ("portal", "inst"))
+            lists[lst].append({**line, "screen": screen, "act": a, "text": label})
         for prob in timeline(cid)["problems"]:
-            add("checks", "bad", cid, c["name"], prob, "inst", "portal")
-    order = {"calls": 0, "esign": 1, "uploads": 2, "dealer": 3, "field": 4, "checks": 5}
-    sev = {"bad": 0, "warn": 1, "info": 2}
-    items.sort(key=lambda x: (order[x["group"]], sev[x["sev"]], x["cid"]))
-    return {"items": items, "paused": paused,
-            "counts": {g: sum(1 for x in items if x["group"] == g) for g in order}}
+            lists["todo"].insert(0, {**line, "screen": "inst", "act": "portal", "sev": "bad", "text": prob})
+    reg = registration.today([x for x in close_rows if x["id"] not in skip])
+    otp_ids, held = {x["cid"] for x in otp_calls}, {x["cid"] for x in paused}
+    for k in lists:
+        lists[k] = [x for x in reg[k] if x["cid"] not in held] + lists[k]  # registration lines first
+    # the co-pilot's live OTP wait replaces the plain "call to register" line for that customer
+    lists["calls"] = otp_calls + [x for x in lists["calls"] if not (x["cid"] in otp_ids and x["act"] == "register")]
+    return {**lists, "paused": paused}
 
 
 def board():

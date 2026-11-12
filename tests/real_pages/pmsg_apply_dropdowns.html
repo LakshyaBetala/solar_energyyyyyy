@@ -1,0 +1,19 @@
+<!-- Apply page dropdowns in the live portal's PrimeNG markup (structure copied from the public State/District
+     filter, 7 Nov 2026). tests/real_labels.py adds PRIMENG, which behaves as the live dropdowns did: a click
+     opens the list, a click on an option picks it, and District unlocks only after State is chosen. -->
+<div class="form-group mb-3"><label class="required">State</label>
+<p-dropdown id="state" formcontrolname="state" optionlabel="stateName" class="p-element p-inputwrapper ng-untouched ng-pristine ng-valid">
+<div class="p-dropdown p-component p-inputwrapper"><span role="combobox" class="p-element p-dropdown-label p-inputtext p-placeholder" aria-label="Select State" aria-haspopup="listbox" aria-expanded="false" tabindex="0">Select State</span>
+<div role="button" aria-label="dropdown trigger" aria-haspopup="listbox" class="p-dropdown-trigger" aria-expanded="false"></div></div></p-dropdown></div>
+<div class="form-group mb-3"><label class="required">District</label>
+<p-dropdown id="district" formcontrolname="district" optionlabel="districtName" class="p-element p-inputwrapper disable-input ng-untouched ng-pristine ng-valid">
+<div class="p-dropdown p-component p-inputwrapper"><span role="combobox" class="p-element p-dropdown-label p-inputtext p-placeholder" aria-label="Select District" aria-haspopup="listbox" aria-expanded="false" tabindex="0">Select District</span>
+<div role="button" aria-label="dropdown trigger" aria-haspopup="listbox" class="p-dropdown-trigger" aria-expanded="false"></div></div></p-dropdown></div>
+<div class="form-group mb-3"><label class="required">Discom</label>
+<p-dropdown id="discom" formcontrolname="discom" optionlabel="discomName" class="p-element p-inputwrapper ng-untouched ng-pristine ng-valid">
+<div class="p-dropdown p-component p-inputwrapper"><span role="combobox" class="p-element p-dropdown-label p-inputtext p-placeholder" aria-label="Select Discom" aria-haspopup="listbox" aria-expanded="false" tabindex="0">Select Discom</span>
+<div role="button" aria-label="dropdown trigger" aria-haspopup="listbox" class="p-dropdown-trigger" aria-expanded="false"></div></div></p-dropdown></div>
+<div class="form-group mb-3"><label class="required" for="cno">Consumer Number</label>
+<input type="text" id="cno" pinputtext="" formcontrolname="consumerNo" class="p-inputtext p-component p-element"></div>
+<div class="form-group mb-3"><label>Sort Vendors</label>
+<p-dropdown id="sort" class="p-element p-inputwrapper"><div class="p-dropdown p-component p-inputwrapper"><span role="combobox" class="p-element p-dropdown-label p-inputtext p-placeholder" aria-label="Sort Vendors" tabindex="0">Sort Vendors</span></div></p-dropdown></div>

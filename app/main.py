@@ -1,14 +1,16 @@
-import asyncio, hashlib, json, secrets, random
+import asyncio, hashlib, json, os, secrets, random
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign,
-               msedcl, pmsg, registration, filing, field, tracker, dcr, jansamarth, reset as resetmod)
+from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
+               msedcl, pmsg, registration, intake, filing, field, tracker, dcr, jansamarth, upkeep, kpi,
+               reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live
+from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
 app.include_router(portal.router)
@@ -16,6 +18,7 @@ app.include_router(discom.router)
 app.include_router(esign.router)
 app.include_router(msedcl.router)
 app.include_router(pmsg.router)
+app.include_router(intake.router)
 app.include_router(field.router)
 app.include_router(dcr.router)
 app.include_router(jansamarth.router)
@@ -24,6 +27,8 @@ app.include_router(jansamarth.router)
 @app.on_event("startup")
 async def startup():
     fresh = db.seed()
+    if not os.environ.get("SOLARA_NO_UPKEEP"):  # tests that time backups turn it off
+        upkeep.start()
     # Runs owned by a previous process cannot be resumed: their browser is gone and their
     # holds can never be answered. Close them out so the dashboard is not stuck on a
     # checkpoint nobody can resolve.
@@ -41,7 +46,7 @@ async def startup():
             print('  no users yet: python -m app.users add <username> "<Full Name>" supervisor\n')
         return
     if fresh or not db.q("SELECT 1 FROM documents LIMIT 1"):
-        await docs_gen.generate()
+        await docs_gen.generate([c[0] for c in db.CUSTOMERS])  # sample files are for the demo's own customers only
         for c in db.q("SELECT id FROM customers"):
             try:
                 await extract.run(c["id"], use_llm=False)
@@ -56,10 +61,24 @@ async def startup():
 
 
 # ------------------------------- auth -------------------------------
+SESSION_HOURS = 12
+FAILS, LOCK_MIN = 5, 15  # five wrong passwords lock that username for fifteen minutes
+
+
 def session_user(request: Request):
     tok = request.cookies.get("solara") or ""
-    row = db.one("SELECT username FROM sessions WHERE token=?", (tok,)) if tok else None
+    row = db.one("SELECT username, created_at FROM sessions WHERE token=?", (tok,)) if tok else None
+    # the cookie's own expiry is the browser's word; the server keeps its own
+    if row and row["created_at"] < (datetime.now() - timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds"):
+        db.ex("DELETE FROM sessions WHERE token=?", (tok,))
+        return None
     return row["username"] if row else None
+
+
+def from_this_computer(request: Request):
+    """Directly from this computer, not through the HTTPS proxy (which adds X-Forwarded-For)."""
+    host = request.client.host if request.client else ""
+    return host in ("127.0.0.1", "::1", "localhost") and not request.headers.get("x-forwarded-for")
 
 
 def current(request: Request):
@@ -80,17 +99,37 @@ def need(role):
     return dep
 
 
+@app.exception_handler(TypeError)
+@app.exception_handler(AttributeError)
+async def wrong_type(request: Request, exc):
+    """A value of the wrong kind (a list where text belongs) is the sender's mistake, not a crash."""
+    if request.url.path.startswith("/api/"):
+        db.audit("system", "system", "Rejected wrong-typed request", "", f"{request.url.path}: {type(exc).__name__}")
+        return JSONResponse({"detail": "one of the values has the wrong type; send plain text or numbers"}, status_code=400)
+    raise exc
+
+
 @app.post("/api/login")
-def login(body: dict = Body(...)):
-    row = db.one("SELECT * FROM users WHERE username=?", (body.get("username", "").strip(),))
-    if not row or not db.pwcheck(body.get("password", ""), row["pw"]):
+def login(request: Request, body: dict = Body(...)):
+    try:
+        user, pw = valid.text(body.get("username"), "username").strip().lower(), valid.text(body.get("password"), "password")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    since = (datetime.now() - timedelta(minutes=LOCK_MIN)).isoformat(timespec="seconds")
+    fails = db.one("SELECT COUNT(*) k FROM audit WHERE action='Failed sign-in' AND target=? AND ts>?", (user[:40], since))["k"]
+    if fails >= FAILS:
+        raise HTTPException(429, f"too many wrong passwords for {user}; try again in {LOCK_MIN} minutes")
+    row = db.one("SELECT * FROM users WHERE username=?", (user,))
+    if not row or not db.pwcheck(pw, row["pw"]):
+        db.audit("anonymous", "none", "Failed sign-in", user[:40], request.client.host if request.client else "")
         raise HTTPException(401, "wrong username or password")
     tok = secrets.token_urlsafe(32)
     db.ex("INSERT INTO sessions(token,username,created_at) VALUES(?,?,?)",
           (tok, row["username"], db.now()))
     db.audit(row["username"], row["role"], "Signed in")
     r = JSONResponse({"username": row["username"], "name": row["name"], "role": row["role"]})
-    r.set_cookie("solara", tok, httponly=True, samesite="lax", max_age=60 * 60 * 12)
+    https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    r.set_cookie("solara", tok, httponly=True, samesite="lax", max_age=60 * 60 * SESSION_HOURS, secure=https)
     return r
 
 
@@ -107,7 +146,77 @@ def me(request: Request):
     """Session probe. Not being signed in is an answer, not an error, so this stays 200."""
     u = session_user(request)
     return {"user": db.one("SELECT username,name,role FROM users WHERE username=?", (u,)) if u else None,
-            "live": live()}
+            "live": live(), "setup": not db.q("SELECT 1 FROM users") and from_this_computer(request)}
+
+
+def new_user(body):
+    """A person who signs in: lower-case username, a name, a role, a password of 10+ characters."""
+    from .users import MIN_PASSWORD
+    try:
+        username = valid.text(body.get("username"), "username").strip().lower()
+        name = " ".join(valid.text(body.get("name"), "name").split())
+        pw = valid.text(body.get("password"), "password")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    role = body.get("role", "operator")
+    import re as _re
+    if not _re.fullmatch(r"[a-z][a-z0-9._-]{1,29}", username):
+        raise HTTPException(400, "username: 2-30 letters, digits, dot, dash or underscore, starting with a letter")
+    if role not in ROLES or len(name) < 2:
+        raise HTTPException(400, "give the person's name and a role (viewer, operator or supervisor)")
+    if len(pw) < MIN_PASSWORD:
+        raise HTTPException(400, f"the password needs {MIN_PASSWORD} or more characters")
+    return username, name, role, pw
+
+
+@app.post("/api/setup")
+def first_user(request: Request, body: dict = Body(...)):
+    """The very first supervisor, created on the computer Solara runs on and only while there is nobody."""
+    if db.q("SELECT 1 FROM users") or not from_this_computer(request):
+        raise HTTPException(403, "people are added by a supervisor in Solara")
+    username, name, _, pw = new_user({**body, "role": "supervisor"})
+    db.ex("INSERT INTO users(username,name,role,pw) VALUES(?,?,?,?)", (username, name, "supervisor", db.pwhash(pw)))
+    db.audit(username, "supervisor", "Created the first supervisor", username, name)
+    return login(request, {"username": username, "password": pw})
+
+
+@app.get("/api/users")
+def users_list(user=Depends(need("supervisor"))):
+    return db.q("SELECT username, name, role FROM users ORDER BY role DESC, username")
+
+
+@app.post("/api/users")
+def users_save(body: dict = Body(...), user=Depends(need("supervisor"))):
+    """Add a person, or give an existing one a new role or password."""
+    username = str(body.get("username", "")).strip().lower()
+    old = db.one("SELECT username FROM users WHERE username=?", (username,))
+    if old and not body.get("password"):  # role change only
+        if body.get("role") not in ROLES:
+            raise HTTPException(400, "unknown role")
+        if username == user["username"] and body["role"] != "supervisor":
+            raise HTTPException(400, "you cannot take away your own supervisor role")
+        db.ex("UPDATE users SET role=? WHERE username=?", (body["role"], username))
+        db.audit(user["username"], user["role"], "Changed role", username, body["role"])
+        return users_list(user)
+    username, name, role, pw = new_user({**body, "name": body.get("name") or (old and username) or ""})
+    if old:
+        db.ex("UPDATE users SET pw=? WHERE username=?", (db.pwhash(pw), username))
+        db.ex("DELETE FROM sessions WHERE username=?", (username,))  # the old password's sessions end
+        db.audit(user["username"], user["role"], "Reset password", username)
+    else:
+        db.ex("INSERT INTO users(username,name,role,pw) VALUES(?,?,?,?)", (username, name, role, db.pwhash(pw)))
+        db.audit(user["username"], user["role"], "Added person", username, f"{name}, {role}")
+    return users_list(user)
+
+
+@app.delete("/api/users/{username}")
+def users_remove(username: str, user=Depends(need("supervisor"))):
+    if username == user["username"]:
+        raise HTTPException(400, "you cannot remove yourself")
+    db.ex("DELETE FROM sessions WHERE username=?", (username,))
+    db.ex("DELETE FROM users WHERE username=?", (username,))
+    db.audit(user["username"], user["role"], "Removed person", username)
+    return users_list(user)
 
 
 # ------------------------------- reads -------------------------------
@@ -221,17 +330,24 @@ async def extract_post(customer_id: str, use_llm: bool = True, user=Depends(need
         raise HTTPException(400, str(e))
 
 
+UPLOAD_KINDS = {"bill", "aadhaar", "passbook", "roof", "ownership"}
+
+
 @app.post("/api/documents/{customer_id}/upload")
 async def upload_doc(customer_id: str, kind: str = "bill", file: UploadFile = File(...),
                      user=Depends(need("operator"))):
     if not db.one("SELECT 1 FROM customers WHERE id=?", (customer_id,)):
         raise HTTPException(404, "unknown customer")
+    if kind not in UPLOAD_KINDS:
+        raise HTTPException(400, "unknown document type")
     out = DOCS / customer_id
     out.mkdir(parents=True, exist_ok=True)
     # phones name every photo image.jpg; keep the bill and the Aadhaar from overwriting each other
     name = f"{kind}_{Path(file.filename or 'upload.pdf').name}"
     p = out / name
     blob = await file.read()
+    if not blob:
+        raise HTTPException(400, "that file is empty; choose the document again")
     if len(blob) > 15 * 1024 * 1024:
         raise HTTPException(400, "that file is over 15 MB; send a smaller photo")
     size = vault.write(p, blob)
@@ -504,13 +620,6 @@ def closeout_summary(cid):
             "uploaded": bool(d.get("msedcl_uploaded")), "msedcl_app_id": d.get("msedcl_app_id")}
 
 
-def public_base(request):
-    """The address customers and installers open links on. Behind the HTTPS proxy the request
-    arrives on 127.0.0.1, so a live install sets SOLARA_PUBLIC_URL (e.g. https://solara.example.in)."""
-    import os
-    return (os.environ.get("SOLARA_PUBLIC_URL") or str(request.base_url)).rstrip("/")
-
-
 def _cid(cid):
     if not db.one("SELECT 1 FROM customers WHERE id=?", (cid,)):
         raise HTTPException(404, "unknown customer")
@@ -542,8 +651,26 @@ def closeout_get(cid: str, user=Depends(current)):
             "choices": closeout.CHOICES}
 
 
+CLOSEOUT_RULES = {"aadhaar_last4": valid.aadhaar_any, "mobile": valid.mobile, "rts_cost": valid.cost,
+                  "email": valid.email}
+
+
+def closeout_checked(body):
+    """The close-out page follows the same rules as Registration: a full Aadhaar number is cut to its
+    last 4 here, and a bad cost or mobile is refused instead of saved."""
+    out = dict(body)
+    for k, rule in CLOSEOUT_RULES.items():
+        try:
+            if k in out and valid.text(out[k], k).strip():
+                out[k] = rule(out[k])
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+    return out
+
+
 @app.put("/api/closeout/{cid}")
 def closeout_put(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    body = closeout_checked(body)
     try:
         closeout.save(_cid(cid), body, user["username"])
     except ValueError as ex:
@@ -592,8 +719,8 @@ def closeout_sign(cid: str, request: Request, body: dict = Body(default={}),
         token, keys = esign.create(_cid(cid), body.get("docs"), user)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
-    url = public_base(request) + f"/sign/{token}"
-    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url),
+    url = config_public_url(request, f"/sign/{token}")
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url), "local": is_local(url),
             "docs": keys}
 
 
@@ -637,6 +764,13 @@ def _pre_install():
                 registration.PRE_STAGES)
 
 
+@app.get("/api/today")
+def today_list(user=Depends(current)):
+    """One list of what to do now, for every customer: calls, things to do here, things on the portals."""
+    rows = db.q(f"""SELECT id FROM customers WHERE stage IN ({",".join("?" * len(CLOSE_STAGES))}) ORDER BY id""", CLOSE_STAGES)
+    return {**tracker.today([closeout_summary(r["id"]) for r in rows]), "portals": portals()}
+
+
 @app.get("/api/registration")
 def registration_list(user=Depends(current)):
     return [registration.summary(r["id"]) for r in _pre_install()]
@@ -645,7 +779,10 @@ def registration_list(user=Depends(current)):
 @app.post("/api/customers")
 def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        cid = registration.create(body.get("name"), body.get("mobile"), user)
+        cid = registration.create(body.get("name"), body.get("mobile"), user,
+                                  allow_duplicate=bool(body.get("allow_duplicate")))
+    except registration.Duplicate as ex:
+        return JSONResponse({"detail": str(ex), "duplicates": ex.matches}, status_code=409)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
@@ -662,20 +799,42 @@ def registration_get(cid: str, user=Depends(current)):
                                  customer_id=? AND kind NOT LIKE 'co_%'""", (cid,)),
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
-            "llm": extract.llm_status()}
+            "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "otp": registration.heads_up(cid, "approve" if registration.status(cid)["next"]["act"] == "approve" else "register"),
+            "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
+
+
+async def take_document(cid, kind, file, user):
+    """Store one registration document and read it. Used by the dashboard and by the customer's own link."""
+    if kind not in DOC_KINDS:
+        raise HTTPException(400, "unknown document type")
+    await upload_doc(cid, kind, file, user)
+    registration.docs_uploaded(cid, user["username"])
+    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
+    if kinds & {"bill", "aadhaar"}:
+        try:
+            await extract.run(cid, fresh=kind)
+        except Exception as ex:  # the upload is kept; the person can retry or type the details
+            db.audit("agent", "agent", "Document extraction failed", cid, f"{kind}: {type(ex).__name__}")
+            return f"The file is saved but could not be read ({type(ex).__name__}). Try Read again or type the details."
+    return None
 
 
 @app.post("/api/registration/{cid}/document")
 async def registration_document(cid: str, kind: str, file: UploadFile = File(...),
                                 user=Depends(need("operator"))):
-    if kind not in DOC_KINDS:
-        raise HTTPException(400, "unknown document type")
-    await upload_doc(_cid(cid), kind, file, user)
-    registration.docs_uploaded(cid, user["username"])
-    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
-    if kinds & {"bill", "aadhaar"}:
-        await extract.run(cid)
-    return registration_get(cid, user)
+    problem = await take_document(_cid(cid), kind, file, user)
+    out = registration_get(cid, user)
+    out["extract_error"] = problem
+    return out
+
+
+@app.post("/api/registration/{cid}/ask-docs")
+def registration_ask_docs(cid: str, request: Request, user=Depends(need("operator"))):
+    """A link for the customer to send their own bill, Aadhaar and email from their phone."""
+    url = intake.link(request, intake.create(_cid(cid), user))
+    return {"url": url, "whatsapp": intake.whatsapp(cid, url), "text": intake.share_text(cid, url), "local": is_local(url)}
 
 
 @app.put("/api/registration/{cid}")
@@ -690,7 +849,7 @@ def registration_put(cid: str, body: dict = Body(...), user=Depends(need("operat
 @app.post("/api/registration/{cid}/confirm")
 def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        extract.confirm(_cid(cid), body.get("key"), body.get("value"), user)
+        extract.confirm(_cid(cid), valid.text(body.get("key"), "key"), body.get("value"), user)
     except KeyError:
         raise HTTPException(404, "no such extracted field")
     except ValueError as ex:
@@ -701,15 +860,50 @@ def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("op
 @app.post("/api/registration/{cid}/mark")
 def registration_mark(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
     try:
-        registration.mark(_cid(cid), body.get("step"), user, body.get("app_no"))
+        registration.mark(_cid(cid), valid.text(body.get("step"), "step"), user, body.get("app_no"),
+                          replace=body.get("replace") is True)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
 
 
+@app.get("/api/registration/{cid}/agreement/check")
+async def registration_agreement_check(cid: str, user=Depends(current)):
+    """Verify the signed agreement: the approval, the kept copy, both signatures, and that the
+    stored PDF opens and names this customer."""
+    cid = _cid(cid)
+    res = closeout.verify_agreement(cid)
+    st = next(s for s in closeout.status(cid) if s["key"] == "agreement")
+    if st["state"] == "ready" and "agreement" not in closeout.built(cid):
+        try:
+            await closeout.build(cid, user)
+        except Exception as ex:
+            res["problems"].append(f"the agreement PDF could not be generated ({type(ex).__name__})")
+    if "agreement" in closeout.built(cid):
+        try:
+            from pypdf import PdfReader
+            import io
+            text = " ".join(p.extract_text() or "" for p in
+                            PdfReader(io.BytesIO(vault.read(closeout.path_for(cid, "agreement")))).pages)
+            if (closeout.data(cid)[0]["consumer_no"] or "x") not in text:
+                res["problems"].append("the stored PDF does not show this customer's consumer number")
+        except Exception as ex:
+            res["problems"].append(f"the stored PDF could not be opened ({type(ex).__name__})")
+    elif st["state"] == "ready":
+        res["problems"].append("the signed agreement PDF is not stored")
+    res["ok"] = not res["problems"]
+    return {**res, "draft": closeout.TEMPLATE_DRAFT}
+
+
 @app.post("/api/registration/{cid}/agreement")
 def registration_agreement(cid: str, request: Request, user=Depends(need("operator"))):
     c, d = closeout.data(_cid(cid))
+    try:
+        registration.require_ready(cid, "cannot send the agreement")
+        if not d.get("accepted_at"):
+            raise ValueError("cannot send the agreement: accept the customer in the vendor login first")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
     if not d.get("agreement_date"):
         closeout.save(cid, {"agreement_date": datetime.now().date().isoformat()}, user["username"])
     try:
@@ -717,8 +911,8 @@ def registration_agreement(cid: str, request: Request, user=Depends(need("operat
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     closeout.mark(cid, user["username"], agreement_sent_at=db.now())
-    url = public_base(request) + f"/sign/{token}"
-    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url)}
+    url = config_public_url(request, f"/sign/{token}")
+    return {"url": url, "whatsapp": esign.whatsapp(cid, url), "text": esign.share_text(cid, url), "local": is_local(url)}
 
 
 # ------------------------------- co-pilot extension -------------------------------
@@ -777,11 +971,16 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
         raise HTTPException(404, "this customer is not in Solara")
     cid = c["id"]
     st = closeout.status(cid)
+    build_error = None
     if any(s["state"] == "ready" and s["key"] not in closeout.built(cid) for s in st):
-        await closeout.build(cid, user)
+        try:
+            await closeout.build(cid, user)
+        except Exception as ex:  # report it; the fields still fill and the person is told
+            build_error = f"Could not generate the signed documents ({type(ex).__name__}). Try again."
+            db.audit(user["username"], user["role"], "Document generation failed", cid, type(ex).__name__)
     cust, d = closeout.data(cid)
     made = closeout.built(cid)
-    fields = [("Consumer name", cust["aadhaar_name"]), ("Consumer number", cust["consumer_no"]),
+    fields = [("Consumer name", cust["aadhaar_name"] or cust["name"]), ("Consumer number", cust["consumer_no"]),
               ("Address", cust["address"]), ("PIN code", cust["pin"]),
               ("Capacity (kWp)", closeout.capacity(d))]
     fields += [(lbl, d.get(k)) for k, lbl, _ in closeout.FIELDS if d.get(k)]
@@ -792,13 +991,17 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in registration.values(cid).items() if v},
+            "issues": registration.validate(cid)["issues"], "build_error": build_error,
+            "derived": registration.derived(cid),
+            "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
                                              "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]
                     + (["site_photo"] if (DOCS / cid / "site_photo.jpg").exists() else []),
             "paused": {"by": d.get("paused_by"), "reason": d.get("paused_reason")} if d.get("paused_at") else None,
             "approvals": {k: filing.review(cid, k)["approval"] for k in filing.FORMS},
             "done": {k: bool(d.get(v)) for k, v in (("sfr", "sfr_at"), ("loan", "loan_at"), ("installation", "installation_at"),
-                                                  ("dcr", "dcr_cert_no"), ("agreement_uploaded", "agreement_uploaded_at"))}}
+                                                  ("dcr", "dcr_cert_no"), ("agreement_uploaded", "agreement_uploaded_at"),
+                                                  ("customer_approved", "agreement_approved_at"))}}
 
 
 @app.get("/api/copilot/doc/{cid}/{kind}")
@@ -813,28 +1016,29 @@ def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
         d = db.one("SELECT * FROM documents WHERE customer_id=? AND kind=?", (_cid(cid), kind))
     if not d or (kind not in DOC_KINDS and kind != "site_photo"):
         raise HTTPException(404, "no such document on file")
-    blob = portal_sized(vault.read(Path(d["path"])))
-    db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
-    pdf = blob.startswith(b"%PDF")
-    name = Path(d["filename"]).stem + (".pdf" if pdf else ".jpg")
-    return Response(blob, media_type="application/pdf" if pdf else "image/jpeg",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
-
-
-def portal_sized(blob):
-    """Every file the co-pilot hands a portal fits the strictest upload box seen (300 KB): photos
-    are re-encoded as JPEG, PDFs re-rendered only if they are over."""
+    blob, name = vault.read(Path(d["path"])), d["filename"]
+    before = len(blob)
     if blob.startswith(b"%PDF"):
-        try:
-            return closeout.fit(blob)
-        except ValueError:
-            return blob
-    import io
-    from PIL import Image
-    try:
-        return closeout.jpeg_under(Image.open(io.BytesIO(blob)))
-    except Exception:
-        return blob
+        if len(blob) > PORTAL_MAX:  # re-rendered smaller first; refused only if it still does not fit
+            blob = closeout.fit(blob, limit_kb=PORTAL_MAX // 1024)
+        if len(blob) > PORTAL_MAX:
+            raise HTTPException(413, f"the {kind} PDF is {len(blob) // 1024} KB; the portal takes 2 MB at most. Upload a smaller copy in Solara")
+        kind_type = "application/pdf"
+    else:
+        import io
+        from PIL import Image
+        try:  # JPEG under 300 KB: the strictest photo box seen (MSEDCL, the feasibility report's photo)
+            blob, kind_type = closeout.jpeg_under(Image.open(io.BytesIO(blob))), "image/jpeg"
+            name = name.rsplit(".", 1)[0] + ".jpg"
+        except Exception:
+            kind_type = "application/octet-stream"
+    db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
+    if len(blob) != before:
+        db.audit(user["username"], user["role"], "File made smaller for the portal", cid, f"{kind}: {before // 1024} KB to {len(blob) // 1024} KB")
+    return Response(blob, media_type=kind_type, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+PORTAL_MAX = 2 * 1024 * 1024  # the portal's limit on the bill, passbook and agreement boxes (seen 7 Nov 2026)
 
 
 @app.get("/api/copilot/file/{cid}/{key}")
@@ -874,19 +1078,37 @@ def save_doc(cid, kind, p, size):
           (cid, kind, p.name, str(p), size, db.now()))
 
 
+PROBLEMS = {"otp_wrong": "Co-pilot: wrong OTP", "otp_resend": "Co-pilot: OTP resend",
+            "session": "Co-pilot: portal session ended", "offline": "Co-pilot: internet off"}
+
+
 @app.post("/api/copilot/report")
 async def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
+    if body.get("event") == "page_layout":
+        return registration.save_layout(body, user)
+    if body.get("event") == "portal_list":
+        rows = body.get("rows") or []
+        out = registration.from_portal_list(rows, str(body.get("page", ""))[:80], user)
+        # the same rows place each customer on the board's ten stages
+        tracker.capture("pmsg", [{"ref": r.get("app_no"), "status": r.get("status")} for r in rows if isinstance(r, dict) and r.get("status")], user)
+        return out
+    if body.get("event") == "problem" and not body.get("customer_id"):
+        what = PROBLEMS.get(body.get("kind"))
+        if not what:
+            raise HTTPException(400, "unknown problem")
+        db.audit(user["username"], user["role"], what, "", str(body.get("page", ""))[:80])
+        return {"ok": True}
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
     ev = body.get("event")
-    if ev in ("app_no", "agreement_uploaded"):
+    if ev in ("app_no", "agreement_uploaded", "customer_approved"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
         if ev == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():
             return {"ok": True, "already": True}
+        step = {"app_no": "registered"}.get(body["event"], body["event"])
         try:
-            registration.mark(cid, "registered" if ev == "app_no" else "agreement_uploaded",
-                              user, body.get("app_no"))
+            registration.mark(cid, step, user, body.get("app_no"), from_portal=ev == "app_no")
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         if ev == "agreement_uploaded":
@@ -922,6 +1144,17 @@ async def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
             closeout.mark(cid, user["username"], dcr_dealer_wait=db.now())
             db.audit(user["username"], user["role"], "DCR: waiting for the dealer", cid, str(body.get("message", ""))[:200])
         return {"ok": True}
+    if ev == "problem":
+        # the co-pilot met one of the problem cases on a portal page and told the owner what to do
+        what = PROBLEMS.get(body.get("kind"))
+        if not what:
+            raise HTTPException(400, "unknown problem")
+        page = str(body.get("page", ""))[:80]
+        recent = db.one("SELECT 1 FROM audit WHERE action=? AND target=? AND detail=? AND ts>?",
+                        (what, cid, page, (datetime.now() - timedelta(minutes=2)).isoformat(timespec="seconds")))
+        if not recent:
+            db.audit(user["username"], user["role"], what, cid, page)
+        return {"ok": True}
     if ev == "otp_waiting":
         recent = db.one("SELECT 1 FROM audit WHERE action='Co-pilot waiting for OTP' AND target=? AND ts>?",
                         (cid, (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")))
@@ -949,7 +1182,12 @@ def copilot_status(body: dict = Body(...), user=Depends(copilot_user)):
     portal = body.get("portal")
     if portal not in ("pmsg", "msedcl"):
         raise HTTPException(400, "unknown portal")
-    return tracker.capture(portal, body.get("rows") or [], user)
+    rows = body.get("rows") or []
+    out = tracker.capture(portal, rows, user)
+    if portal == "pmsg":  # the same list moves registration on: agreement uploaded, customer approved
+        out["steps"] = registration.from_portal_list([{"app_no": r.get("ref"), "status": r.get("status")} for r in rows if isinstance(r, dict)],
+                                                     str(body.get("page", ""))[:80], user)
+    return out
 
 
 @app.get("/api/copilot/xlsx/{cid}")
@@ -1057,8 +1295,8 @@ def filing_approve(cid: str, body: dict = Body(...), user=Depends(need("supervis
 @app.post("/api/filing/{cid}/field-link")
 def filing_field_link(cid: str, request: Request, user=Depends(need("operator"))):
     token = field.create_link(_cid(cid), user)
-    url = public_base(request) + f"/field/{token}"
-    return {"url": url, **field.share(cid, url)}
+    url = config_public_url(request, f"/field/{token}")
+    return {"url": url, "local": is_local(url), **field.share(cid, url)}
 
 
 @app.post("/api/filing/{cid}/serial/{rid}")
@@ -1129,11 +1367,6 @@ def filing_xlsx(cid: str, user=Depends(current)):
 
 
 # ------------------------------- milestone 3: dashboard -------------------------------
-@app.get("/api/today")
-def today_list(user=Depends(current)):
-    return tracker.today()
-
-
 @app.get("/api/board")
 def board(user=Depends(current)):
     return {"rows": tracker.board(), "stages": [{"key": k, "name": n, "who": w} for k, n, w in tracker.STAGES]}
@@ -1160,6 +1393,13 @@ def month_xlsx(month: str = "", user=Depends(current)):
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+@app.get("/api/exports/everything.zip")
+def export_everything(user=Depends(need("supervisor"))):
+    p = exports.everything_zip()
+    db.audit(user["username"], user["role"], "Exported all data", "", p.name)
+    return FileResponse(p, filename=p.name, media_type="application/zip")
+
+
 @app.get("/api/exports/month.pdf")
 async def month_pdf(month: str = "", user=Depends(current)):
     p = await exports.month_pdf(_month(month))
@@ -1168,6 +1408,11 @@ async def month_pdf(month: str = "", user=Depends(current)):
 
 
 # ------------------------------- health -------------------------------
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)  # no icon; answering keeps the browser console free of a 404
+
+
 @app.get("/api/health")
 def health(user=Depends(current)):
     """Everything that breaks slowly, checked in one place: the database, the key, backups, disk,
@@ -1201,12 +1446,27 @@ def health(user=Depends(current)):
         "fields left unfilled: " + "; ".join(f"{d['detail']} ({d['k']}x)" for d in drift), warn=True)
     llm = extract.llm_status()
     add("ai", llm["enabled"], f"{llm['provider']} for photos" if llm["enabled"] else
-        "no AI key: photos of bills are flagged for typing", warn=True)
+        "AI is off (by design): the rules read bills and Aadhaar; photos of bills are flagged for typing", warn=True)
     return {"ok": all(c["state"] == "ok" for c in out if c["key"] in ("database", "key", "disk")),
             "checks": out}
 
 
 # ------------------------------- backups -------------------------------
+@app.post("/api/backup/verify")
+def backup_verify(user=Depends(need("supervisor"))):
+    """The restore drill on the newest backup (made now if there is none): opened on the side, checked, thrown away."""
+    p = upkeep.latest() or backup.create()
+    r = upkeep.verify(p)
+    db.audit(user["username"], user["role"], "Restore drill " + ("PASSED" if r["ok"] else "FAILED"), "",
+             f"{r['file']}: database {r.get('integrity')}, {r.get('customers')} customers, document {r.get('document')}")
+    return r
+
+
+@app.get("/api/kpi")
+def kpi_report(user=Depends(current)):
+    return kpi.summary()
+
+
 @app.post("/api/backup")
 def make_backup(user=Depends(need("supervisor"))):
     p = backup.create()
@@ -1223,21 +1483,40 @@ def get_backup(name: str, user=Depends(need("supervisor"))):
 
 
 @app.post("/api/demo/reset")
-def demo_reset(user=Depends(need("supervisor"))):
+async def demo_reset(user=Depends(need("supervisor"))):
     if live():  # reset deletes every customer that is not demo data
         raise HTTPException(403, "reset is for the demo only and is switched off on a live install")
     for r in list(runner.RUNS.values()):
         if r.status in ("running", "held", "paused", "starting"):
             r.stop(user)
     runner.RUNS.clear()
+    corrected = [r["customer_id"] for r in db.q("SELECT DISTINCT customer_id FROM extractions WHERE note LIKE 'Checked by%'")]
     out = resetmod.reset()
+    # a value someone corrected during a rehearsal is not demo data: read those customers' documents afresh
+    for cid in corrected:
+        if db.one("SELECT 1 FROM customers WHERE id=?", (cid,)):
+            db.ex("DELETE FROM extractions WHERE customer_id=?", (cid,))
+            try:
+                await extract.run(cid, use_llm=False)
+            except Exception:
+                pass
     db.audit(user["username"], user["role"], "Reset demo environment", "", "runs and evidence cleared")
     return out
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})  # updates are seen on the next load
 
 
-app.mount("/static", StaticFiles(directory=WEB), name="static")
+class FreshStatic(StaticFiles):
+    """The browser asks each time whether the dashboard's files changed (a cheap 304 when not), so an
+    update is seen on the next page load instead of an old copy running from the cache. Set here, on the
+    static files only: a global HTTP middleware would wrap the live run stream too."""
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/static", FreshStatic(directory=WEB), name="static")

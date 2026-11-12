@@ -29,6 +29,20 @@ ROLES = {"viewer": 0, "operator": 1, "supervisor": 2}
 MAX_UPLOAD_KB = 300  # MSEDCL rooftop portal: PDF only, 300 KB per file
 
 
+async def pdf_browser(p):
+    """A headless browser for printing PDFs: Playwright's own Chromium when installed (development,
+    the server), otherwise the Chrome or Edge already on the owner's computer (Solara.exe)."""
+    try:
+        return await p.chromium.launch()
+    except Exception:
+        for channel in ("chrome", "msedge"):
+            try:
+                return await p.chromium.launch(channel=channel)
+            except Exception:
+                pass
+        raise
+
+
 def live():
     """SOLARA_MODE=live: no demo data, and the links open the real portals."""
     import os
@@ -37,8 +51,11 @@ def live():
 
 def portals():
     if live():
-        return {"pmsg": "https://pmsuryaghar.gov.in/", "pmsg_vendor": "https://pmsuryaghar.gov.in/",
-                "pmsg_apps": "https://pmsuryaghar.gov.in/", "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/",
+        # the national portal's logins live on their own hosts (seen on the live site, Nov 2026)
+        return {"pmsg": "https://consumer.pmsuryaghar.gov.in/consumer/#/login",
+                "pmsg_vendor": "https://vendor.pmsuryaghar.gov.in/vendor/#/login",
+                "pmsg_apps": "https://vendor.pmsuryaghar.gov.in/vendor/#/login",
+                "msedcl": "https://rts.mahadiscom.in/RoofTopSolarVendor/",
                 "dcr": "https://solardcrportal.nise.res.in/", "jansamarth": "https://www.jansamarth.in/"}
     return {"pmsg": "/portal/verify", "pmsg_vendor": "/pmsg/vendor/consent", "pmsg_apps": "/pmsg/vendor/applications",
             "msedcl": "/msedcl/", "dcr": "/dcr/", "jansamarth": "/jansamarth/"}
@@ -56,4 +73,28 @@ def vendor():
     this module). The public repo never carries a client's identity."""
     import os
     return {"name": os.environ.get("SOLARA_VENDOR_NAME", "Demo Solar Solutions Pvt Ltd"),
-            "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory")}
+            "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory"),
+            # the demo shows a placeholder so the customer page's help line is visible; live uses the real one or none
+            "phone": os.environ.get("SOLARA_VENDOR_PHONE") or ("" if live() else "+91 90000 00000")}
+
+
+def public_url(request, path):
+    """A link the customer opens on their own phone. SOLARA_PUBLIC_URL is Solara's internet address
+    (for example https://solara.example.in); without it the link uses the address this request came in on."""
+    import os
+    base = (os.environ.get("SOLARA_PUBLIC_URL") or str(request.base_url)).rstrip("/")
+    return base + path
+
+
+def is_local(url):
+    """True when a link would open only on this computer or this office network, never on a customer's phone."""
+    import ipaddress
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if host in ("localhost", "") or host.endswith(".local"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False

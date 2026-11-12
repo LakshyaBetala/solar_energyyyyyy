@@ -1,0 +1,100 @@
+﻿
+  -- the defect register (K1-D01 .. D15)
+  PASS  D01    create customer: 12 customers added at the same moment
+  PASS  D02    details: consumer no.: 'abc' over a saved number
+  PASS  D11    details: consumer no.: '123456789'
+  PASS  D11    details: consumer no.: '1234567890123'
+  PASS  D11    details: consumer no.: '000000000000'
+  PASS  D11    details: consumer no.: '1700-5550-9871' (hyphens)
+  PASS  D03    registration page: cost: '250000.50'
+  PASS  D03    closeout page: cost: '250000.50'
+  PASS  D03    registration page: cost: '2,50,000.75'
+  FAIL  D03    closeout page: cost: '2,50,000.75'  — got (200, '2,50,000.75')
+  PASS  D03    registration page: cost: '₹2,10,000'
+  FAIL  D03    closeout page: cost: '₹2,10,000'  — got (200, '₹2,10,000')
+  PASS  D03    registration page: cost: 'Rs 285000'
+  FAIL  D03    closeout page: cost: 'Rs 285000'  — got (200, 'Rs 285000')
+  PASS  D03    registration page: cost: 'Rs 1.5 lakh'
+  FAIL  D03    closeout page: cost: 'Rs 1.5 lakh'  — got (200, '')
+  PASS  D03    registration page: cost: '-250000'
+  FAIL  D03    closeout page: cost: '-250000'  — got (200, '')
+  PASS  D03    registration page: cost: '0'
+  FAIL  D03    closeout page: cost: '0'  — got (200, '')
+  PASS  D03    registration page: cost: '999999999999'
+  FAIL  D03    closeout page: cost: '999999999999'  — got (200, '')
+  PASS  D03    registration page: cost: 'abc'
+  FAIL  D03    closeout page: cost: 'abc'  — got (200, '')
+  PASS  D09    details: name: '123'
+  PASS  D09    details: name: '@@@ ###'
+  PASS  D09    details: name: 'Priya1234'
+  PASS  D09    details: name: '<script>x</script>'
+  PASS  D09    details: name: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+  PASS  D09/R7 details: name: 'A. K. Sharma'
+  FAIL  D09/R7 details: name: 'D’Souza Maria'  — got (400, "the customer's name can have letters, spaces, . ' and - only (no digits or symbols)")
+  PASS  D09/R7 details: name: "Mary D'Souza"
+  PASS  D09/R7 details: name: 'प्रिया कुलकर्णी'
+  FAIL  D09/R7 details: name: 'कऱ्हाडे\u200d संजय'  — got (400, "the customer's name can have letters, spaces, . ' and - only (no digits or symbols)")
+  PASS  D09/R7 details: name: 'Rajendra Kumar Venkataraman Subramaniam Iyer'
+  PASS  D10    details: Aadhaar: a valid full number 9999 4105 7058
+  PASS  D10    details: Aadhaar: '9999 4105 7050'
+  PASS  D10    details: Aadhaar: 'abcd'
+  PASS  D10    details: Aadhaar: '12'
+  PASS  D10    details: Aadhaar: '99999999'
+  PASS  D10    details: Aadhaar: '0123 4567 8901'
+  FAIL  R1     close-out page: Aadhaar: full number in 'last 4 digits only'  — got (200, '999941057058')
+  PASS  R1     audit trail: after the Aadhaar was typed
+  PASS  D12    registration page: mobile: 'abcdefghij'
+  FAIL  D12    closeout page: mobile: 'abcdefghij'  — got (200, '')
+  PASS  D12    registration page: mobile: '12345'
+  FAIL  D12    closeout page: mobile: '12345'  — got (200, '')
+  PASS  D12    registration page: mobile: '5028144599'
+  FAIL  D12    closeout page: mobile: '5028144599'  — got (200, '')
+  PASS  M1     details: mobile: '+91 90281 44599'
+  PASS  M1     details: mobile: '+91-90281-44599'
+  PASS  M1     details: mobile: '090281 44599'
+  PASS  M1     details: mobile: '9028144599'
+  FAIL  M1     dashboard boxes: maxlength of the mobile boxes  — got [14, 14]
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'name': 123}
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'kw': [1]}
+  PASS  D13    wrong-typed input: /api/registration/SS-2063 {'mobile': {'a': 1}}
+  FAIL  D13    wrong-typed input: /api/closeout/SS-2063 {'mobile': [1]}  — got 200
+  FAIL  D13    wrong-typed input: /api/closeout/SS-2063 {'aadhaar_last4': {'x': 1}}  — got 200
+  PASS  D13    wrong-typed input: /api/customers {'name': ['a']}
+  PASS  D13    wrong-typed input: login with a number as username
+  FAIL  M2     application no.: a Maharashtra number one digit short  — got (200, '')
+  FAIL  D04    application no.: first number NP-MHSED26-35226411  — got (400, 'already registered as NP-MHSED26-3522641; a supervisor can replace it after checking the portal')
+  FAIL  D04    application no.: an operator registers again with another number  — got 400
+  FAIL  R6     application no.: a supervisor replaces it with a number already on another customer  — got (400, 1)
+  FAIL  R6     application no.: a supervisor replaces it correctly  — got (200, 2)
+  PASS  D05    step order: register a customer with no documents (typed by hand)
+  PASS  D05    step order: accept before registering
+  PASS  D05    step order: send the agreement before the vendor accepted (Registration)
+  PASS  R8     step order: send the agreement before the vendor accepted (Close-out route)
+  FAIL  R4     co-pilot: number read off the portal for a customer Solara thought not ready  — got (400, 'cannot register: upload the bill and Aadhaar and check what was read first')
+  FAIL  R2     extraction: confirm the bill's mobile when the owner typed another  — got (200, '9028144599')
+  FAIL  R3     extraction: confirm the consumer number with 'abc'  — got (200, '')
+  FAIL  R3     extraction: confirm it as '1700 5550 1234'  — got (200, '')
+  PASS  R11    extraction: a hand correction to the bill, then a new bill uploaded
+  FAIL  R12    registration page: sanctioned load read as '3.5 kW approx.'  — got 500
+  FAIL  P3     details: a customer with no email  — got ['consumer number', 'mobile', 'proposed capacity (kW)']
+  PASS  D14    e-sign page: ?error= with crafted text
+  FAIL  M6     e-sign page: wrong last-4 digits  — got <!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-sc
+  FAIL  R10    e-sign page: a 9000x9000 'signature' (20 KB)  — got 20.03s
+  PASS  R7     e-sign page: the customer signs as 'D’Souza Priya' (curly apostrophe)
+  FAIL  R9     e-sign evidence: a link sent before copies were kept is signed  — got ['no copy of the document the customer was shown was kept']
+  PASS  D15    dashboard: GET /favicon.ico
+
+  -- what the live portal showed
+  FAIL  P1     co-pilot: manifest hosts  — got ['https://rts.mahadiscom.in/RoofTopSolarVendor/*', 'https://pmsuryaghar.gov.in/*', 'https://solardcrportal.nise.res.in/*', 'http://127.0.0.1:8900/msedcl/*', 'ht
+  FAIL  P2     dashboard links: live 'Open customer registration' / 'Open vendor login'  — got {'pmsg': 'https://pmsuryaghar.gov.in/', 'pmsg_vendor': 'https://pmsuryaghar.gov.in/', 'msedcl': 'https://rts.mahadiscom.in/RoofTopSolarVendor/'}
+  PASS  P4     rules: valid.app_no on 8-digit MH numbers
+
+  -- the Registration screen (manual review findings)
+  FAIL  M3     details form: the email box  — got EMAIL (OPTIONAL)
+  FAIL  M4     details form: type 3 into the highlighted capacity box  — got (True, True)
+  FAIL  M5     details form: type 210000 as the cost  — got Rupees, e.g. 285000 or 285000.50
+
+  log: docs/k1-audit/k1_audit_log.md
+
+  53 passed, 36 failed

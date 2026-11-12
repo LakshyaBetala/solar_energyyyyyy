@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw
 from playwright.async_api import async_playwright
 sys.path.insert(0, "."); sys.path.insert(0, "tests")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-from app import db, closeout  # noqa: E402
+from app import db, closeout, registration  # noqa: E402
 import fixtures as fx  # noqa: E402
 
 BASE = "http://127.0.0.1:8900"
@@ -71,9 +71,9 @@ def new_customer(sup, name, n, stage="feasible"):
     app_no = f"NP-MHSED26-1619{n:04d}"
     cons = f"17009{n:07d}"
     db.ex("UPDATE customers SET consumer_no=?, kw=3, address='Plot 1, Test Nagar, Pune', pin='411001' WHERE id=?", (cons, cid))
-    sup.post(f"/api/registration/{cid}/mark", json={"step": "registered", "app_no": app_no}).raise_for_status()
+    registration.mark(cid, "registered", {"username": "test", "role": "supervisor"}, app_no, from_portal=True)
     db.ex("UPDATE customers SET stage=? WHERE id=?", (stage, cid))
-    closeout.mark(cid, "test", accepted_at=db.now(), agreement_uploaded_at=db.now())
+    closeout.mark(cid, "test", accepted_at=db.now(), agreement_uploaded_at=db.now(), agreement_approved_at=db.now())
     return cid, app_no, cons
 
 
@@ -186,8 +186,7 @@ async def main():
         await dash.goto(BASE)
         await dash.click('[data-as="r.deshmukh"]')
         await dash.wait_for_selector("#otherview [data-group=calls]")
-        await dash.click('.navitem[data-view="pipeline"]')
-        await dash.wait_for_selector("#board")
+        await dash.wait_for_selector("#board")  # the board sits under Today
         txt = await dash.inner_text("#board")
         shown = [cid for cid in want if cid in txt]
         check("every live customer is on the board, with the portal's status beside Solara's stage",
@@ -204,22 +203,21 @@ async def main():
                  json={"customer_id": C, "event": "otp_waiting", "page": "pmsg/consumer"})  # the portal waits for C's OTP
         closeout.mark(D, "test", dcr_dealer_wait=None)
         t = sup.get("/api/today").json()
-        groups = {}
-        for x in t["items"]:
-            groups.setdefault(x["group"], set()).add(x["cid"])
+        groups = {g: {x["cid"] for x in t[g]} for g in ("calls", "todo", "portal", "waiting")}
         check("calls: the customer the portal is waiting on for an OTP", C in groups.get("calls", set()))
         check("calls: the customer who has to accept their installation", B in groups.get("calls", set()))
-        check("e-signs: the documents waiting for the customer's signature", "SS-2042" in groups.get("esign", set()))
-        check("uploads: the installation ready to submit", A in groups.get("uploads", set()))
-        check("field: the customer whose site photos are next", E in groups.get("field", set()))
-        check("checks: the rejected filing and the portal mismatch", {D, E} <= groups.get("checks", set()))
+        check("to do in Solara: the documents to send for the customer's signature", "SS-2042" in groups.get("todo", set()))
+        check("on the government website: the installation ready to submit", A in groups.get("portal", set()))
+        check("to do in Solara: the customer whose site photos are next", E in groups.get("todo", set()))
+        check("to do in Solara, first: the rejected filing and the portal mismatch", {D, E} <= groups.get("todo", set()) and
+              {x["cid"] for x in t["todo"] if x.get("sev") == "bad"} >= {D, E})
         closeout.save(F, {**INSTALLED}, "test")
         closeout.mark(F, "test", sfr_at=db.now(), field_at=db.now(), serials_at=db.now(), dcr_dealer_wait=db.now())
         closeout.save(F, {"module_serials": "K3TF0A0000001\nK3TF0A0000002"}, "test")
         closeout.save_photo(F, closeout._demo_photo(18.6, 73.9), "test")
         t = sup.get("/api/today").json()
         check("waiting for the dealer: the customer whose panels are not transferred",
-              any(x["cid"] == F and x["group"] == "dealer" for x in t["items"]))
+              any(x["cid"] == F and x["act"] == "dealer" for x in t["waiting"]))
         closeout.save(E, {"loan": "Yes"}, "test")
         closeout.mark(C, "test", msedcl_uploaded="yes", msedcl_uploaded_at=db.now())
         other = {r["id"]: r["others"] for r in sup.get("/api/board").json()["rows"]}
@@ -227,21 +225,21 @@ async def main():
               other[A]["dcr"] == "NISE-B2C-26-009901" and other[F]["dcr"] == "waiting for the dealer" and
               other[E]["loan"] == "to apply" and other[C]["msedcl"] == "all six on MSEDCL" and other["SS-2043"]["loan"] is None,
               str({k: other[k] for k in (A, F, E, C)}))
-        await dash.click('.navitem[data-view="pipeline"]')
+        await dash.click('.navitem[data-view="today"]')
         await dash.wait_for_function(f"[...document.querySelectorAll('#board tbody tr')].some(r => r.cells[0].innerText.trim() === '{F}' && r.innerText.includes('dealer'))", timeout=20000)
         cells = await dash.evaluate("Object.fromEntries([...document.querySelectorAll('#board tbody tr')].map(r => [r.cells[0].innerText.trim(), r.querySelector('[data-others]').innerText]))")
         check("and on the screen, beside the national portal's status",
               "waiting for the dealer" in cells.get(F, "") and "to apply" in cells.get(E, ""), str(cells.get(F)))
         await dash.click('.navitem[data-view="today"]')
-        await dash.wait_for_selector(f'[data-group=dealer] [data-cid="{F}"]')
-        await dash.click(f'[data-group=dealer] [data-cid="{F}"]')
+        await dash.wait_for_selector(f'[data-group=waiting] [data-today="{F}"]')
+        await dash.click(f'[data-group=waiting] [data-today="{F}"]')
         await dash.wait_for_selector("#instDealerClear")
         sel = await dash.inner_text('[data-inst][aria-current="true"]')
         check("an item's button opens that customer's screen at the right step", F in sel and "dealer" in (await dash.inner_text("#mbody")).lower())
         await dash.click("[data-close]")
         await dash.click('.navitem[data-view="today"]')
-        await dash.wait_for_selector(f'[data-group=calls] [data-cid="{B}"]')
-        await dash.click(f'[data-group=calls] [data-cid="{B}"]')
+        await dash.wait_for_selector(f'[data-group=calls] [data-today="{B}"]')
+        await dash.click(f'[data-group=calls] [data-today="{B}"]')
         await dash.wait_for_selector("#acceptText")
         check("the acceptance call opens the 3-line message for the customer", "Accept" in await dash.input_value("#acceptText"))
         await dash.click("[data-close]")
@@ -282,12 +280,13 @@ async def main():
         await dash.wait_for_selector("#instResume")
         t = sup.get("/api/today").json()
         check("a paused customer leaves Today's lists and shows under Paused, with the reason",
-              not any(x["cid"] == A for x in t["items"]) and any(x["cid"] == A and "12 Nov" in x["reason"] for x in t["paused"]))
+              not any(x["cid"] == A for g in ("calls", "todo", "portal", "waiting") for x in t[g]) and any(x["cid"] == A and "12 Nov" in x["reason"] for x in t["paused"]))
         check("the co-pilot shows the pause on the portal", (httpx.get(f"{BASE}/api/copilot/lookup", params={"cid": A},
               headers={"X-Solara-Key": key}).json()["paused"] or {}).get("reason") == "customer away until 12 Nov")
         await dash.click("#instResume")                                                      # Resume
         await dash.wait_for_selector("#instPause")
-        check("resumed: back on Today where it stopped", any(x["cid"] == A for x in sup.get("/api/today").json()["items"]))
+        t = sup.get("/api/today").json()
+        check("resumed: back on Today where it stopped", any(x["cid"] == A for g in ("calls", "todo", "portal", "waiting") for x in t[g]))
         closeout.mark(D, "test", install_accepted_at=db.now())   # D had been accepted before the portal returned it
         await dash.click(f'[data-inst="{D}"]')
         await dash.wait_for_selector("#instRetry")
