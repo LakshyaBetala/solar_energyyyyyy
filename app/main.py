@@ -116,12 +116,15 @@ def login(request: Request, body: dict = Body(...)):
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     since = (datetime.now() - timedelta(minutes=LOCK_MIN)).isoformat(timespec="seconds")
-    fails = db.one("SELECT COUNT(*) k FROM audit WHERE action='Failed sign-in' AND target=? AND ts>?", (user[:40], since))["k"]
+    host = request.client.host if request.client else ""
+    last_ok = db.one("SELECT MAX(ts) t FROM audit WHERE action='Signed in' AND actor=?", (user[:40],))["t"] or ""
+    fails = db.one("""SELECT COUNT(*) k FROM audit WHERE action='Failed sign-in' AND target=? AND detail=? AND ts>? AND ts>=?""",
+                   (user[:40], host, since, last_ok))["k"]
     if fails >= FAILS:
         raise HTTPException(429, f"too many wrong passwords for {user}; try again in {LOCK_MIN} minutes")
     row = db.one("SELECT * FROM users WHERE username=?", (user,))
     if not row or not db.pwcheck(pw, row["pw"]):
-        db.audit("anonymous", "none", "Failed sign-in", user[:40], request.client.host if request.client else "")
+        db.audit("anonymous", "none", "Failed sign-in", user[:40], host)
         raise HTTPException(401, "wrong username or password")
     tok = secrets.token_urlsafe(32)
     db.ex("INSERT INTO sessions(token,username,created_at) VALUES(?,?,?)",
@@ -202,6 +205,7 @@ def users_save(body: dict = Body(...), user=Depends(need("supervisor"))):
     if old:
         db.ex("UPDATE users SET pw=? WHERE username=?", (db.pwhash(pw), username))
         db.ex("DELETE FROM sessions WHERE username=?", (username,))  # the old password's sessions end
+        db.ex("DELETE FROM copilot_keys WHERE username=?", (username,))  # and its Chrome helper keys
         db.audit(user["username"], user["role"], "Reset password", username)
     else:
         db.ex("INSERT INTO users(username,name,role,pw) VALUES(?,?,?,?)", (username, name, role, db.pwhash(pw)))
@@ -214,6 +218,7 @@ def users_remove(username: str, user=Depends(need("supervisor"))):
     if username == user["username"]:
         raise HTTPException(400, "you cannot remove yourself")
     db.ex("DELETE FROM sessions WHERE username=?", (username,))
+    db.ex("DELETE FROM copilot_keys WHERE username=?", (username,))
     db.ex("DELETE FROM users WHERE username=?", (username,))
     db.audit(user["username"], user["role"], "Removed person", username)
     return users_list(user)
@@ -922,7 +927,12 @@ def copilot_user(request: Request):
                  (hashlib.sha256(key.encode()).hexdigest(),)) if key else None
     if not row:
         raise HTTPException(401, "co-pilot key not recognised; create a new one in Solara")
-    return db.one("SELECT username,name,role FROM users WHERE username=?", (row["username"],))
+    user = db.one("SELECT username,name,role FROM users WHERE username=?", (row["username"],))
+    if not user:  # the person was removed: their key goes with them
+        raise HTTPException(401, "co-pilot key not recognised; create a new one in Solara")
+    if ROLES[user["role"]] < ROLES["operator"]:
+        raise HTTPException(403, "the Chrome helper needs the operator role")
+    return user
 
 
 @app.post("/api/copilot/key")
@@ -1018,7 +1028,10 @@ def fit_box(blob, as_pdf, max_kb):
     if blob.startswith(b"%PDF"):
         limit = max_kb * 1024 if max_kb else PORTAL_MAX
         if len(blob) > limit:  # re-rendered smaller first; refused only if it still does not fit
-            blob = closeout.fit(blob, limit_kb=limit // 1024)
+            try:
+                blob = closeout.fit(blob, limit_kb=limit // 1024)
+            except ValueError:
+                pass
         if len(blob) > limit:
             raise HTTPException(413, f"the PDF is {len(blob) // 1024} KB; this box takes {limit // 1024} KB at most. Upload a smaller copy in Solara")
         return blob, "application/pdf", "pdf"
@@ -1027,9 +1040,13 @@ def fit_box(blob, as_pdf, max_kb):
     jpg = closeout.jpeg_under(Image.open(io.BytesIO(blob)), kb=kb)
     if not as_pdf:
         return jpg, "image/jpeg", "jpg"
-    out = io.BytesIO()  # a box that takes PDF only (the 2024 plant photo box): the photo, one page
-    Image.open(io.BytesIO(jpg)).save(out, "PDF", resolution=150)
-    return out.getvalue(), "application/pdf", "pdf"
+    for k in (kb, kb * 3 // 4, kb // 2, kb // 3):  # a box that takes PDF only (the 2024 plant photo box): one page
+        out = io.BytesIO()
+        Image.open(io.BytesIO(jpg)).save(out, "PDF", resolution=150)
+        if not max_kb or out.tell() <= max_kb * 1024:
+            return out.getvalue(), "application/pdf", "pdf"
+        jpg = closeout.jpeg_under(Image.open(io.BytesIO(blob)), kb=max(30, k))
+    raise HTTPException(413, f"the photo does not fit this box's {max_kb} KB as a PDF; attach it by hand")
 
 
 @app.get("/api/copilot/doc/{cid}/{kind}")
@@ -1420,9 +1437,10 @@ def month_xlsx(month: str = "", user=Depends(current)):
 
 @app.get("/api/exports/everything.zip")
 def export_everything(user=Depends(need("supervisor"))):
+    from starlette.background import BackgroundTask
     p = exports.everything_zip()
     db.audit(user["username"], user["role"], "Exported all data", "", p.name)
-    return FileResponse(p, filename=p.name, media_type="application/zip")
+    return FileResponse(p, filename=p.name, media_type="application/zip", background=BackgroundTask(p.unlink, missing_ok=True))
 
 
 @app.get("/api/exports/month.pdf")

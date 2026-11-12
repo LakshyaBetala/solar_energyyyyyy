@@ -438,11 +438,10 @@
     return out;
   }
 
-  let sentLists = '';
+  let sentLists = '', lastStatus = '', lastSteps = null;
   async function statusMode(lists) {
     const key = JSON.stringify(lists);
-    if (key === sentLists) return;
-    sentLists = key;
+    if (key === sentLists && lastStatus) { say(lastStatus); if (lastSteps) stepsWire(...lastSteps); return; }   // the same list again: no second post
     const parts = [];
     let steps = null;
     for (const portal of ['pmsg', 'msedcl']) {
@@ -454,8 +453,11 @@
       if (r.data.steps) steps = r.data.steps;
     }
     panel.dataset.statuses = String(lists.pmsg.length + lists.msedcl.length);
-    say(`<div style="margin-top:6px">${parts.join('<br>')}</div>` + (steps ? `<div id="solaraList" style="margin-top:6px">${stepsHtml(steps, '')}</div>` : '') +
-      `<div style="margin-top:6px;color:#8FA3B2;font-size:11px">Read only. Nothing on the portal was clicked.</div>`);
+    sentLists = key;
+    lastStatus = `<div style="margin-top:6px">${parts.join('<br>')}</div>` + (steps ? `<div id="solaraList" style="margin-top:6px">${stepsHtml(steps, '')}</div>` : '') +
+      `<div style="margin-top:6px;color:#8FA3B2;font-size:11px">Read only. Nothing on the portal was clicked.</div>`;
+    say(lastStatus);
+    lastSteps = steps ? [steps, lists.pmsg.length] : null;
     if (steps) stepsWire(steps, lists.pmsg.length);
   }
 
@@ -776,7 +778,8 @@
     const loan = panel.querySelector('#solaraLoan');
     if (loan) loan.onclick = async () => {
       loan.disabled = true;
-      const a = [...root.querySelectorAll('a')].find(x => /approval letter|in-principle|sanction/i.test(x.innerText));
+      const a = [...root.querySelectorAll('a[href]')].find(x => /approval letter|in-principle|sanction/i.test(x.innerText) &&
+        (x.hasAttribute('download') || /\.pdf(\?|#|$)|download/i.test(x.getAttribute('href'))));
       let letter = '';
       if (a) try { // same site as the page, with the customer's session: the bank's PDF itself
         const buf = new Uint8Array(await (await fetch(a.href, { credentials: 'include' })).arrayBuffer());

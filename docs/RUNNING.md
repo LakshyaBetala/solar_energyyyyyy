@@ -32,8 +32,8 @@ password manager and keep it away from the backups.
    SOLARA_KEEP_MONTHS=24
    ```
    `SOLARA_MODE=live` gives the real portal links and no sample customers.
-3. Double-click Solara.exe once, then add the users (a command prompt in `C:\Solara`):
-   `Solara.exe` cannot take commands, so use the source install for this one step, or ask Almmatix.
+3. Double-click Solara.exe. The first time, the sign-in page asks for the supervisor's name,
+   username and password (on this computer only, only once). Add everyone else in Reports → People.
 4. In Chrome: `chrome://extensions` → Developer mode → **Load unpacked** →
    `C:\Solara\_internal\extension`. In Solara: Today → **Connect the Chrome helper**, paste the
    address and key into the helper's Options.
@@ -47,8 +47,9 @@ Every hour Solara checks, and records each action in the Audit Trail:
 
 - **Backup** once a day into `data\backups`, also copied to `SOLARA_BACKUP_COPY` if set. The newest
   14 are kept (`SOLARA_KEEP_BACKUPS`).
-- **Documents of finished customers** are deleted `SOLARA_KEEP_MONTHS` months after the portal
-  showed the subsidy disbursed. Off unless set. The customer's record, receipts and audit stay.
+- **Finished customers' own documents** are deleted `SOLARA_KEEP_MONTHS` months after the portal
+  showed the subsidy disbursed: bill, Aadhaar, passbook, photos. Off unless set. The customer's
+  record, receipts, Solara's papers and the audit stay.
 
 Reports → **Health** shows the database, the key, the last backup, disk space and portal changes.
 Reports → **Restore drill** opens the newest backup on the side and proves it would restore.

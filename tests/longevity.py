@@ -101,6 +101,11 @@ doc.parent.mkdir(parents=True, exist_ok=True)
 _co.vault.write(doc, b"%PDF-1.4 test")
 db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
       (cid, "bill", "bill.pdf", str(doc), 13, db.now()))
+receipt = _co.DOCS / cid / "receipts" / "sfr.pdf"
+receipt.parent.mkdir(parents=True, exist_ok=True)
+_co.vault.write(receipt, b"%PDF-1.4 receipt")
+db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
+      (cid, "rc_sfr", "sfr.pdf", str(receipt), 16, db.now()))
 old = (datetime.now() - timedelta(days=400)).isoformat(timespec="seconds")
 db.ex("""INSERT INTO portal_status(customer_id,portal,ref,status,stage,seen_at,seen_by) VALUES(?,?,?,?,?,?,?)
          ON CONFLICT(customer_id,portal) DO UPDATE SET stage=excluded.stage, seen_at=excluded.seen_at""",
@@ -114,9 +119,10 @@ os.environ["SOLARA_KEEP_MONTHS"] = "12"
 gone = upkeep.retention()
 os.environ.pop("SOLARA_KEEP_MONTHS", None)
 check("12 months: that customer's documents are deleted, the record and others' documents stay",
-      gone == [cid] and not db.q("SELECT 1 FROM documents WHERE customer_id=?", (cid,))
+      gone == [cid] and not db.q("SELECT 1 FROM documents WHERE customer_id=? AND kind='bill'", (cid,))
       and db.one("SELECT 1 FROM customers WHERE id=?", (cid,)) is not None
       and db.one("SELECT COUNT(*) k FROM documents WHERE customer_id<>?", (cid,))["k"] == others and not doc.exists())
+check("...the portal receipts stay", receipt.exists() and db.one("SELECT 1 FROM documents WHERE customer_id=? AND kind='rc_sfr'", (cid,)))
 check("...and the deletion is in the audit trail", bool(db.one("SELECT 1 FROM audit WHERE action='Retention: documents deleted' AND target=?", (cid,))))
 print("\n  reset:", c.post("/api/demo/reset").json()["runnable"])
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

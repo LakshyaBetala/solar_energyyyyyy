@@ -15,11 +15,12 @@ client's records and for whoever looks after Solara (terms deliverables 10 and 1
 - Every person has their own username and password (10 or more characters, stored as scrypt hashes).
   Supervisors manage people in Reports → People; the very first supervisor is created on the
   computer Solara runs on, only while there is nobody.
-- Five wrong passwords lock that username for 15 minutes. A sign-in lasts 12 hours, checked by the
-  server. A new password ends that person's sessions at once.
+- Five wrong passwords from one address lock that username, from that address, for 15 minutes; a
+  good sign-in clears the count, so nobody elsewhere can lock the owner out. A sign-in lasts 12
+  hours, checked by the server. A new password ends that person's sessions and helper keys at once.
 - The session cookie is HttpOnly, SameSite=Lax, and Secure when Solara is reached over HTTPS.
-- The Chrome panel uses its own key (Today → Connect the Chrome helper), stored hashed; a new key
-  replaces the old.
+- The Chrome panel uses its own key (Today → Connect the Chrome helper), stored hashed. It works
+  only for an operator or supervisor, and stops when that person is removed or gets a new password.
 
 ## What the panel will never do
 
@@ -39,13 +40,15 @@ permissions beyond storage and the listed portals.
 - **The audit trail** records every action with who and when; it is append-only from the screens.
 - **Backups**: daily, automatic, with a second copy if `SOLARA_BACKUP_COPY` is set; 14 kept. The
   restore drill (Reports) proves the newest one opens.
-- **Retention**: `SOLARA_KEEP_MONTHS` deletes a customer's documents that many months after the
-  portal showed the subsidy disbursed. Off unless set. The record, receipts and audit stay.
+- **Retention**: `SOLARA_KEEP_MONTHS` deletes a customer's own documents (bill, Aadhaar, passbook,
+  photos) that many months after the portal showed the subsidy disbursed. Off unless set. The
+  record, the receipts, Solara's papers (agreement, MSEDCL documents) and the audit stay.
 
 ## Who owns what
 
 - **The data is the client's.** Reports → Export everything gives every customer, every document
-  (decrypted) and the whole audit trail as plain files, at any time, without Almmatix. On leaving
+  (decrypted) and the whole audit trail as plain files, at any time, without Almmatix. The file is
+  made for that download and deleted from the server once sent. On leaving
   the service the client gets this export in full.
 - **The software**: source-code handover and transfer of intellectual property are **not decided**.
   They are for Almmatix to confirm with the client in writing; nothing here promises either.

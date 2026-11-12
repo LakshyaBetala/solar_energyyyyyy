@@ -59,7 +59,7 @@ def summary():
     match = [b for b in seen if not b["problems"]]
     avg = lambda xs: round(sum(xs) / len(xs) / 60, 1) if xs else None
     last = upkeep.latest()
-    drill = db.one("SELECT ts, detail FROM audit WHERE action LIKE 'Restore drill%' ORDER BY id DESC")
+    drill = db.one("SELECT ts, action, detail FROM audit WHERE action LIKE 'Restore drill%' ORDER BY id DESC")
     ms = [
         {"key": "K1", "name": "Documents to the customer's approved agreement", "target": "3 customers, each 5 min or less",
          "value": f"{sum(x <= 300 for x in k1)} of {len(k1)} within 5 min" + (f", average {avg(k1)} min" if k1 else ""),
@@ -77,7 +77,7 @@ def summary():
          "met": len(full) >= 10 and (avg(full) or 99) <= 15 and not sum(r["refiled"] for r in rows)},
         {"key": "K6", "name": "Runs and looks after itself", "target": "daily backup, restore drill passed, retention set",
          "value": (f"last backup {datetime.fromtimestamp(last.stat().st_mtime):%d %b %H:%M}" if last else "no backup yet") +
-                  (f"; drill {drill['ts'][:10]}: {drill['detail'][:40]}" if drill else "; no restore drill yet"),
-         "met": bool(last and drill and "PASSED" in drill["detail"])},
+                  (f"; restore drill {drill['action'][14:].lower()} on {drill['ts'][:10]}" if drill else "; no restore drill yet"),
+         "met": bool(last and drill and drill["action"] == "Restore drill PASSED")},
     ]
     return {"milestones": ms, "customers": rows}

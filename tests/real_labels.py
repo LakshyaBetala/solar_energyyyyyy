@@ -215,7 +215,10 @@ async def main():
         sw = ctx.service_workers[0] if ctx.service_workers else await ctx.wait_for_event("serviceworker")
         await sw.evaluate(f"chrome.storage.local.set({{url: '{BASE}', key: '{key}'}})")
         pg = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        otp_mark = lambda: db.one("SELECT COUNT(*) k FROM audit WHERE action='Co-pilot waiting for OTP'")["k"]
+        own_login_calls = None
         for name, (src, fields, expect) in PAGES.items():
+            before_otp = otp_mark()
             await sw.evaluate(f"chrome.storage.local.set({{current: {{cid: '{CID}', at: Date.now(), picked: true}}}})")
             await pg.goto(f"{BASE}/portal/verify")
             await pg.wait_for_selector("#solaraPanel")
@@ -237,6 +240,8 @@ async def main():
                 await pg.wait_for_selector("#solaraFilled")
             await pg.wait_for_timeout(300)
             wrong = [] if await pg.evaluate("window.__stay === 1") else ["the co-pilot submitted the page"]
+            if name == "vendor-login":
+                own_login_calls = otp_mark() - before_otp
             if not wrong:
                 for fid, want in expect.items():
                     if fid.startswith("radio:"):
@@ -318,8 +323,8 @@ async def main():
         check("a tracker behind Solara moves nothing back", bool(closeout.data(CID)[1].get("agreement_approved_at")))
         await other.close()
         await ctx.close()
-    calls = [x for x in sup.get("/api/today").json()["calls"] if x["cid"] == CID and "waiting for" in x["text"]]
-    check("the owner's own login OTP does not put a customer call on Today", not calls, str(calls))
+    # the vendor's own login OTP is the owner's; the customer login's approval OTP is the customer's (a call is right)
+    check("the owner's own login OTP does not put a customer call on Today", own_login_calls == 0, str(own_login_calls))
     print("\n  reset:", sup.post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
     sys.exit(1 if FAIL else 0)

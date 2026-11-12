@@ -6,8 +6,9 @@ audit trail. Settings (solara.env or the environment):
   SOLARA_BACKUP_COPY=D:\\Solara backups   a second folder (USB disk, OneDrive) that gets each backup too
   SOLARA_KEEP_BACKUPS=14                  how many daily backups to keep in each folder
   SOLARA_KEEP_MONTHS=0                    months after the subsidy is disbursed before a customer's
-                                          documents are deleted (0 = never). The record, the audit
-                                          trail and the receipts stay.
+                                          own documents (bill, Aadhaar, passbook, photos) are deleted
+                                          (0 = never). The record, the audit trail, the receipts and
+                                          Solara's papers (agreement, MSEDCL documents) stay.
 """
 import os, shutil, sqlite3, tempfile, threading, time, zipfile
 from datetime import datetime, timedelta
@@ -103,13 +104,14 @@ def retention(now=None):
     gone = []
     for r in db.q("SELECT id FROM customers WHERE stage='disbursed'"):
         at = disbursed_at(r["id"])
-        docs = db.q("SELECT id, path FROM documents WHERE customer_id=?", (r["id"],))
+        own = "customer_id=? AND kind NOT LIKE 'rc_%' AND kind NOT LIKE 'co_%'"  # rc_: receipts, co_: Solara's papers
+        docs = db.q(f"SELECT id, path FROM documents WHERE {own}", (r["id"],))
         if not at or at > cutoff or not docs:
             continue
         for d in docs:
             Path(d["path"]).unlink(missing_ok=True)
-        db.ex("DELETE FROM documents WHERE customer_id=?", (r["id"],))
-        shutil.rmtree(DOCS / r["id"], ignore_errors=True)
+        db.ex(f"DELETE FROM documents WHERE {own}", (r["id"],))
+        shutil.rmtree(DOCS / r["id"] / "labels", ignore_errors=True)  # the field team's panel-label photos
         db.audit("system", "system", "Retention: documents deleted", r["id"],
                  f"{len(docs)} document(s); subsidy disbursed {at[:10]}, kept {months} month(s)")
         gone.append(r["id"])

@@ -200,7 +200,7 @@ def today(close_rows=()):
     for k in lists:
         lists[k] = [x for x in reg[k] if x["cid"] not in held] + lists[k]  # registration lines first
     # the co-pilot's live OTP wait replaces the plain "call to register" line for that customer
-    lists["calls"] = otp_calls + [x for x in lists["calls"] if not (x["cid"] in otp_ids and x["act"] == "register")]
+    lists["calls"] = otp_calls + [x for x in lists["calls"] if x["cid"] not in otp_ids]
     return {**lists, "paused": paused}
 
 

@@ -200,11 +200,24 @@ def people(sup, since):
     check("a supervisor adds a person in Solara, with a role", r.status_code == 200 and any(u["username"] == name for u in r.json()))
     check("the new person signs in with their own password",
           httpx.post(BASE + "/api/login", json={"username": name, "password": "a-long-pass-123"}).status_code == 200)
+    staff = client(name, "a-long-pass-123")
+    their_key = staff.post("/api/copilot/key").json()["key"]
+    check("their Chrome helper key works while they are here",
+          httpx.get(f"{BASE}/api/copilot/pending", headers={"X-Solara-Key": their_key}).status_code == 200)
+    for i in range(4):
+        httpx.post(BASE + "/api/login", json={"username": name, "password": f"typo{i}"})
+    ok = httpx.post(BASE + "/api/login", json={"username": name, "password": "a-long-pass-123"}).status_code
+    for i in range(4):
+        httpx.post(BASE + "/api/login", json={"username": name, "password": f"typo-again{i}"})
+    check("a good sign-in clears the wrong tries before it",
+          ok == 200 and httpx.post(BASE + "/api/login", json={"username": name, "password": "a-long-pass-123"}).status_code == 200)
     short = sup.post("/api/users", json={"username": "t.short", "name": "Short", "role": "viewer", "password": "short"})
     check("a password under 10 characters is refused", short.status_code == 400)
     codes = [httpx.post(BASE + "/api/login", json={"username": name, "password": f"wrong{i}"}).status_code for i in range(6)]
     check("five wrong passwords lock that username for a while", codes[:5] == [401] * 5 and codes[5] == 429, str(codes))
     sup.delete(f"/api/users/{name}")
+    check("removing a person ends their Chrome helper key too",
+          httpx.get(f"{BASE}/api/copilot/pending", headers={"X-Solara-Key": their_key}).status_code == 401)
     old = client("a.more")
     db.ex("UPDATE sessions SET created_at='2020-01-01T00:00:00'")
     check("a session older than 12 hours is over, whatever the browser keeps", old.get("/api/today").status_code == 401)
@@ -220,6 +233,8 @@ def restore(sup):
           {"customers.xlsx", "audit_trail.csv", "README.txt"} <= set(names) and any(n.startswith("documents/SS-2041/") for n in names)
           and z.read(next(n for n in names if n.startswith("documents/SS-2041/") and n.endswith(".pdf"))).startswith(b"%PDF"), f"{len(names)} files")
     check("...only a supervisor can make it", client("s.kale").get("/api/exports/everything.zip").status_code == 403)
+    from app.config import EXPORTS
+    check("...and no decrypted copy stays on the server after it is sent", not list(EXPORTS.glob("solara_everything_*.zip")))
     sup.post("/api/backup").raise_for_status()
     r = sup.post("/api/backup/verify").json()
     check("the restore drill opens the newest backup: database whole, documents open with this key",

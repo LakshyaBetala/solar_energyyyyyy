@@ -79,4 +79,4 @@ If the panel says **Solara already has this filed**, check My Application before
 - The OTP, CAPTCHA, passwords and the Aadhaar number are typed by a person only.
 - Every action is in the **Audit Trail**, with who and when.
 - Aadhaar is never sent to an AI model. Documents are stored encrypted.
-- Five wrong passwords lock that username for 15 minutes; a sign-in lasts 12 hours.
+- Five wrong passwords lock that username for 15 minutes on that computer; a sign-in lasts 12 hours.
