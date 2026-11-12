@@ -260,7 +260,7 @@ def page(cid, token):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Site photos</title><style>{CSS}</style></head>
 <body><div class="wrap"><div class="hd">{e(vendor()['name'])} &middot; site photos</div>
-<div class="card"><h1>{e((c['name'] or '').split()[0] if c['name'] else '')}</h1><div class="small">consumer no. &hellip;{e((c['consumer_no'] or '')[-4:])} &middot; {e(d.get('module_count') or '?')} panels</div></div>
+<div class="card"><h1>{e((c['name'] or '').split()[0] if c['name'] else '')}</h1><div class="small">consumer no. &hellip;{e((c['consumer_no'] or '')[-4:])} {(' &middot; ' + e(str(d['module_count'])) + ' panels') if d.get('module_count') else ''}</div></div>
 <div class="card"><h2>1. Photo of the installed panels</h2>
 <div class="small">Stand where the panels and the roof are visible. Location must be on: the office needs the GPS.</div>
 <div id="siteState" class="small {'ok' if s['site_photo'] else ''}">{'&#10003; Saved. ' + e(d.get('lat', '')) + ', ' + e(d.get('lng', '')) if s['site_photo'] else 'Not taken yet.'}</div>
@@ -284,7 +284,7 @@ async function refresh() {{
     <div style="flex:1"><div class="mono">${{esc(x.serial || '—')}}</div><div class="small ${{STATE[x.status][0]}}">${{STATE[x.status][1]}}${{x.note ? ' · ' + esc(x.note) : ''}}</div></div></div>`;
   $('#list').innerHTML = r.reads.filter(x => x.kind === 'module').map(row).join('');
   $('#inv').innerHTML = r.reads.filter(x => x.kind === 'inverter').map(row).join('');
-  $('#count').textContent = `${{r.modules_read}} of ${{r.module_count || '?'}} panels read`;
+  $('#count').textContent = `${{r.modules_read}}${{r.module_count ? ' of ' + r.module_count : ''}} panels read`;
   if (r.site_photo) {{ $('#siteState').className = 'small ok'; $('#siteState').textContent = '✓ Saved with location'; }}
 }}
 function where() {{

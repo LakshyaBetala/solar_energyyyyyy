@@ -31,7 +31,8 @@ ORDER = ["lead", "docs", "register", "feasible", "install", "netmeter", "claim",
 def parse(text):
     """'Installation (Pending)' -> ('installation', 'pending'). Unknown wording -> (None, ...)."""
     t = " ".join((text or "").lower().split())
-    state = "rejected" if re.search(r"reject|return|revert", t) else "done" if re.search(r"complet|approved|disbursed$", t) \
+    # "Disbursed" and "Redeemed" sit inside brackets, so no end anchor; "Not Redeemed" is still waiting
+    state = "rejected" if re.search(r"reject|return|revert", t) else "done" if re.search(r"complet|approved|disbursed|(?<!not )redeemed", t) \
         else "accepting" if re.search(r"(consumer|customer) acceptance", t) else "pending"  # accepting: vendor's part filed
     for rx, key in WORDS:
         if re.search(rx, t):

@@ -970,7 +970,7 @@ VIEWS.inst = () => {
       `<div class="hint" style="margin-bottom:8px">Filed on PM Surya Ghar with the quotation (made from the cost in the agreement) and the pre-installation roof photo${g.documents.some(x => x.kind === 'roof') ? ' (on file)' : ' (<b>not uploaded yet</b>: Registration → Roof photo)'}.</div>`)}
 
     <div class="card" id="instField"><div class="ch"><h3>From the site</h3><span class="spacer"></span>
-      <span class="hint">${fs.modules_confirmed} of ${fs.module_count || '?'} panels confirmed${fs.inverter ? ' · inverter ' + esc(fs.inverter) : ''}</span>
+      <span class="hint">${fs.modules_confirmed}${fs.module_count ? ' of ' + fs.module_count : ''} panels confirmed${fs.inverter ? ' · inverter ' + esc(fs.inverter) : ''}</span>
       <button class="btn sm" id="instLink"${op}>${fs.link_open ? 'Send the link again' : 'Send field team the link'}</button>
       ${fs.to_confirm ? `<button class="btn sm go" id="instConfirmAll"${op}>Confirm all barcode reads</button>` : ''}</div>
       <div class="cb" style="display:grid;gap:10px">

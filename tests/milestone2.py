@@ -332,7 +332,7 @@ async def main():
         labels.append(tmp / "clash.jpg"); labels[-1].write_bytes(fx.label_photo("PE55026A318410"))     # on another customer
         labels.append(tmp / "blurred.jpg"); labels[-1].write_bytes(fx.label_photo(SERIALS[5], code=False))
         await phone.set_input_files('input[data-kind="module"]', [str(x) for x in labels])
-        await phone.wait_for_function("document.querySelector('#count').innerText.startsWith('6 of')", timeout=60000)
+        await phone.wait_for_function("document.querySelector('#count').innerText.startsWith('6 panels read')", timeout=60000)
         inv = tmp / "inv.jpg"; inv.write_bytes(fx.label_photo("PSIS3K26A04411", "inverter"))
         await phone.set_input_files('input[data-kind="inverter"]', str(inv))
         await phone.wait_for_function("document.querySelector('#inv').innerText.includes('PSIS3K26A04411')", timeout=30000)

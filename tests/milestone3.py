@@ -84,7 +84,22 @@ def through_field(cid, n):
     closeout.save_photo(cid, closeout._demo_photo(18.52 + n / 1000, 73.85), "test")
 
 
+def status_words():
+    """Every status wording seen on the real portal (7 Nov 2026 recording and the customer login)."""
+    from app import tracker
+    seen = {"Upload Agreement (Pending)": ("agreement", "pending"), "Installation (Pending)": ("installation", "pending"),
+            "Installation (In Progress)": ("installation", "pending"), "Inspection (Pending)": ("inspection", "pending"),
+            "Subsidy Request (Not Redeemed)": ("subsidy_request", "pending"),
+            "Subsidy Request (Redeemed)": ("subsidy_request", "done"), "Subsidy Request (Return)": ("subsidy_request", "rejected"),
+            "Subsidy Disbursal (Pending)": ("subsidy_disbursal", "pending"),
+            "Subsidy Disbursal (Disbursed)": ("subsidy_disbursal", "done"),
+            "Installation (Consumer Acceptance Pending)": ("installation", "accepting")}
+    wrong = {w: tracker.parse(w) for w, want in seen.items() if tracker.parse(w) != want}
+    check(f"the {len(seen)} portal status wordings seen are read right", not wrong, str(wrong))
+
+
 async def main():
+    status_words()
     sup = client("r.deshmukh")
     print("  reset:", sup.post("/api/demo/reset").json()["runnable"])
     if not db.one("SELECT 1 FROM signatures WHERE role='vendor'"):
