@@ -79,6 +79,12 @@ PAGES = {
     "installation-step1": ("Submit Installation step 1, f0165", [
         field("vn", "Name of Vendor:*"), field("lat", "Latitude:*"), field("lng", "Enter longitude:*")],
         {"vn": "vendor", "lat": "lat", "lng": "lng"}),
+    # since Apr 2025 (MNRE memo): the 16-digit DCR number and Search fill the module rows on the portal itself
+    "installation-dcr-fetch": ("Submit Installation step 2 with the DCR certificate search, MNRE memo 12.04.2025", [
+        field("dcrno", "DCR Certificate Number"), '<button type="button" id="dsearch">Search</button>',
+        grid("Solar PV Modules Details", [("Capacity/Rating(in Wp) of each Solar PV Module", "fwp"),
+                                          ("Quantity of Solar PV Module", "fq"), ("Manufacturer of Solar PV Module", "fm")], rows=1)],
+        {"dcrno": "dcr_cert_no", "fwp0": None, "fq0": None, "fm0": None}),
     "installation-step2": ("Submit Installation step 2, MNRE vendor manual pages 10C and 10E", [
         field("ph", "Phase of Solar Inverter", "select", options=["Single Phase", "Three Phase"]),
         grid("Solar Inverter Details", [("Capacity/Rating(in kW) of each inverter", "ikw"), ("Quantity of Inverter", "iq"),
@@ -198,7 +204,7 @@ async def main():
                         "roof_load_ok": "Yes", "shadow_free": "Yes", "site_visited": "No", "invoice_no": "INV/26-27/0601",
                         "module_serials": "TLRL26A0000001\nTLRL26A0000002", "module_count": "2", "module_wp": "550",
                         "module_make": "Premier Energies", "inverter_kw": "1.1", "inverter_make": "Polycab PSIS-1K",
-                        "phase": "Single phase"}, "test")
+                        "phase": "Single phase", "dcr_cert_no": "1234-5678-9012-3456"}, "test")
     values = sup.get(f"/api/registration/{CID}").json()["values"]
     key = sup.post("/api/copilot/key").json()["key"]
 

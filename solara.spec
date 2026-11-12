@@ -14,7 +14,12 @@ for pkg in ("playwright", "zxingcpp", "fitz", "pymupdf", "qrcode", "openpyxl", "
         pass
 
 a = Analysis(["app/launcher.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hidden,
-             excludes=["tkinter", "pytest"], noarchive=False)
+             # whatever else this computer's Python has installed stays out: Solara uses none of it
+             excludes=["tkinter", "pytest", "transformers", "torch", "tensorflow", "keras", "jax", "scipy", "pandas",
+                       "matplotlib", "sklearn", "IPython", "jupyter", "notebook", "numba", "sympy", "cv2", "onnxruntime",
+                       "datasets", "huggingface_hub", "tokenizers", "nltk", "spacy", "boto3", "botocore", "grpc",
+                       "google", "anthropic", "openai", "langchain", "sqlalchemy", "pyarrow", "polars"],
+             noarchive=False)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="Solara", console=False, icon=None)
 coll = COLLECT(exe, a.binaries, a.datas, name="Solara")

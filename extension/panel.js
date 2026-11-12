@@ -704,6 +704,11 @@
       }
       return { el, key };
     });
+    // since Apr 2025 the installation page fetches the panels from the 16-digit DCR number (a Search
+    // button): the portal fills those rows and serials itself, so they are left to it
+    const dcrFetch = plan.some(p => p.key === 'dcr_cert_no') && [...root.querySelectorAll('button,a,input[type=button]')]
+      .some(b => !panel.contains(b) && visible(b) && /^\s*(search|fetch|get details)\s*$/i.test(b.innerText || b.value || ''));
+    if (dcrFetch) plan.forEach(p => { if (/^module_/.test(p.key || '')) p.key = null; });
     const valueOf = key => key === 'only_option' ? '__only__' : c.values[key];
     const fillable = plan.filter(p => !p.extra && p.key && valueOf(p.key) != null);
     const questions = radioGroups(root).map(g => ({ ...g, key: (YESNO.find(([re]) => re.test(g.question)) || [])[1] }));
@@ -740,6 +745,7 @@
     const n = fillable.length + answerable.length + pickable.length, first = esc((c.name || '').split(' ')[0]);
     const filedAlready = markable && (c.done || {})[step];
     say(head + saved + apNote + issueHtml +
+      (dcrFetch ? note('After Fill, press <b>Search</b> beside the DCR number yourself: the portal fills the panel rows and serial numbers from the certificate.', '#BFE9D9') : '') +
       (filedAlready ? note(`<b>Solara already has this filed.</b> Check My Application before filling it again; fill again only if the portal sent it back.`, '#F2C879') : '') +
       (n || files.length || closedSerial.length ? btn('solaraFill', (filedAlready ? 'Fill again anyway: ' : issues.length ? 'Fill anyway: ' : 'Fill ') + `${n} field(s)${first ? ' for ' + first : ''}` +
       (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length && !filedAlready) : note('No field here that Solara knows.')) +

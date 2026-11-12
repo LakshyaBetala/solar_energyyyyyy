@@ -24,7 +24,7 @@ const TITLES = {
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],
   audit: ['Audit Trail', 'Who did what, and when. Append-only, written by the server.'],
-  reports: ['Reports', 'What the agent actually did, and the exports you can hand to anyone.']
+  reports: ['Reports', 'How each milestone stands, the owner’s time, backups and people, and the exports.']
 };
 
 const S = {
@@ -623,7 +623,7 @@ VIEWS.today = () => {
     ${group('Waiting', 'for the customer, the dealer or the field team', t.waiting, true, 'waiting')}
     ${group('Paused', 'off the lists above until resumed', (t.paused || []).map(p => ({ ...p, screen: 'inst', act: 'paused',
       text: `Paused: ${p.reason || 'no reason given'}`, detail: `${p.by}, ${(p.at || '').slice(5, 16).replace('T', ' ')}` })), true, 'paused')}
-    <div class="rgactions" style="justify-content:flex-start;padding:14px 0 6px">${n ? `<button class="btn" id="todayNew"${op}>+ Add a new customer</button>` : ''}
+    <div class="rgactions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:14px 0 6px">${n ? `<button class="btn" id="todayNew"${op}>+ Add a new customer</button>` : ''}
       <button class="btn sm" id="sideBySide">Open vendor + customer logins side by side</button>
       <button class="btn sm" id="coKey"${op}>Connect the Chrome helper</button></div>
   </section>
@@ -1359,7 +1359,7 @@ VIEWS.reports = () => {
     <span class="hint">worked out from what Solara records; no stopwatch sheet</span></div>
     <div class="tscroll"><table><thead><tr><th></th><th>Milestone</th><th>Target</th><th>Now</th><th></th></tr></thead>
     <tbody>${k.milestones.map(m => `<tr data-ms="${m.key}"><td class="mono">${m.key}</td><td>${esc(m.name)}</td><td class="sub">${esc(m.target)}</td>
-      <td>${esc(m.value)}${m.cases ? `<div class="sub">${m.cases.map(c => `${esc(c.case)}: ${c.times ? '&#10003; ' + c.times : 'not seen yet'}`).join(' · ')}</div>` : ''}</td>
+      <td>${esc(m.value)}${m.cases ? `<div class="sub">${m.cases.map(c => `${c.times ? '&#10003;' : '&middot;'} ${esc(c.case)}`).join('&ensp; ')}</div>` : ''}</td>
       <td><span class="pill ${m.met ? 'ok' : 'idle'}">${m.met ? 'met' : 'not yet'}</span></td></tr>`).join('')}</tbody></table></div></div>`;
   const time = `<div class="card" id="ownerTime"><div class="ch"><h3>Owner's time per customer</h3><span class="spacer"></span>
     <span class="hint">actions closer than 4 minutes are one sitting; waits for OTPs, the customer or the field are left out</span></div>

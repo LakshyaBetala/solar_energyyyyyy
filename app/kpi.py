@@ -76,7 +76,7 @@ def summary():
          "value": f"{len(full)} through MSEDCL" + (f", average {avg(full)} min" if full else "") + f", {sum(r['refiled'] for r in rows)} re-filed",
          "met": len(full) >= 10 and (avg(full) or 99) <= 15 and not sum(r["refiled"] for r in rows)},
         {"key": "K6", "name": "Runs and looks after itself", "target": "daily backup, restore drill passed, retention set",
-         "value": (f"last backup {last.name[7:20]}" if last else "no backup yet") +
+         "value": (f"last backup {datetime.fromtimestamp(last.stat().st_mtime):%d %b %H:%M}" if last else "no backup yet") +
                   (f"; drill {drill['ts'][:10]}: {drill['detail'][:40]}" if drill else "; no restore drill yet"),
          "met": bool(last and drill and "PASSED" in drill["detail"])},
     ]

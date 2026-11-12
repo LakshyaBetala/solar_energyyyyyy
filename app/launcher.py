@@ -10,8 +10,7 @@ the data lives in the `data` folder beside it unless SOLARA_DATA says otherwise.
 import os, socket, sys, threading, time, webbrowser
 from pathlib import Path
 
-PORT = 8900
-URL = f"http://127.0.0.1:{PORT}/"
+PORT = 8900  # SOLARA_PORT changes it (a second copy beside a test server)
 
 
 def home():
@@ -29,18 +28,22 @@ def read_env(path):
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-def running():
+def running(port):
     with socket.socket() as s:
         s.settimeout(0.5)
-        return s.connect_ex(("127.0.0.1", PORT)) == 0
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def main():
     here = home()
-    if running():  # a second double-click only opens the page
-        webbrowser.open(URL)
-        return
     read_env(here / "solara.env")
+    port = int(os.environ.get("SOLARA_PORT") or PORT)
+    url = f"http://127.0.0.1:{port}/"
+    show = not os.environ.get("SOLARA_NO_BROWSER")
+    if running(port):  # a second double-click only opens the page
+        if show:
+            webbrowser.open(url)
+        return
     os.environ.setdefault("SOLARA_DATA", str(here / "data"))
     log = Path(os.environ["SOLARA_DATA"]) / "logs"
     log.mkdir(parents=True, exist_ok=True)
@@ -48,9 +51,10 @@ def main():
         sys.stdout = sys.stderr = open(log / f"solara_{time.strftime('%Y%m%d')}.log", "a", encoding="utf-8", buffering=1)
     import uvicorn
     from app.main import app  # after SOLARA_DATA is set: config reads it on import
-    threading.Thread(target=lambda: (time.sleep(2.5), webbrowser.open(URL)), daemon=True).start()
+    if show:
+        threading.Thread(target=lambda: (time.sleep(2.5), webbrowser.open(url)), daemon=True).start()
     # 127.0.0.1 only: the office reaches it through the HTTPS proxy in OPERATIONS.md, never directly
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":
