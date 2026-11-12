@@ -18,7 +18,7 @@ const TITLES = {
   run: ['Agent Runs', 'A real browser session filing an application. It stops for OTP, CAPTCHA, corrections and approval.'],
   docs: ['Document Intake', 'Parses the actual PDFs on disk and flags anything that does not agree. Drop in your own bill to try it.'],
   today: ['Today', 'What to do now, for every customer. Do the top line first.'],
-  reg: ['Registration', 'From the customer’s documents to the agreement uploaded on PM Surya Ghar.'],
+  reg: ['Registration', 'From the customer’s documents to the customer approving the agreement on PM Surya Ghar.'],
   closeout: ['Close-out', 'Installation done to six MSEDCL documents: enter it once, the customer e-signs, the co-pilot attaches the files.'],
   numbers: ['Number Pool', 'One dedicated mobile number per registration, held for 90 days.'],
   calls: ['AI Calling', 'Reminder, status and scheduling calls in Marathi, Hindi and English.'],

@@ -17,6 +17,9 @@ for s in SUITES:
     print(f"  {s:12s} {p:4d} passed  {f:3d} failed   {status}")
     if status != "ok":
         failed.append(s)
-        print("\n".join("     " + ln for ln in (out.stdout + out.stderr).splitlines() if "FAIL" in ln or "Error" in ln)[-2000:])
+        lines = (out.stdout + out.stderr).splitlines()
+        hits = [ln for ln in lines if "FAIL" in ln or "Error" in ln]
+        # a process that died mid-run prints no FAIL line: show how it ended instead
+        print("\n".join("     " + ln for ln in (hits or [f"exit code {out.returncode}; last lines:"] + lines[-6:]))[-2000:])
 print(f"\n  {total} checks passed" + (f"; failing suites: {', '.join(failed)}" if failed else "; all suites green"))
 sys.exit(1 if failed else 0)
