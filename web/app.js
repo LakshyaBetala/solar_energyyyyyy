@@ -140,6 +140,12 @@ const draftKey = el => { for (const a of ['i', 'r', 'f']) if (el.dataset && el.d
 const keepDraft = e => { const k = draftKey(e.target); if (k) drafts.set(k, e.target.value); };
 document.addEventListener('input', keepDraft);
 document.addEventListener('change', keepDraft);
+document.addEventListener('change', async e => {
+  const who = e.target.dataset && e.target.dataset.urole;
+  if (!who) return;
+  try { S.users = await api('/users', { method: 'POST', body: { username: who, role: e.target.value } }); toast(`${who} is now ${e.target.value}`); }
+  catch (err) { toast(err.message, true); render(); }
+});
 const clearDrafts = () => { const pre = `${S.view}:${curCid()}:`; [...drafts.keys()].filter(k => k.startsWith(pre)).forEach(k => drafts.set(k, undefined)); };
 function render() {
   if (!S.me || !$('#otherview')) return;
@@ -550,6 +556,13 @@ async function loadExtract(cid) {
 }
 
 /* ------------------------------ today: one list of what to do now ------------------------------ */
+async function loadReports() {
+  const sup = can('supervisor');
+  const [k, h, r, u] = await Promise.all([api('/kpi').catch(() => null), api('/health').catch(() => null),
+    S.live ? null : api('/reports').catch(() => null), sup ? api('/users').catch(() => null) : null]);
+  S.kpi = k; S.health = h; S.reports = r; S.users = u;
+  if (S.view === 'reports') render();
+}
 async function loadToday() {
   [S.today, S.board] = await Promise.all([api('/today').catch(() => null), api('/board').catch(() => null)]);
   counters();
@@ -1338,7 +1351,50 @@ VIEWS.audit = () => `<div class="grid" style="gap:14px">
   </div></div>`;
 
 /* ------------------------------ reports ------------------------------ */
+const mins = s => s == null ? '—' : s < 60 ? `${s} s` : `${(s / 60).toFixed(1)} min`;
 VIEWS.reports = () => {
+  const k = S.kpi, h = S.health, sup = can('supervisor') ? '' : ' disabled';
+  if (!k) return '<div class="card"><div class="cb hint">Loading…</div></div>';
+  const ms = `<div class="card raise" id="milestones"><div class="ch"><h3>The six milestones, measured</h3><span class="spacer"></span>
+    <span class="hint">worked out from what Solara records; no stopwatch sheet</span></div>
+    <div class="tscroll"><table><thead><tr><th></th><th>Milestone</th><th>Target</th><th>Now</th><th></th></tr></thead>
+    <tbody>${k.milestones.map(m => `<tr data-ms="${m.key}"><td class="mono">${m.key}</td><td>${esc(m.name)}</td><td class="sub">${esc(m.target)}</td>
+      <td>${esc(m.value)}${m.cases ? `<div class="sub">${m.cases.map(c => `${esc(c.case)}: ${c.times ? '&#10003; ' + c.times : 'not seen yet'}`).join(' · ')}</div>` : ''}</td>
+      <td><span class="pill ${m.met ? 'ok' : 'idle'}">${m.met ? 'met' : 'not yet'}</span></td></tr>`).join('')}</tbody></table></div></div>`;
+  const time = `<div class="card" id="ownerTime"><div class="ch"><h3>Owner's time per customer</h3><span class="spacer"></span>
+    <span class="hint">actions closer than 4 minutes are one sitting; waits for OTPs, the customer or the field are left out</span></div>
+    <div class="tscroll"><table><thead><tr><th>Ref</th><th>Customer</th><th>Registration</th><th>After installation</th><th>All of it</th><th>Typed by hand</th><th>Re-filed</th></tr></thead>
+    <tbody>${k.customers.map(c => `<tr><td class="mono sub">${esc(c.id)}</td><td>${esc(c.name)}</td><td>${mins(c.k1_seconds)}</td>
+      <td>${mins(c.k2_seconds)}</td><td>${mins(c.total_seconds)}</td><td>${c.left_fields || '—'}</td><td>${c.refiled || '—'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  const care = `<div class="card" id="health"><div class="ch"><h3>Health and upkeep</h3><span class="spacer"></span>
+    ${h ? `<span class="pill ${h.ok ? 'ok' : 'bad'}">${h.ok ? 'healthy' : 'needs attention'}</span>` : ''}</div>
+    <div class="cb" style="display:grid;gap:6px">${h ? h.checks.map(c => `<div class="row" style="gap:10px">
+      <span class="pill ${c.state === 'ok' ? 'ok' : c.state === 'warn' ? 'warn' : 'bad'}" style="min-width:70px;justify-content:center">${esc(c.key)}</span>
+      <span class="sub">${esc(c.text)}</span></div>`).join('') : ''}
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn" id="backup"${sup}>Back up now</button>
+        <button class="btn" id="drill"${sup}>Restore drill</button>
+        <button class="btn" id="everything"${sup}>Export everything (.zip)</button></div>
+      <div class="hint">Solara backs itself up once a day. The restore drill opens the newest backup on the side and proves it would restore.
+        Export everything gives all customers, documents and the audit trail as plain files.</div></div></div>`;
+  const people = !S.users ? '' : `<div class="card" id="people"><div class="ch"><h3>People who can sign in</h3></div>
+    <div class="cb" style="display:grid;gap:6px">${S.users.map(u => `<div class="row" style="gap:10px">
+      <b style="min-width:120px">${esc(u.username)}</b><span class="sub" style="flex:1">${esc(u.name)}</span>
+      <select data-urole="${esc(u.username)}">${['viewer', 'operator', 'supervisor'].map(r => `<option${r === u.role ? ' selected' : ''}>${r}</option>`).join('')}</select>
+      <button class="btn sm" data-upass="${esc(u.username)}">New password</button>
+      ${u.username === S.me.username ? '' : `<button class="btn sm danger" data-uremove="${esc(u.username)}">Remove</button>`}</div>`).join('')}
+      <button class="btn" id="userAdd" style="justify-self:start">+ Add a person</button>
+      <div class="hint">Viewer: looks only. Operator: does the daily work. Supervisor: also people, backups and exports.</div></div></div>`;
+  const exportsCard = `<div class="card"><div class="ch"><h3>Exports</h3></div><div class="cb" style="display:grid;gap:9px">
+      <div class="row" style="gap:9px;flex-wrap:wrap"><b>Monthly report</b><input type="month" id="month" value="${thisMonth()}" style="width:170px">
+        <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button></div>
+      <button class="btn" id="xlsx" data-demo>Pipeline, numbers, runs and audit (.xlsx)</button>
+      <button class="btn danger" id="resetdemo" data-demo${sup}>Reset the demo environment</button></div></div>`;
+  return `<div class="grid" style="gap:14px">${ms}<div class="two">${care}${exportsCard}</div>${people}${time}
+    ${S.live || !S.reports ? '' : demoReports()}</div>`;
+};
+
+const demoReports = () => {
   const r = S.reports;
   if (!r) return '<div class="card"><div class="cb hint">Loading…</div></div>';
   const holds = Object.entries(r.holds || {});
@@ -1399,7 +1455,7 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('button,a[data-goto]'); if (!t) return;
 
   if (t.dataset.as) { $('#u').value = t.dataset.as; $('#p').value = 'demo'; return login(t.dataset.as, 'demo'); }
-  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') Promise.all([api('/reports'), api('/health')]).then(([r, h]) => { S.reports = r; S.health = h; render(); }); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); if (S.view === 'inst') loadInst(); if (S.view === 'today' || S.view === 'pipeline') loadToday(); return; }
+  if (t.dataset.view) { S.view = t.dataset.view; render(); if (S.view === 'docs' && !S.extract) loadExtract(S.docCid); if (S.view === 'reports') loadReports(); if (S.view === 'closeout') loadCo(); if (S.view === 'reg') loadReg(); if (S.view === 'inst') loadInst(); if (S.view === 'today' || S.view === 'pipeline') loadToday(); return; }
 
   /* today and the board */
   if (t.dataset.goto) {
@@ -1627,11 +1683,42 @@ document.addEventListener('click', async e => {
     $('#bstart').click(); return;
   }
 
+  if (t.id === 'drill') {
+    t.disabled = true; t.textContent = 'Opening the newest backup…';
+    try { const r = await api('/backup/verify', { method: 'POST' });
+      toast(r.ok ? `Restore drill passed: ${r.file}, ${r.customers} customers, documents open with this key.` : `Restore drill FAILED: ${r.document}`, !r.ok); loadReports(); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'everything') { window.open('/api/exports/everything.zip', '_blank'); toast('Making the export. It holds Aadhaar copies: keep it like the paper files.'); return; }
+  if (t.id === 'userAdd' || t.dataset.upass) {
+    const who = t.dataset.upass;
+    modal(who ? `New password for ${who}` : 'Add a person', who ? 'Their old password stops working at once.' : 'They sign in with their own username and password.',
+      `${who ? '' : `<div class="field"><label for="uName">Name</label><input type="text" id="uName" autocomplete="off"></div>
+       <div class="field"><label for="uUser">Username</label><input type="text" id="uUser" autocomplete="off" placeholder="e.g. s.kale"></div>
+       <div class="field"><label for="uRole">Role</label><select id="uRole"><option>operator</option><option>viewer</option><option>supervisor</option></select></div>`}
+       <div class="field"><label for="uPass">Password (10 or more characters)</label><input type="password" id="uPass" autocomplete="new-password"></div>`,
+      `<button class="btn" data-close>Cancel</button><button class="btn go" id="userSave" data-who="${esc(who || '')}">Save</button>`);
+    return;
+  }
+  if (t.id === 'userSave') {
+    const who = t.dataset.who;
+    const body = who ? { username: who, password: $('#uPass').value }
+      : { username: $('#uUser').value, name: $('#uName').value, role: $('#uRole').value, password: $('#uPass').value };
+    try { S.users = await api('/users', { method: 'POST', body }); closeModal(); render(); toast(who ? 'Password changed' : 'Added'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.uremove) {
+    if (!confirm(`Remove ${t.dataset.uremove}? They can no longer sign in. What they did stays in the audit trail.`)) return;
+    try { S.users = await api('/users/' + encodeURIComponent(t.dataset.uremove), { method: 'DELETE' }); render(); toast('Removed'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
   if (t.id === 'backup') {
     try {
       const r = await api('/backup', { method: 'POST' });
-      toast(`Backup written: ${r.file} (${Math.round(r.bytes / 1024)} KB)`);
-      window.open('/api/backups/' + encodeURIComponent(r.file), '_blank');
+      toast(`Backup written: ${r.file} (${Math.round(r.bytes / 1024)} KB)`); loadReports();
     } catch (err) { toast(err.message, true); }
     return;
   }
@@ -1720,6 +1807,13 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'coSheet' && e.target.files[0]) coUpload('datasheet', e.target.files[0]);
 });
 $('#loginForm').addEventListener('submit', e => { e.preventDefault(); login($('#u').value, $('#p').value); });
+$('#setupForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    S.me = await api('/setup', { method: 'POST', body: { name: $('#sName').value, username: $('#sUser').value, password: $('#sPass').value } });
+    $('#gate').hidden = true; $('#shell').hidden = false; await boot();
+  } catch (err) { showGate(err.message); }
+});
 $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
@@ -1768,6 +1862,7 @@ function liveMode() {
   syncTheme();
   api('/me').then(async r => {
     if (r && r.live) liveMode();
+    if (r && r.setup) { $('#setupForm').hidden = false; $('#loginForm').hidden = true; }
     if (!r || !r.user) return showGate();
     S.me = r.user; $('#gate').hidden = true; $('#shell').hidden = false; await boot();
   }).catch(() => showGate());

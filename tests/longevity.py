@@ -68,6 +68,56 @@ check("health shows the drift: which page and which fields",
 c.post("/api/backup")
 b = {x["key"]: x for x in c.get("/api/health").json()["checks"]}["backups"]
 check("a fresh backup turns the backup check green", b["state"] == "ok", b["text"])
+
+# ---- upkeep: daily backup, pruning, retention (K6) ----
+print("\n  -- upkeep")
+import os, time  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from app import upkeep, backup as _backup, closeout as _co  # noqa: E402
+same_day = upkeep.daily_backup()               # the backup just made above is today's
+for z in _backup.BACKUPS.glob("solara_*.zip"):  # as if the last one were two days old
+    os.utime(z, (time.time() - 2 * 86400,) * 2)
+fresh = upkeep.daily_backup()
+check("a daily backup is made when the last is a day old, and not twice the same day",
+      same_day is None and fresh is not None and time.time() - fresh.stat().st_mtime < 120)
+check("...and it is in the audit trail", bool(db.one("SELECT 1 FROM audit WHERE action='Daily backup'")))
+fake = []
+for i in range(4):  # older backups, oldest first
+    f = _backup.BACKUPS / f"solara_2020010{i + 1}_000000.zip"
+    f.write_bytes(b"x")
+    os.utime(f, (time.time() - 86400 * (10 - i),) * 2)
+    fake.append(f)
+upkeep.prune(_backup.BACKUPS, 2)
+check("only the newest backups are kept", not fake[0].exists() and upkeep.latest() is not None and
+      len(list(_backup.BACKUPS.glob("solara_*.zip"))) == 2)
+v = upkeep.verify(upkeep.latest())
+check("the restore drill passes on the newest backup", v["ok"], str(v))
+# retention: a disbursed customer's documents go after the set months; nobody else's
+cid = "SS-9901"  # a customer of this check only; the demo reset removes it
+db.ex("INSERT OR REPLACE INTO customers(id,name,category,stage,workflow,subsidy) VALUES(?,?,?,?,?,0)",
+      (cid, "Retention Check", "Residential", "disbursed", "rooftop_registration"))
+doc = _co.DOCS / cid / "bill.pdf"
+doc.parent.mkdir(parents=True, exist_ok=True)
+_co.vault.write(doc, b"%PDF-1.4 test")
+db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
+      (cid, "bill", "bill.pdf", str(doc), 13, db.now()))
+old = (datetime.now() - timedelta(days=400)).isoformat(timespec="seconds")
+db.ex("""INSERT INTO portal_status(customer_id,portal,ref,status,stage,seen_at,seen_by) VALUES(?,?,?,?,?,?,?)
+         ON CONFLICT(customer_id,portal) DO UPDATE SET stage=excluded.stage, seen_at=excluded.seen_at""",
+      (cid, "pmsg", "NP-TEST-000001", "Subsidy Disbursal (Disbursed)", "subsidy_disbursal:done", old, "test"))
+others = db.one("SELECT COUNT(*) k FROM documents WHERE customer_id<>?", (cid,))["k"]
+os.environ.pop("SOLARA_KEEP_MONTHS", None)
+check("retention is off unless set", upkeep.retention() == [])
+os.environ["SOLARA_KEEP_MONTHS"] = "24"
+check("24 months: a subsidy disbursed 13 months ago keeps its documents", upkeep.retention() == [])
+os.environ["SOLARA_KEEP_MONTHS"] = "12"
+gone = upkeep.retention()
+os.environ.pop("SOLARA_KEEP_MONTHS", None)
+check("12 months: that customer's documents are deleted, the record and others' documents stay",
+      gone == [cid] and not db.q("SELECT 1 FROM documents WHERE customer_id=?", (cid,))
+      and db.one("SELECT 1 FROM customers WHERE id=?", (cid,)) is not None
+      and db.one("SELECT COUNT(*) k FROM documents WHERE customer_id<>?", (cid,))["k"] == others and not doc.exists())
+check("...and the deletion is in the audit trail", bool(db.one("SELECT 1 FROM audit WHERE action='Retention: documents deleted' AND target=?", (cid,))))
 print("\n  reset:", c.post("/api/demo/reset").json()["runnable"])
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)

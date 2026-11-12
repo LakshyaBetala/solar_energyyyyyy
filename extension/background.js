@@ -25,7 +25,9 @@ async function handle(msg) {
   }
   if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'xlsx') {
     const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : msg.type === 'doc' ? `doc/${msg.cid}/${msg.kind}` : `xlsx/${msg.cid}`;
-    const r = await call(`${url}/api/copilot/${path}`, { headers });
+    // what the portal's box takes: PDF only, and its own size limit, when the page says so
+    const box = new URLSearchParams({ to: msg.to || '', max_kb: String(msg.max_kb || 0) });
+    const r = await call(`${url}/api/copilot/${path}?${box}`, { headers });
     if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, error: `could not fetch ${msg.key || msg.kind || 'the Excel'}: ${e.detail || r.statusText}` }; }
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);
     return { ok: true, b64: b64(await r.arrayBuffer()), type: r.headers.get('content-type'),

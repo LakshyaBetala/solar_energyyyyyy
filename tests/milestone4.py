@@ -20,7 +20,7 @@ Then: nothing filed twice (a second "filed" report is recognised), staff logins 
 locked-out password guesser, an expired session, and the restore drill on a fresh backup.
 Every handled case leaves one line in the audit trail; /api/kpi counts them. Synthetic data only.
 """
-import asyncio, io, random, sys
+import asyncio, io, random, re, sys, zipfile
 from pathlib import Path
 import httpx
 from PIL import Image
@@ -149,6 +149,13 @@ def file_cases(sup, key, since):
     check(f"5 a {len(big) // 1024} KB photo goes to the portal as a JPEG under 300 KB",
           r.status_code == 200 and r.content[:2] == b"\xff\xd8" and len(r.content) <= 300 * 1024, f"{len(r.content) // 1024} KB")
     check("5 ...and the shrink is recorded", audited("File made smaller for the portal", since) >= 1)
+    # a box that says "File format only accepts PDF. Maximum Size: 500kB" (the plant-photo box in the manual)
+    r = httpx.get(f"{BASE}/api/copilot/doc/{a}/roof", params={"to": "pdf", "max_kb": 500}, headers=h, timeout=60)
+    name = r.headers.get("content-disposition", "")
+    check("5 a box that takes PDF only, 500 KB: the photo goes as a one-page PDF under 500 KB",
+          r.status_code == 200 and r.content.startswith(b"%PDF") and len(r.content) <= 500 * 1024, f"{len(r.content) // 1024} KB")
+    check("5 ...with a name the portal accepts: letters, digits, underscores, one .pdf",
+          bool(re.search(r'filename="[A-Za-z0-9_]+\.pdf"', name)), name)
 
     closeout.save(b, {"module_serials": "PE55026A900001"}, "test")             # already on another customer
     link = field.create_link(a, {"username": "r.deshmukh", "role": "supervisor"})
@@ -205,11 +212,47 @@ def people(sup, since):
 
 
 def restore(sup):
-    print("\n  -- backup and restore")
+    print("\n  -- backup, restore and the client's own copy")
+    r = sup.get("/api/exports/everything.zip")
+    z = zipfile.ZipFile(io.BytesIO(r.content)) if r.status_code == 200 else None
+    names = z.namelist() if z else []
+    check("Export everything: every customer, their documents decrypted, the audit trail",
+          {"customers.xlsx", "audit_trail.csv", "README.txt"} <= set(names) and any(n.startswith("documents/SS-2041/") for n in names)
+          and z.read(next(n for n in names if n.startswith("documents/SS-2041/") and n.endswith(".pdf"))).startswith(b"%PDF"), f"{len(names)} files")
+    check("...only a supervisor can make it", client("s.kale").get("/api/exports/everything.zip").status_code == 403)
     sup.post("/api/backup").raise_for_status()
     r = sup.post("/api/backup/verify").json()
     check("the restore drill opens the newest backup: database whole, documents open with this key",
           r["ok"] and r["integrity"] == "ok" and r["customers"] > 0 and "opens" in r["document"], str(r))
+
+
+async def reports_page():
+    print("\n  -- Reports for the owner")
+    async with async_playwright() as p:
+        b = await p.chromium.launch()
+        pg = await b.new_page(viewport={"width": 1440, "height": 900})
+        errs = []
+        pg.on("pageerror", lambda ex: errs.append(str(ex)))
+        for who in ("r.deshmukh", "a.more"):
+            await pg.goto(BASE)
+            await pg.click(f'[data-as="{who}"]')
+            await pg.wait_for_selector("#shell:not([hidden])")
+            await pg.click('.navitem[data-view="reports"]')
+            await pg.wait_for_selector("#milestones", timeout=15000)
+            if who == "r.deshmukh":
+                k4 = await pg.inner_text('#milestones [data-ms="K4"]')
+                check("Reports: six milestones, K4 met with its cases, owner's time, people",
+                      await pg.locator("#milestones [data-ms]").count() == 6 and "met" in k4 and "wrong OTP" in k4
+                      and await pg.locator("#ownerTime tbody tr").count() > 0 and await pg.locator("#people [data-upass]").count() >= 3)
+                await pg.click("#drill")
+                await pg.wait_for_function("/Restore drill passed/.test(document.querySelector('#toastmsg').innerText)", timeout=30000)
+                check("the restore drill runs from Reports", True)
+            else:
+                check("a viewer sees the milestones but no people and no upkeep buttons",
+                      await pg.locator("#people").count() == 0 and await pg.locator("#drill").is_disabled())
+            await pg.evaluate("fetch('/api/logout', {method: 'POST'})")
+        check("no script errors on Reports", not errs, "; ".join(errs[:2]))
+        await b.close()
 
 
 async def main():
@@ -224,6 +267,7 @@ async def main():
     people(sup, since)
     sup = client("r.deshmukh")                       # every session ended in the session check
     restore(sup)
+    await reports_page()
     print("\n  reset:", sup.post("/api/demo/reset").json()["runnable"])
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
     sys.exit(1 if FAIL else 0)

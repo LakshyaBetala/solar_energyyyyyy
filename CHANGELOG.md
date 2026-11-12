@@ -1,8 +1,53 @@
 # Changelog
 
-All notable changes to Solara on the KPI-1 branch, `k1-owner`, newest first. Which branch holds what,
+All notable changes to Solara, newest first. Since 13 Nov 2026 everything is on `field-ready`. Which branch holds what,
 and what is next: [docs/BRANCHES.md](docs/BRANCHES.md). The client's 7 Nov walkthrough, broken down
 into every portal step and field: [docs/PRE_INSTALLATION_FIELDS.md](docs/PRE_INSTALLATION_FIELDS.md).
+
+## 2026-11-13: one Solara for all six milestones (field-ready)
+
+k1-owner (KPI 1) and k2-k3-filing-dashboard (KPI 2 and 3) merged into one branch, then KPI 4, 5
+and 6 built on it. 13 suites; see docs/BRANCHES.md for the counts.
+
+### Merged
+- **One Today** in the owner's words: Calls to make, To do in Solara, On the government website,
+  Waiting (customer, dealer, field team), Paused. Registration lines and the filings after the
+  agreement come from the same list; a portal waiting for an OTP is a red call at the top. Under it,
+  every customer on the portal's ten stages and the monthly report.
+- **One menu**: Today, Registration, Installation, Close-out, Audit Trail, Reports.
+- **One co-pilot** with both branches' features. A portal list read by either reader updates both
+  the registration steps (agreement uploaded, customer approved) and the stage board.
+- Field-team links use the same public address as e-sign links, with the "only opens on this
+  computer" warning.
+
+### Added
+- **K4, the eight problem cases**: the panel says what to do on a wrong OTP, a missing OTP (points
+  at Resend), a portal that logged you out, and an internet cut (nothing lost, page read again when
+  it is back); each is recorded once. A step Solara already has as filed asks before filling again.
+  Re-uploading an approved agreement warns that the customer must approve again. Repeated serials,
+  photos without GPS and files made smaller are recorded too. `tests/milestone4.py`, 28 checks.
+- **Security**: sessions end after 12 hours on the server; five wrong passwords lock a username for
+  15 minutes; Secure cookie behind HTTPS; supervisors add people, change roles, reset passwords
+  and remove people in Reports; the first supervisor is created on the Solara computer itself.
+- **K5**: Reports shows the six milestones measured from the audit trail (owner's time per
+  customer, fields typed by hand, re-filed steps, stages matching the portal, problem cases seen).
+  docs/K5_LIVE_RUN.md, docs/USER_GUIDE.md.
+- **K6, running and upkeep**: Solara.exe (`solara.spec`, `app/launcher.py`) with settings in
+  solara.env; daily automatic backup with a second copy and pruning; the restore drill; retention
+  of documents after the subsidy (off unless set); Export everything (all customers, documents
+  decrypted, audit trail); PDFs printed with the computer's Chrome or Edge when no browser was
+  downloaded. docs/RUNNING.md, docs/SECURITY_AND_DATA.md.
+- **From the public portal manuals**: upload boxes' own limits read by the panel (PDF only, size),
+  portal-safe file names, the plant-photo and MSEDCL labels as published, the DCR invoice-date box
+  never given the invoice number, 2024 stage names and Track Status wordings read right.
+
+### Fixed
+- The loan form's "bank and IFSC are the customer's choice" rule had blocked the subsidy bank
+  details everywhere; it now applies on the loan pages only.
+- A text box called "Branch Name" was given the placeholder `__only__`; only a dropdown with one
+  option is picked by itself.
+- Signing in and clicking a menu item at once could land back on Today.
+- Twelve people adding customers in the same instant could, rarely, get "please try again".
 
 ## 2026-11-07: the owner's way of working, and the customer login (k1-owner)
 

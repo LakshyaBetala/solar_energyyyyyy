@@ -35,11 +35,12 @@ customer stands and what to do next.
 
 | # | Milestone | Final result the client sees | Planned | Status |
 |---|---|---|---|---|
-| **K1** | Documents → registration and agreement | a new customer registered, accepted in the vendor login, agreement e-signed and uploaded — in ≤ 5 min of owner's time | week 1 | **built; prove on real portals** |
+| **K1** | Documents → registration and agreement | a new customer registered, accepted in the vendor login, agreement e-signed, uploaded and approved by the customer — in ≤ 5 min of owner's time | week 1 | **built and passing in the sandbox**; prove on real portals |
 | **K2** | Portal filing, reports, loan and tracking | all post-installation paperwork closed the same day (DCR, installation, six MSEDCL documents), plus the feasibility report and the Jan Samarth application | weeks 2–3 | **built and passing in the sandbox** (`milestone2.py`, 81 checks); prove on real portals |
 | **K3** | Dashboard | one screen with every customer's stage and today's to-do list | week 4 | **built and passing in the sandbox** (`milestone3.py`, 42 checks); prove on 10 live customers |
-| **K4** | OTP, security and problem cases | 8 common problems handled without filing anything twice or wrong | week 5 | partly built; to finish and demonstrate |
-| **K5** | Live testing and handover | the client's team runs Solara on real customers for 2 weeks | weeks 5–6 | — |
+| **K4** | OTP, security and problem cases | 8 common problems handled without filing anything twice or wrong | week 5 | **built and passing in the sandbox** (`milestone4.py`); demonstrate with the owner |
+| **K5** | Live testing and handover | the client's team runs Solara on real customers for 2 weeks | weeks 5–6 | measures, guide and plan built ([K5_LIVE_RUN.md](K5_LIVE_RUN.md)); the run itself is with the owner |
+| *K6* | *Running and upkeep (after handover, monthly service)* | *Solara runs on the owner's computer and looks after itself* | — | Solara.exe, backups, restore drill, retention, export ([RUNNING.md](RUNNING.md)) |
 
 Week 7 is held in reserve. The detailed KPI for each milestone and who does what is in section 7.
 

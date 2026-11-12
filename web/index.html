@@ -25,6 +25,13 @@
     <h1>Solara</h1>
     <p>Solar back office &mdash; portal automation, document intake and subsidy tracking.</p>
     <div class="gateerr" id="gateErr" hidden></div>
+    <form id="setupForm" hidden>
+      <p class="setupnote">First time: make the supervisor who runs Solara. Only possible on this computer, only once.</p>
+      <div class="field"><label for="sName">Your name</label><input type="text" id="sName" autocomplete="name"></div>
+      <div class="field"><label for="sUser">Username</label><input type="text" id="sUser" autocomplete="username" placeholder="e.g. r.deshmukh"></div>
+      <div class="field"><label for="sPass">Password (10 or more characters)</label><input type="password" id="sPass" autocomplete="new-password"></div>
+      <button class="btn pri" type="submit" style="width:100%;justify-content:center">Create and sign in</button>
+    </form>
     <form id="loginForm">
       <div class="field"><label for="u">Username</label>
         <input type="text" id="u" autocomplete="username" value="r.deshmukh"></div>

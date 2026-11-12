@@ -1004,8 +1004,36 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                                                   ("customer_approved", "agreement_approved_at"))}}
 
 
+def portal_name(name, ext):
+    """Letters, digits and underscores, one extension: what the national portal accepts as a file name."""
+    import re as _re
+    stem = _re.sub(r"[^A-Za-z0-9]+", "_", name.rsplit(".", 1)[0]).strip("_")[:60] or "document"
+    return f"{stem}.{ext}"
+
+
+def fit_box(blob, as_pdf, max_kb):
+    """A file as one portal box takes it: PDF or JPEG, within that box's size (KB, 0 = the usual limits)."""
+    import io
+    from PIL import Image
+    if blob.startswith(b"%PDF"):
+        limit = max_kb * 1024 if max_kb else PORTAL_MAX
+        if len(blob) > limit:  # re-rendered smaller first; refused only if it still does not fit
+            blob = closeout.fit(blob, limit_kb=limit // 1024)
+        if len(blob) > limit:
+            raise HTTPException(413, f"the PDF is {len(blob) // 1024} KB; this box takes {limit // 1024} KB at most. Upload a smaller copy in Solara")
+        return blob, "application/pdf", "pdf"
+    # JPEG under 300 KB unless the box says less: the strictest photo box seen (MSEDCL, the feasibility report's photo)
+    kb = min(max_kb or 300, 300) if not as_pdf else max(40, (max_kb or 300) - 20)
+    jpg = closeout.jpeg_under(Image.open(io.BytesIO(blob)), kb=kb)
+    if not as_pdf:
+        return jpg, "image/jpeg", "jpg"
+    out = io.BytesIO()  # a box that takes PDF only (the 2024 plant photo box): the photo, one page
+    Image.open(io.BytesIO(jpg)).save(out, "PDF", resolution=150)
+    return out.getvalue(), "application/pdf", "pdf"
+
+
 @app.get("/api/copilot/doc/{cid}/{kind}")
-def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
+def copilot_doc(cid: str, kind: str, user=Depends(copilot_user), to: str = "", max_kb: int = 0):
     """A customer's own document (bill, Aadhaar...), for a portal's upload box."""
     if kind == "site_photo":
         p = DOCS / _cid(cid) / "site_photo.jpg"
@@ -1018,20 +1046,13 @@ def copilot_doc(cid: str, kind: str, user=Depends(copilot_user)):
         raise HTTPException(404, "no such document on file")
     blob, name = vault.read(Path(d["path"])), d["filename"]
     before = len(blob)
-    if blob.startswith(b"%PDF"):
-        if len(blob) > PORTAL_MAX:  # re-rendered smaller first; refused only if it still does not fit
-            blob = closeout.fit(blob, limit_kb=PORTAL_MAX // 1024)
-        if len(blob) > PORTAL_MAX:
-            raise HTTPException(413, f"the {kind} PDF is {len(blob) // 1024} KB; the portal takes 2 MB at most. Upload a smaller copy in Solara")
-        kind_type = "application/pdf"
-    else:
-        import io
-        from PIL import Image
-        try:  # JPEG under 300 KB: the strictest photo box seen (MSEDCL, the feasibility report's photo)
-            blob, kind_type = closeout.jpeg_under(Image.open(io.BytesIO(blob))), "image/jpeg"
-            name = name.rsplit(".", 1)[0] + ".jpg"
-        except Exception:
-            kind_type = "application/octet-stream"
+    try:
+        blob, kind_type, ext = fit_box(blob, to == "pdf", max(0, min(max_kb, 5120)))
+    except HTTPException as ex:
+        raise HTTPException(ex.status_code, f"{kind}: {ex.detail}")
+    except Exception:
+        raise HTTPException(415, f"the {kind} file is neither a PDF nor a photo Solara can read; upload it again in Solara")
+    name = portal_name(name, ext)
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, kind)
     if len(blob) != before:
         db.audit(user["username"], user["role"], "File made smaller for the portal", cid, f"{kind}: {before // 1024} KB to {len(blob) // 1024} KB")
@@ -1042,13 +1063,17 @@ PORTAL_MAX = 2 * 1024 * 1024  # the portal's limit on the bill, passbook and agr
 
 
 @app.get("/api/copilot/file/{cid}/{key}")
-def copilot_file(cid: str, key: str, user=Depends(copilot_user)):
+def copilot_file(cid: str, key: str, user=Depends(copilot_user), max_kb: int = 0):
     if key not in closeout.SPEC or key not in closeout.built(_cid(cid)):
         raise HTTPException(404, "not generated yet")
-    p = closeout.path_for(cid, key)
+    blob = vault.read(closeout.path_for(cid, key))
+    before = len(blob)
+    blob, _, _ = fit_box(blob, True, max(0, min(max_kb, 5120)))
     db.audit(user["username"], user["role"], "Co-pilot fetched document", cid, key)
-    return Response(vault.read(p), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{cid}_{key}.pdf"'})
+    if len(blob) != before:
+        db.audit(user["username"], user["role"], "File made smaller for the portal", cid, f"{key}: {before // 1024} KB to {len(blob) // 1024} KB")
+    return Response(blob, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{portal_name(cid + "_" + key, "pdf")}"'})
 
 
 def receipt_sized(pdf):

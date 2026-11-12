@@ -347,7 +347,8 @@ ACCEPTED = re.compile(r"upload agreement|agreement \(pending\)", re.I)
 PAST_AGREEMENT = re.compile(r"installation|inspection|commission|subsidy|redeem", re.I)
 next_of = lambda cid: status(cid)["next"]  # from_portal_list's own `status` is the row's text
 # the vendor's part is filed and the customer still has to approve it in their login
-UPLOADED = re.compile(r"acceptance|upload agreement \((completed|approved)\)", re.I)
+UPLOADED = re.compile(r"acceptance|upload agreement \((completed|approved)\)|agreement copy uploaded|"
+                      r"sent to consumer for confirmation", re.I)
 # Installation opens only once the customer approved the agreement (customer login, 7 Nov 2026:
 # Upload Agreement Completed, Installation In Progress); a later stage implies it too
 APPROVED = re.compile(r"installation \((in progress|completed|approved)\)|inspection|commission|subsidy|redeem", re.I)

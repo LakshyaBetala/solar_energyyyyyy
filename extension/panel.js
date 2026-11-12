@@ -219,8 +219,10 @@
   // ---------- the customer login's tracker ----------
   // Ten stages, each "Upload Agreement / Completed / 07-11-2026 7:23 pm" (seen 7 Nov 2026). Turned into
   // the same "Stage (State)" words as the vendor's list, for the first stage not Completed.
+  // the 2024 manual's names for the same stages, in case a page still shows them
   const STAGES = ['Registration', 'Application', 'Feasibility', 'Vendor Selection', 'Upload Agreement', 'Installation',
-    'Inspection', 'Project Commissioning', 'Subsidy Request', 'Subsidy Disbursal'];
+    'Inspection', 'Project Commissioning', 'Subsidy Request', 'Subsidy Disbursal', 'Consumer Registered',
+    'Application Submission', 'Feasibility Approval', 'Work Start', 'Solar Installation Details'];
   const STAGE_RE = new RegExp(`\\b(${STAGES.map(s => s.replace(' ', '\\s+')).join('|')})\\s*` +
     '(Completed|In\\s+Progress|Pending|Rejected|Returned?|Not\\s+Redeemed|Redeemed|Disbursed)\\b', 'gi');
   const APP_RE = /\bNP-[A-Z0-9]+-\d{6,}\b/g;
@@ -339,8 +341,16 @@
       chrome.storage.local.set({ current: { cid: d.seen[0].id, at: Date.now(), picked: true } }).catch(() => {});
   }
 
+  // the box's own rules, from its accept= and the words beside it ("File format only accepts PDF. Maximum Size: 500kB")
+  function boxRules(input) {
+    const near = ((input.closest('.fg,.form-group,td,li') || input.parentElement || {}).innerText || '') + ' ' + (input.title || '');
+    const acc = (input.accept || '').toLowerCase();
+    const pdfOnly = (acc.includes('pdf') && !/jpe?g|png|image/.test(acc)) || /(only accepts?|only)\s+pdf|pdf\s+only/i.test(near);
+    const m = near.match(/max(?:imum)?\.?\s*(?:file\s*)?size[^0-9]{0,15}(\d+(?:\.\d+)?)\s*(kb|mb)/i);
+    return { to: pdfOnly ? 'pdf' : '', max_kb: m ? Math.round(parseFloat(m[1]) * (/mb/i.test(m[2]) ? 1024 : 1)) : 0 };
+  }
   async function attach(input, msg) {
-    const f = await ask(msg);
+    const f = await ask({ ...msg, ...boxRules(input) });
     if (!f || !f.ok) return false;
     const bin = Uint8Array.from(atob(f.b64), ch => ch.charCodeAt(0));
     const dt = new DataTransfer();

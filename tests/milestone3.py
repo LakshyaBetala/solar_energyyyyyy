@@ -93,7 +93,15 @@ def status_words():
             "Subsidy Request (Redeemed)": ("subsidy_request", "done"), "Subsidy Request (Return)": ("subsidy_request", "rejected"),
             "Subsidy Disbursal (Pending)": ("subsidy_disbursal", "pending"),
             "Subsidy Disbursal (Disbursed)": ("subsidy_disbursal", "done"),
-            "Installation (Consumer Acceptance Pending)": ("installation", "accepting")}
+            "Installation (Consumer Acceptance Pending)": ("installation", "accepting"),
+            # public manuals and 2026 notices: the 2024 names and Track Status events
+            "Agreement sent to Consumer for Confirmation": ("agreement", "accepting"),
+            "Agreement Copy Uploaded": ("agreement", "done"), "Feasibility Waived-off": ("feasibility", "done"),
+            "Feasibility Approved with Applied Capacity": ("feasibility", "done"), "Vendor Selected": ("vendor_selection", "done"),
+            "Work Start (Pending)": ("installation", "pending"), "Solar Installation Details (Pending)": ("installation", "pending"),
+            "Inspection Completed": ("inspection", "done"),
+            "Subsidy Claim Submitted": ("subsidy_request", "done"), "Return to vendor": (None, "rejected"),
+            "Installation (Send Back to Vendor)": ("installation", "rejected"), "Consumer Registered": ("registration", "done")}
     wrong = {w: tracker.parse(w) for w, want in seen.items() if tracker.parse(w) != want}
     check(f"the {len(seen)} portal status wordings seen are read right", not wrong, str(wrong))
 

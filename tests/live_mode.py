@@ -32,11 +32,29 @@ async def main():
         check("the server reports live mode", me["live"] is True)
         r = httpx.post(BASE + "/api/login", json={"username": "r.deshmukh", "password": "demo"})
         check("no demo accounts exist on a live install", r.status_code == 401)
-        # add the first person the way app.users does
-        subprocess.run([sys.executable, "-c", "from app import db; db.ex(\"INSERT INTO users(username,name,role,pw) "
-                        "VALUES('owner','Owner','supervisor',?)\", (db.pwhash('a-long-password'),))"], env=env, check=True)
+        check("a fresh install offers to make the first supervisor, on this computer", me["setup"] is True)
+        # the first person, made on the sign-in screen the way the owner does it on day one
+        async with async_playwright() as p:
+            b = await p.chromium.launch()
+            pg = await b.new_page()
+            await pg.goto(BASE)
+            await pg.wait_for_selector("#setupForm:not([hidden])", timeout=8000)
+            await pg.fill("#sName", "Owner"); await pg.fill("#sUser", "owner"); await pg.fill("#sPass", "a-long-password")
+            await pg.click("#setupForm button[type=submit]")
+            await pg.wait_for_selector("#shell:not([hidden])", timeout=8000)
+            try:
+                await pg.wait_for_function("document.querySelector('#whoRole').innerText === 'supervisor'", timeout=10000)
+                made = True
+            except Exception:
+                made = False
+            check("the first supervisor is made and signed in", made, await pg.inner_text("#whoRole"))
+            await b.close()
+        again = httpx.post(BASE + "/api/setup", json={"name": "Someone", "username": "someone", "password": "another-long-pass"})
+        check("once someone exists, nobody can make another supervisor that way", again.status_code == 403)
         c = httpx.Client(base_url=BASE, timeout=60)
         c.post("/api/login", json={"username": "owner", "password": "a-long-password"}).raise_for_status()
+        h = {x["key"]: x for x in c.get("/api/health").json()["checks"]}
+        check("the daily backup ran by itself at startup", h["backups"]["state"] == "ok", h["backups"]["text"])
         check("a live install starts with no customers", c.get("/api/registration").json() == [] and
               c.get("/api/customers").json() == [])
         check("the demo reset is refused on a live install", c.post("/api/demo/reset").status_code == 403)
@@ -60,6 +78,13 @@ async def main():
             navs = await pg.locator(".navitem:visible").evaluate_all("els => els.map(e => e.dataset.view)")
             check("only the real screens are in the menu", "numbers" not in navs and "calls" not in navs
                   and "run" not in navs and "reg" in navs, ", ".join(navs))
+            await pg.click('.navitem[data-view="reports"]')
+            await pg.wait_for_selector("#milestones", timeout=10000)
+            rows = await pg.locator("#milestones [data-ms]").count()
+            check("Reports shows the six milestones, people and upkeep, and no demo agent runs",
+                  rows == 6 and await pg.locator("#people").count() == 1 and await pg.locator("#drill").count() == 1
+                  and "Runs completed" not in await pg.inner_text("#otherview"), f"{rows} milestones")
+            check("no script errors", not errs, "; ".join(errs[:2]))
             await b.close()
     finally:
         srv.terminate()

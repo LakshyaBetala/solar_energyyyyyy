@@ -26,3 +26,8 @@ solara-ops.html
 
 # Local agent tooling config
 .claude/
+
+# Solara.exe build output, and the settings beside an installed exe (may hold keys)
+build/
+dist/
+solara.env

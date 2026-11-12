@@ -588,5 +588,6 @@ a.btn{text-decoration:none}
 @media (max-width:700px){.tdrow{grid-template-columns:minmax(0,1fr)}.tdact{justify-content:flex-start}}
 .rgv a:not(.btn){color:var(--teal)}
 .tdrow.urgent .tdmain b{color:var(--bad)}
+.setupnote{margin:0 0 12px;font-size:13.5px;color:var(--fg-dim)}
 .tdboard{margin-top:16px;max-width:none;padding:14px 16px 4px}
 .tdboard .card{border:0;box-shadow:none;background:transparent}

@@ -19,7 +19,7 @@ NAME = {s[0]: s[1] for s in STAGES}
 # portal wording (2024 manual and the 2026 screens) to our stage keys; first match wins
 WORDS = [(r"disburs", "subsidy_disbursal"), (r"subsidy|claim", "subsidy_request"), (r"commission", "commissioning"),
          (r"inspection", "inspection"), (r"installation|work start", "installation"),
-         (r"agreement", "agreement"), (r"vendor selection|vendor consent", "vendor_selection"),
+         (r"agreement", "agreement"), (r"vendor selection|vendor selected|vendor consent", "vendor_selection"),
          (r"feasib", "feasibility"), (r"application", "application"), (r"regist", "registration")]
 LEGACY = {"registration": "register", "application": "register", "feasibility": "feasible",
           "vendor_selection": "feasible", "agreement": "feasible", "installation": "install",
@@ -32,8 +32,10 @@ def parse(text):
     """'Installation (Pending)' -> ('installation', 'pending'). Unknown wording -> (None, ...)."""
     t = " ".join((text or "").lower().split())
     # "Disbursed" and "Redeemed" sit inside brackets, so no end anchor; "Not Redeemed" is still waiting
-    state = "rejected" if re.search(r"reject|return|revert", t) else "done" if re.search(r"complet|approved|disbursed|(?<!not )redeemed", t) \
-        else "accepting" if re.search(r"(consumer|customer) acceptance", t) else "pending"  # accepting: vendor's part filed
+    # 2024 manual's events ("Agreement Copy Uploaded", "Vendor Selected", "Feasibility Waived-off") are done too
+    state = "rejected" if re.search(r"reject|return|revert|send back|sent back|reverification", t) \
+        else "done" if re.search(r"complet|approved|disbursed|(?<!not )redeemed|waived|uploaded|selected|registered|submitted", t) \
+        else "accepting" if re.search(r"(consumer|customer) acceptance|for confirmation", t) else "pending"  # accepting: vendor's part filed
     for rx, key in WORDS:
         if re.search(rx, t):
             return key, state

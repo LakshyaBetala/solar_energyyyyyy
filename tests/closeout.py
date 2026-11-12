@@ -328,8 +328,8 @@ async def main_browser(key):
         await pg.click("#solaraAttach")
         await pg.wait_for_function("document.querySelector('#solaraPanel').dataset.attached === '6'", timeout=30000)
         files = await pg.evaluate("[...document.querySelectorAll('input[type=file]')].map(i => i.files[0] && i.files[0].name)")
-        check("one click attaches the right file to each of the six rows",
-              files == [f"{CID}_{k}.pdf" for k in ("wcr", "annexure1", "dcr_decl", "net_agreement", "datasheet", "site_photo")], str(files))
+        check("one click attaches the right file to each of the six rows, named as the portals accept",
+              files == [f"{CID.replace('-', '_')}_{k}.pdf" for k in ("wcr", "annexure1", "dcr_decl", "net_agreement", "datasheet", "site_photo")], str(files))
         check("nothing is uploaded until the person presses Upload",
               db.one("SELECT COUNT(*) k FROM msedcl_uploads WHERE application_id='79435901'")["k"] == 0)
         await pg.click("#btnUpload")                                   # the person
