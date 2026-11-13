@@ -212,6 +212,40 @@ async def main():
                       '"rule": "district"' in saved and '"name": "consumerNo"' in saved
                       and str(values["consumer_no"]) not in saved and "Nashik" not in saved, files[-1].name if files else "no file")
 
+        # ---- suggestions: Solara has no district, so the co-pilot reads the dropdown and takes the one named in the address
+        d0 = closeout.data(CID)[1].get("district")
+        closeout.save(CID, {"district": ""}, "test")
+        c0 = db.one("SELECT place, address FROM customers WHERE id=?", (CID,))
+        db.ex("UPDATE customers SET address=? WHERE id=?", ("Plot 14, Ganga Nagar, Panchavati, Nashik", CID))
+        await sw.evaluate(f"chrome.storage.local.set({{current: {{cid: '{CID}', at: Date.now(), picked: true}}, run: {{cid: '{CID}', at: Date.now()}}}})")
+        await pg.goto(f"{BASE}/portal/verify"); await pg.wait_for_selector("#solaraPanel")
+        await pg.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
+            document.body.insertAdjacentHTML('afterbegin', h); }""", PAGES["pmsg-apply"][1][0])
+        await pg.evaluate(PRIMENG)
+        await pg.click("#solaraRescan")
+        await pg.wait_for_function("document.querySelector('#district .p-dropdown-label') && /Nashik/i.test(document.querySelector('#district .p-dropdown-label').innerText)", timeout=30000)
+        check("no district in Solara: the one named in the customer's address is chosen from the portal's list", True)
+        await sw.evaluate("chrome.storage.local.remove('run')")
+        closeout.save(CID, {"district": d0 or "Nashik"}, "test")
+        db.ex("UPDATE customers SET address=? WHERE id=?", (c0["address"], CID))
+
+        # ---- the fallback popup at the bottom: a field Solara has no data for is typed there
+        await sw.evaluate(f"chrome.storage.local.set({{current: {{cid: '{CID}', at: Date.now(), picked: true}}}})")
+        await pg.goto(f"{BASE}/portal/verify"); await pg.wait_for_selector("#solaraPanel")
+        await pg.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
+            document.body.insertAdjacentHTML('afterbegin', h); }""",
+            '<form><label for="ifsc1">Gender</label><input id="ifsc1"><label for="mob1">Mobile</label><input id="mob1"></form>')
+        await pg.click("#solaraRescan")
+        await pg.wait_for_selector("#solaraFallback", timeout=20000)
+        check("a field Solara has no data for opens the popup at the bottom, named",
+              "Gender" in await pg.inner_text("#solaraFallback") and "Mobile" not in await pg.inner_text("#solaraFallback"))
+        await pg.fill("#solaraFallback [data-fbv]", "Female")
+        await pg.click("#solaraFallback [data-fbgo]")
+        await pg.wait_for_function("document.querySelector('#ifsc1').value === 'Female'", timeout=10000)
+        check("what the owner types in the popup is filled on the page", await pg.input_value("#ifsc1") == "Female")
+        await pg.wait_for_function("!document.querySelector('#solaraFallback')", timeout=10000)
+        check("the popup goes away once everything is filled", True)
+
         # ---- the two logins side by side: the customer login's screens, and the hand-off to the other tab ----
         async def show(page, body):
             await page.evaluate("""h => { [...document.body.children].forEach(n => { if (n.id !== 'solaraPanel') n.remove(); });
@@ -222,8 +256,8 @@ async def main():
         await sw.evaluate("chrome.storage.local.remove(['current', 'handoff'])")
         await pg.goto(f"{BASE}/portal/verify"); await pg.wait_for_selector("#solaraPanel")
         await show(pg, '<div role="dialog">Do you want the Vendor to fill the application on your behalf? <button>Yes</button><button>No</button></div>')
-        await pg.wait_for_function("/Answer No/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
-        check("customer login: 'Do you want the Vendor to fill' gets the answer No", True)
+        await pg.wait_for_function("/Answer Yes/.test(document.querySelector('#solaraPanel').innerText)", timeout=20000)
+        check("customer login: 'Do you want the Vendor to fill' gets the answer Yes (the owner's standing setting)", True)
         await show(pg, '<div role="dialog"><h4>Submit Agreement Details</h4><p>Application Number: NP-MHSED26-16188888</p>'
                        '<label for="aotp">Enter OTP</label><input id="aotp"><button>Verify &amp; Approve</button></div>')
         await pg.wait_for_selector("#solaraMarkApproved", timeout=20000)

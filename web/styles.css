@@ -565,3 +565,124 @@ a.btn{text-decoration:none}
 .rgv a.btn{color:inherit}
 @media (max-width:700px){.tdrow{grid-template-columns:minmax(0,1fr)}.tdact{justify-content:flex-start}}
 .rgv a:not(.btn){color:var(--teal)}
+
+/* =====================================================================
+   Clean light theme (default). Minimal, calm, one brand colour.
+   Overrides the instrument-panel look above; dark stays available.
+   ===================================================================== */
+:root:not([data-theme="dark"]){
+  --bg:#F7F8FA; --bg-deep:#FFFFFF; --panel:#FFFFFF; --panel-2:#F9FAFB; --panel-3:#F1F3F6;
+  --line:#E4E7EC; --line-soft:#EDEFF3;
+  --fg:#101828; --fg-dim:#475467; --fg-faint:#98A2B3;
+  --amber:#4F46E5; --amber-soft:#EEF0FF; --amber-line:#C7CBFB;
+  --teal:#0E9F8E; --teal-soft:#E6F6F3; --teal-line:#BCE8E0;
+  --ok:#12805C; --ok-soft:#E7F6EF;
+  --warn:#B25E09; --warn-soft:#FEF3E2;
+  --bad:#C62F2F; --bad-soft:#FDECEC;
+  --info:#2563EB; --info-soft:#EAF1FE;
+  --on-amber:#FFFFFF; --on-teal:#FFFFFF;
+  --shadow:0 8px 24px -12px rgba(16,24,40,.18);
+  --font-display:'Inter','Archivo',system-ui,sans-serif;
+  --font-ui:'Inter','Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --r:10px;
+  color-scheme:light;
+}
+:root:not([data-theme="dark"]) body{font-size:14px;letter-spacing:-.003em}
+
+/* no shouting: sentence case, normal tracking everywhere */
+:root:not([data-theme="dark"]) .brand b,
+:root:not([data-theme="dark"]) .brand span,
+:root:not([data-theme="dark"]) .railcap,
+:root:not([data-theme="dark"]) .crumb,
+:root:not([data-theme="dark"]) .kpi .k,
+:root:not([data-theme="dark"]) .field label,
+:root:not([data-theme="dark"]) .tenant .nda,
+:root:not([data-theme="dark"]) .gatecard h1,
+:root:not([data-theme="dark"]) .fld .fk,
+:root:not([data-theme="dark"]) .pill,
+:root:not([data-theme="dark"]) .ch h3{text-transform:none;letter-spacing:0}
+
+/* side rail: white, quiet */
+:root:not([data-theme="dark"]) .rail{background:#fff;border-right:1px solid var(--line);padding:18px 12px}
+:root:not([data-theme="dark"]) .brand b{font-size:18px;font-weight:700;color:var(--fg)}
+:root:not([data-theme="dark"]) .brand span{font-size:11px;color:var(--fg-faint)}
+:root:not([data-theme="dark"]) .railcap{font-size:11px;font-weight:600;color:var(--fg-faint);padding:18px 10px 6px}
+:root:not([data-theme="dark"]) .navitem{border-left:none;border-radius:8px;padding:8px 10px;color:var(--fg-dim)}
+:root:not([data-theme="dark"]) .navitem:hover{background:var(--panel-3);color:var(--fg)}
+:root:not([data-theme="dark"]) .navitem[aria-current="true"]{background:var(--amber-soft);color:var(--amber)}
+:root:not([data-theme="dark"]) .navitem[aria-current="true"] .ic{color:var(--amber)}
+:root:not([data-theme="dark"]) .navitem[aria-current="true"] .lbl{font-weight:600}
+:root:not([data-theme="dark"]) .tag{border-radius:99px;background:var(--panel-3);padding:1px 7px}
+:root:not([data-theme="dark"]) .tenant{background:var(--panel-2);border-radius:10px}
+
+/* top bar */
+:root:not([data-theme="dark"]) .topbar{background:#fff;border-bottom:1px solid var(--line);padding:14px 24px}
+:root:not([data-theme="dark"]) .crumb{font-size:20px;font-weight:650;color:var(--fg)}
+:root:not([data-theme="dark"]) .csub{font-size:13px;color:var(--fg-dim)}
+:root:not([data-theme="dark"]) .chip{border-radius:99px;background:var(--panel-2);padding:5px 11px}
+:root:not([data-theme="dark"]) .seg{border-radius:99px;background:var(--panel-3);border-color:transparent;padding:2px}
+:root:not([data-theme="dark"]) .seg button{border:none;border-radius:99px;padding:4px 12px;font-size:12px}
+:root:not([data-theme="dark"]) .seg button[aria-pressed="true"]{background:#fff;color:var(--fg);box-shadow:0 1px 2px rgba(16,24,40,.12)}
+:root:not([data-theme="dark"]) .work{padding:24px 28px 40px}
+
+/* cards: white, hairline border, soft shadow */
+:root:not([data-theme="dark"]) .card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+:root:not([data-theme="dark"]) .card.raise{box-shadow:var(--shadow);border-color:var(--line)}
+:root:not([data-theme="dark"]) .ch{padding:14px 18px;border-bottom:1px solid var(--line-soft)}
+:root:not([data-theme="dark"]) .ch h3{font-size:15px;font-weight:650}
+:root:not([data-theme="dark"]) .cb{padding:18px}
+:root:not([data-theme="dark"]) .grid,
+:root:not([data-theme="dark"]) .two{gap:16px}
+
+/* KPI strip: separate calm tiles */
+:root:not([data-theme="dark"]) .kpis{gap:14px;background:none;border:none;border-radius:0}
+:root:not([data-theme="dark"]) .kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+:root:not([data-theme="dark"]) .kpi:first-child{border-left:1px solid var(--line)}
+:root:not([data-theme="dark"]) .kpi .k{font-size:12.5px;font-weight:500;color:var(--fg-dim)}
+:root:not([data-theme="dark"]) .kpi .v{font-size:32px;font-weight:650;letter-spacing:-.02em;margin-top:8px}
+:root:not([data-theme="dark"]) .kpi .d{font-size:12.5px;color:var(--fg-faint)}
+
+/* buttons: one primary, the rest quiet */
+:root:not([data-theme="dark"]) .btn{border-radius:9px;background:#fff;border:1px solid var(--line);padding:8px 14px;font-weight:550;
+  box-shadow:0 1px 1px rgba(16,24,40,.04)}
+:root:not([data-theme="dark"]) .btn:hover:not(:disabled){background:var(--panel-2);border-color:#D0D5DD}
+:root:not([data-theme="dark"]) .btn.pri,
+:root:not([data-theme="dark"]) .btn.go{border-color:transparent;box-shadow:0 1px 2px rgba(16,24,40,.12);background:var(--amber)}
+:root:not([data-theme="dark"]) .btn.pri:hover:not(:disabled),
+:root:not([data-theme="dark"]) .btn.go:hover:not(:disabled){background:#4338CA;border-color:transparent}
+:root:not([data-theme="dark"]) .btn.sm{padding:5px 11px;font-size:12.5px;border-radius:8px}
+:root:not([data-theme="dark"]) .btn.danger{color:var(--bad);border-color:#F4C7C7;background:#fff}
+
+/* status pills: soft, rounded */
+:root:not([data-theme="dark"]) .pill{border-radius:99px;padding:3px 10px;font-size:12px;font-weight:550}
+
+/* forms */
+:root:not([data-theme="dark"]) .field label{font-size:12.5px;font-weight:550;color:var(--fg-dim)}
+:root:not([data-theme="dark"]) .field input,
+:root:not([data-theme="dark"]) .field select,
+:root:not([data-theme="dark"]) .field textarea,
+:root:not([data-theme="dark"]) input[type=text],
+:root:not([data-theme="dark"]) select{background:#fff;border:1px solid #D0D5DD;border-radius:9px;padding:9px 12px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04);transition:border-color .12s,box-shadow .12s}
+:root:not([data-theme="dark"]) .field input:focus,
+:root:not([data-theme="dark"]) .field select:focus,
+:root:not([data-theme="dark"]) input[type=text]:focus{outline:none;border-color:var(--amber);box-shadow:0 0 0 4px var(--amber-soft)}
+:root:not([data-theme="dark"]) :focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+:root:not([data-theme="dark"]) .field input.bad{border-color:var(--bad);background:#fff;box-shadow:0 0 0 4px var(--bad-soft)}
+:root:not([data-theme="dark"]) .fhint{font-size:12px}
+:root:not([data-theme="dark"]) .ferr{font-size:12px}
+
+/* lists, flagged rows, modals */
+:root:not([data-theme="dark"]) .fld{border-radius:10px}
+:root:not([data-theme="dark"]) .fld:hover{background:var(--panel-2)}
+:root:not([data-theme="dark"]) .fld.review{background:var(--warn-soft);border-color:#F9DDB4}
+:root:not([data-theme="dark"]) .colist button{border-radius:10px}
+:root:not([data-theme="dark"]) .colist button[aria-current="true"]{background:var(--amber-soft);border-color:var(--amber-line)}
+:root:not([data-theme="dark"]) .colist button:hover{background:var(--panel-2)}
+:root:not([data-theme="dark"]) .costeps>div{border-radius:10px}
+:root:not([data-theme="dark"]) .costeps>div.done{background:var(--ok-soft);color:var(--ok);border-color:#BFE6D3}
+:root:not([data-theme="dark"]) .gate{background:var(--bg)}
+:root:not([data-theme="dark"]) .gatecard{border-radius:16px;box-shadow:0 20px 50px -24px rgba(16,24,40,.25);padding:32px}
+:root:not([data-theme="dark"]) .gatecard h1{font-size:24px;font-weight:700}
+:root:not([data-theme="dark"]) table{font-size:13.5px}
+:root:not([data-theme="dark"]) ::-webkit-scrollbar-thumb{background:#D0D5DD}

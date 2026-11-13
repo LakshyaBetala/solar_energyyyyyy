@@ -1,6 +1,6 @@
 # KPI 1 audit test log
 
-Run 07 Nov 2026 22:43, `tests/k1_audit.py`. 115 of 115 cases pass.
+Run 13 Nov 2026 00:17, `tests/k1_audit.py`. 115 of 115 cases pass.
 
 | # | ID | Area | Input | Expected | Actual | Result |
 |---|---|---|---|---|---|---|
@@ -83,7 +83,7 @@ Run 07 Nov 2026 22:43, `tests/k1_audit.py`. 115 of 115 cases pass.
 | 77 | P3 | details | a customer with no email | not missing: the portal's email is optional (7 Nov recording) | ['consumer number', 'mobile', 'proposed capacity (kW)'] | PASS |
 | 78 | D14 | e-sign page | ?error= with crafted text | the text is not shown | checked | PASS |
 | 79 | M6 | e-sign page | wrong last-4 digits | told in English and Marathi, with the tries left | checked | PASS |
-| 80 | R10 | e-sign page | a 9000x9000 'signature' (20 KB) | refused in under 2 s, server keeps serving | 0.03s | PASS |
+| 80 | R10 | e-sign page | a 9000x9000 'signature' (20 KB) | refused in under 2 s, server keeps serving | 0.01s | PASS |
 | 81 | R7 | e-sign page | the customer signs as 'D’Souza Priya' (curly apostrophe) | signed | signed | PASS |
 | 82 | R9 | e-sign evidence | a link sent before copies were kept is signed | a copy is kept at signing; the agreement verifies | verified | PASS |
 | 83 | D15 | dashboard | GET /favicon.ico | no 404 | checked | PASS |
@@ -98,15 +98,15 @@ Run 07 Nov 2026 22:43, `tests/k1_audit.py`. 115 of 115 cases pass.
 | 92 | E2 | customer link | a viewer asks for a link | 403 | checked | PASS |
 | 93 | E2 | customer link | the customer sends the bill PDF | stored, read like an owner upload, and the page says received | (303, ['address', 'amount', 'avg_units', 'bill_mobile']) | PASS |
 | 94 | E2 | customer link | the page after the upload | the bill ticked, the Aadhaar asked for next; never the bill's contents | checked | PASS |
-| 95 | E2 | customer link | a document kind the link does not ask for | refused | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=type | PASS |
-| 96 | E2 | customer link | a wrong email | refused, nothing saved | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=email | PASS |
+| 95 | E2 | customer link | a document kind the link does not ask for | refused | /up/iZXQtdH9_GfsQo3aqdMIXKAr?err=type | PASS |
+| 96 | E2 | customer link | a wrong email | refused, nothing saved | /up/iZXQtdH9_GfsQo3aqdMIXKAr?err=email | PASS |
 | 97 | E2 | customer link | the customer types their email | saved on the record | link.c@example.com | PASS |
 | 98 | L2 | customer link | bill and email sent, Aadhaar not yet | one thing asked: the Aadhaar, step 2 of 3; not 'All done' | checked | PASS |
 | 99 | L1 | customer link | a link made while Solara runs on this computer | flagged: it will not open on the customer's phone | True | PASS |
 | 100 | L1 | customer link | SOLARA_PUBLIC_URL set to the internet address | links use that address | https://solara.example.in/up/abc | PASS |
 | 101 | L3 | dashboard | the dashboard's script file | the browser checks for a newer copy on every load | checked | PASS |
 | 102 | E2 | customer link | a made-up link | 404 | checked | PASS |
-| 103 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/T-6N8UoPgXsayNkY3_0KzHMZ?err=many | PASS |
+| 103 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/iZXQtdH9_GfsQo3aqdMIXKAr?err=many | PASS |
 | 104 | E2 | customer link | after 7 days | 410, expired | checked | PASS |
 | 105 | E3 | co-pilot: My Application | a status Solara does not know, and a number on no customer | nothing marked; the status is reported | {'ok': True, 'updated': [], 'unknown': ['Something new (Pend | PASS |
 | 106 | E3 | co-pilot: My Application | the customer listed as 'Upload Agreement (Pending)' | marked accepted in Solara, no click | [{'id': 'SS-2070', 'name': 'List Customer', 'what': 'accepte | PASS |

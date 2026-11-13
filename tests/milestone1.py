@@ -186,8 +186,10 @@ async def main():
         check("on a blank form the co-pilot offers the customers waiting to register",
               "Priya Kulkarni" in await reg.inner_text("#solaraPanel"))
         await reg.click(f'#solaraPanel [data-pick="{cid}"]')
-        await reg.click("#solaraFill")
+        await reg.click("#solaraStart")   # picking names the customer; Start begins the run and fills by itself
         await reg.wait_for_selector("#solaraFilled")
+        check("after Start the phone page filled by itself (no Fill click)", True)
+        await sw.evaluate("chrome.storage.local.remove('run')")   # the rest of this test drives Fill by hand
         await shot(reg, "2-portal-filled")
         check("verify page: state, company, consumer number, mobile filled",
               await reg.input_value("#consumerNo") == fx.NEW["consumer_no"] and

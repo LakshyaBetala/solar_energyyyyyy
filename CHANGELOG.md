@@ -141,3 +141,47 @@ each change.
 - Fixes are verified by automated tests and one scripted browser run, not by a person at the keyboard.
 - On a fresh clone, `smoke`, `ui` and `longevity` can fail if the demo documents point at another folder;
   `POST /api/documents/regenerate` fixes it.
+
+## Co-pilot: Start, auto-open and "type it here" (uncommitted)
+- **Start button**: after picking a customer, Start begins a one-hour run. Pages fill by themselves (the phone number first); the owner types the OTP and CAPTCHA.
+- **Auto-open "Apply for Solar Rooftop"**: during a run the co-pilot opens that card once per page address. It only opens a page, never submits. `tests/k1_complete.py` allows exactly this one extra click.
+- **"Solara has no data" box**: a recognised field with no data gets an input in the panel; the typed value is filled on the page and saved in Solara (`event: detail`, validated).
+- **Fixed "Extension context invalidated"**: all `chrome.storage` calls go through a guard that never throws; a stale page says "Reload this page (F5)".
+- Hands-free option in the options page; `tests/milestone1.py` presses Start.
+
+### Co-pilot: real "Start a new Application" form (uncommitted)
+- Read on the live portal (13 Nov 2026): the modal has State, District, Electricity Distribution Company / Utility (PrimeNG dropdowns), Consumer Account Number (CA No.), **Fetch Details**, Next. The home page has four cards: Apply for Solar Rooftop, My Applications, "Do you want vendor to fill the form?", Raise a Query.
+- During a Start run the co-pilot presses exactly three non-submitting buttons, once per page: the "Apply for Solar Rooftop" card, **Yes** on the vendor-fills question, and **Fetch Details** (after the consumer number is filled). Next, Submit, OTP and CAPTCHA stay with the owner. `tests/k1_complete.py` checks the list is exactly these three.
+- New option "Answer Yes to: vendor fills the form" (default on); the old fixed "Answer No" text now follows it.
+
+### Co-pilot: fallback popup at the bottom (uncommitted)
+- A new popup at the bottom of the portal page collects everything the co-pilot cannot fill: a text box for each field Solara has no data for, and a list for each dropdown. Dropdown rows show the page's own options (read by opening the list and closing it again) with a "type to narrow" box, so a long list like the 36 states is easy. When **several options match** a value, or none do, the choices go there instead of the owner being told to "pick it yourself".
+- What the owner chooses is filled on the page and, for capacity, cost, mobile, email, consumer number, district and name, saved in Solara.
+- The old per-panel input box is replaced by this popup. `tests/real_labels.py` covers the text-field case.
+- Read on the live portal: the State dropdown is a PrimeNG single-select with a filter and 36 states.
+
+### Live recording of "Apply for Solar Rooftop" (uncommitted)
+- `tools/portal/recording_apply_new_application.md`: the steps, timings and findings from a live run on the consumer login (nothing submitted).
+- `tools/portal/apply_new_application.js`: the same procedure as a runnable script (values in `window.SOLARA_VALUES`; returns what the owner still has to do). Replayed live.
+- Co-pilot: after Fetch Details it reads the answer. "Data not Available" (seen live for an unknown CA number) now says so and opens the bottom popup to correct the consumer number.
+
+### Co-pilot: suggestions and the bottom popup for unknown fields (uncommitted)
+- Suggestion chips ("mini AI", plain rules, no model): for a field Solara has no exact value for, up to 3 values from Solara's data whose names share words with the field label; one tap fills it. An empty dropdown is read and matched against the customer's address (a district named in the address is chosen automatically during a Start run).
+- The bottom popup now also covers fields with **no rule at all** (for example "Bank account for subsidy", "Roof area"), and sits bottom-left so it does not cover the co-pilot panel.
+- The lookup sends the customer's `place` as well.
+- Shown live in the built-in browser on the sandbox portal: Start, phone page, OTP (owner), applicant form (9 filled, 2 through the popup), documents (4 attached). `tests/real_labels.py` has a new browser test for the address-based district pick; it could not run here (Playwright's Chromium is missing on this machine).
+
+### Found and fixed by running the co-pilot on the real PM Surya Ghar portal (uncommitted)
+Run live in the built-in browser on the signed-in consumer login, "Start a new Application" dialog (nothing submitted, dialog cancelled):
+- **State, District and the distribution company now fill on the real form**, including a District chosen in the bottom popup and the company filling itself afterwards.
+- Bug: a blank value from Solara (`""`) counted as a value and matched every dropdown option ("several match"). Blank now means "no value" (`has()`).
+- Bug: the distribution-company list is empty until a district is chosen. Dependent dropdowns are now retried after the one above is set, and the popup's "No results found" line is no longer shown as a choice.
+- Bug: the portal's modal dialog traps keyboard focus, so typing into the bottom popup was lost and the first option was picked. Key and focus events from the popup no longer reach the dialog.
+- Bug: the popup redrew while the owner typed and lost the text. It now keeps what is typed.
+- Bug: the portal clears the Consumer Account Number when State, District or Company changes, so text fields are now filled last, after the dropdowns.
+- Bug: the address-based district suggestion ran before State was set (district locked). It now runs again after the fill.
+
+### Clean light look (uncommitted)
+- Light is now the default theme (dark is still one click away); the choice is applied before first paint so there is no flash.
+- `web/styles.css`: a closing override layer gives a minimal, modern look: Inter typeface, white cards with hairline borders and soft shadows, 10 to 14 px rounded corners, one indigo accent, sentence-case labels instead of uppercase, quiet side rail with a soft active state, separate KPI tiles, rounded pills, calm form fields with a focus ring. No markup or script changed beyond the theme default; the dark theme is untouched.
+- `web/index.html`: Inter font added.

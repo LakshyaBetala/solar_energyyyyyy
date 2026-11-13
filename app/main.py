@@ -877,7 +877,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "not_ready": [{"title": s["title"], "note": s["note"]} for s in st
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
-            "values": {k: v for k, v in registration.values(cid).items() if v},
+            "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"]}.items() if v},
             "issues": registration.validate(cid)["issues"], "build_error": build_error,
             "derived": registration.derived(cid),
             "agreement_draft": closeout.TEMPLATE_DRAFT,
@@ -940,6 +940,16 @@ def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
+    if body.get("event") == "detail":   # a value the owner typed in the co-pilot because Solara had none
+        col = {"capacity": "kw", "rts_cost": "rts_cost", "mobile": "mobile", "email": "email",
+               "consumer_no": "consumer_no", "district": "district", "name": "name"}.get(valid.text(body.get("key"), "key"))
+        if not col:
+            return {"ok": True, "saved": False}   # filled on the page only (a state, a PIN... the record keeps its own)
+        try:
+            registration.save_details(cid, {col: body.get("value")}, user)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        return {"ok": True, "saved": True}
     if body.get("event") in ("app_no", "agreement_uploaded", "customer_approved"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))
         if body["event"] == "app_no" and c["application_no"] == (body.get("app_no") or "").upper():

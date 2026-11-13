@@ -384,6 +384,12 @@ async def main():
     # the one place a click is sent: opening a dropdown and choosing its option (a field value, like typing)
     pick = re.search(r"async function pickCustom\(.*?\n  \}\n", code, re.S)
     rest = code.replace(pick.group(0), "") if pick else code
+    card = re.search(r"function openApplyCard\(\w*\) \{.*?\n  \}\n", rest, re.S)   # opens one page; never submits
+    rest = rest.replace(card.group(0), "") if card else rest
+    PRESS_BLOCK = code[code.index("const PRESS = {"):code.index("function openApplyCard")]
+    presses = set(re.findall(r"^    (\w+): \{ find:", code, re.M))   # the only buttons ever pressed for the owner
+    check("the extension presses only three non-submitting buttons: the card, the vendor Yes, Fetch Details",
+          presses == {"card", "vendor", "fetch"} and "submit" not in PRESS_BLOCK.lower(), str(presses))
     clicks = re.findall(r"(\w+(?:\[0\])?)\.dispatchEvent\(new MouseEvent", pick.group(0)) if pick else []
     sels = re.search(r"const boxOf = .*?\n", code).group(0) + re.search(r"const OPTS = .*?\n", code).group(0)
     check("the extension never clicks, submits or ticks anything on a portal (only a dropdown and its option)",

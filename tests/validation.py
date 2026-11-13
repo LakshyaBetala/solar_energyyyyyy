@@ -144,6 +144,15 @@ for k in ("pin", "aadhaar_pin"):
 check("the PIN the owner picked is the one on file", sup.get(f"/api/registration/{cid}").json()["customer"]["pin"] == "410503")
 check("a PIN that is not 6 digits is refused", sup.post(f"/api/registration/{cid}/confirm", json={"key": "pin", "value": "41"}).status_code == 400)
 
+# ---- a value typed in the co-pilot box because Solara had none
+r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
+               json={"customer_id": cid, "event": "detail", "key": "email", "value": "typed.here@example.com"})
+check("a detail typed in the co-pilot is saved in Solara", r.status_code == 200 and r.json().get("saved") is True
+      and sup.get(f"/api/registration/{cid}").json()["data"].get("email") == "typed.here@example.com", r.text[:80])
+r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
+               json={"customer_id": cid, "event": "detail", "key": "rts_cost", "value": "-5"})
+check("...and it is validated like any other entry", r.status_code == 400)
+
 # ---- the public sign page
 tok = "x" * 24
 check("an unknown link shows no crafted text",
