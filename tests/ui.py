@@ -80,7 +80,7 @@ async def main():
         check("the menu badge counts the lines to do", tag == str(lines - await pg.locator(".tdrow.muted").count()), f"{tag} vs {lines}")
 
         await call.locator("[data-today]").click()
-        await pg.wait_for_function("document.querySelector('#rgName') && document.querySelector('#rgName').innerText.includes('Vaishali')")
+        await pg.wait_for_function("document.querySelector('#rgName') && document.querySelector('#rgName').innerText.toUpperCase().includes('VAISHALI')")
         nb = pg.locator(".rgnext")
         check("Register now opens that customer at the Register step, with the number to call",
               "Register on PM Surya Ghar" in await pg.locator("#regNext").inner_text()

@@ -40,6 +40,15 @@ def read(path) -> bytes:
     return _f.decrypt(blob[len(MAGIC):]) if blob.startswith(MAGIC) else blob
 
 
+def seal(text: str) -> str:
+    """One value (the full Aadhaar number) encrypted for storing in the database."""
+    return _f.encrypt(text.encode()).decode()
+
+
+def unseal(token: str) -> str:
+    return _f.decrypt(token.encode()).decode()
+
+
 def is_sealed(path) -> bool:
     with open(path, "rb") as fh:
         return fh.read(len(MAGIC)) == MAGIC

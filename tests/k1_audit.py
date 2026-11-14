@@ -153,7 +153,7 @@ async def main():
     sup.post(f"/api/registration/{ready}/document", params={"kind": "bill"}, files={"file": ("bill.pdf", bill, "application/pdf")})
     sup.post(f"/api/registration/{ready}/document", params={"kind": "aadhaar"}, files={"file": ("a.jpg", fx.aadhaar_photo(), "image/jpeg")})
     sup.post(f"/api/registration/{ready}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]})
-    sup.put(f"/api/registration/{ready}", json={"kw": "3", "rts_cost": "210000", "email": "priya.k@example.com"})
+    sup.put(f"/api/registration/{ready}", json={"name": fx.AADHAAR_NAME, "kw": "3", "rts_cost": "210000", "email": "priya.k@example.com"})
     r = sup.post(f"/api/registration/{ready}/mark", json={"step": "registered", "app_no": "NP-MHSED26-3522641"})
     case("M2", "application no.", "a Maharashtra number one digit short", "400", r.status_code == 400, (r.status_code, detail(r)))
     r = sup.post(f"/api/registration/{ready}/mark", json={"step": "registered", "app_no": "NP-MHSED26-35226411"})

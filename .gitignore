@@ -26,3 +26,11 @@ solara-ops.html
 
 # Local agent tooling config
 .claude/
+
+# Real customer documents dropped in the root for testing. The repo is public: never commit them.
+/*.pdf
+/*.jpeg
+/*.jpg
+/*.png
+/Quoatation (all range)/
+/agreement draft/

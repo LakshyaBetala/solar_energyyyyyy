@@ -110,6 +110,12 @@ def email(v):
     return s
 
 
+def mobile_masked(v):
+    """A mobile as a bill prints it with digits hidden (90xxxxxx32), or N/A when there is none: kept as found."""
+    s = (v or "").replace(" ", "")
+    return s.upper() == "N/A" or (len(s) == 10 and bool(re.fullmatch(r"\d*[xX*]+\d*", s)))
+
+
 def aadhaar_last4(v):
     """Only the last 4 digits are ever kept. Accepts 1234 or XXXX XXXX 1234."""
     s = text(v, "Aadhaar").strip()

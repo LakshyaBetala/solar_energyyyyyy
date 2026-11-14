@@ -177,8 +177,10 @@ async def main():
     xml = '<PrintLetterBarcodeData uid="999911112222" name="Test Person" gender="M" yob="1980" pc="410503" dist="Pune"/>'
     parsed = extract.parse_xml_qr(xml)
     check("the older XML QR keeps only the last 4 digits", parsed["last4"] == "2222" and "99991111" not in json.dumps(parsed))
-    check("the Aadhaar number is never sent to a model (no model call path for it)",
-          "aadhaar" not in extract.PROMPTS and not re.search(r"llm_read\(\s*['\"]aadhaar", Path("app/extract.py").read_text(encoding="utf-8")))
+    got, full = extract.split_aadhaar({"aadhaar_number": {"value": "9999 4105 7058", "sure": True}})
+    check("a model's full Aadhaar number is checked, kept apart for encryption, and masked in what is read",
+          full == "999941057058" and got["aadhaar_masked"]["value"] == "XXXX XXXX 7058" and "aadhaar_number" not in got
+          and extract.split_aadhaar({"aadhaar_number": {"value": "9999 4105 7050", "sure": True}})[1] is None)
 
     # ---------------- E. agreement: kept copy, e-sign, verification ----------------
     print("\n  -- E. agreement")
@@ -201,7 +203,7 @@ async def main():
     db.ex("UPDATE customers SET aadhaar_name=NULL, address=? WHERE id=?", (fx.NEW["address"], cid))
     html_ = closeout.unsigned_html("agreement", cid)
     check("without an Aadhaar name the agreement uses the customer name, never 'None'",
-          "None" not in html_ and "Priya Kulkarni" in html_)
+          "None" not in html_ and db.one("SELECT name FROM customers WHERE id=?", (cid,))["name"] in html_)
     db.ex("UPDATE customers SET aadhaar_name=? WHERE id=?", (nm, cid))
     s1 = sup.post(f"/api/registration/{cid}/agreement").json()
     tok1 = s1["url"].rsplit("/", 1)[1]

@@ -79,4 +79,4 @@ walkthrough, step by step).
   client's own files and recordings. Stage files by name; never `git add -A`.
 - The co-pilot never types an OTP, CAPTCHA or password, never ticks a consent box and never presses
   Submit, Accept or Approve. Real portals are only looked at during development.
-- Aadhaar never goes to an AI model.
+- Aadhaar goes to an AI model only when the owner turns AI on (Gemini); the full number is stored only encrypted.

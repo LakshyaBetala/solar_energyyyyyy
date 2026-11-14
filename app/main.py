@@ -1,11 +1,12 @@
-import asyncio, hashlib, json, secrets, random
+import asyncio, hashlib, io, json, secrets, random
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
+from . import (db, drafts, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
                msedcl, pmsg, registration, intake, reset as resetmod)
 from .agent import runner
 from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
@@ -226,9 +227,9 @@ def extract_get(customer_id: str, user=Depends(current)):
 
 
 @app.post("/api/extract/{customer_id}")
-async def extract_post(customer_id: str, use_llm: bool = True, user=Depends(need("operator"))):
-    try:
-        return await extract.run(customer_id, use_llm=use_llm)
+async def extract_post(customer_id: str, use_llm: bool = True, kind: str = "", user=Depends(need("operator"))):
+    try:   # kind: read that document again as if just uploaded, so what it gives refreshes the details
+        return await extract.run(customer_id, use_llm=use_llm, fresh=kind if kind in ("bill", "aadhaar") else None)
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -685,9 +686,50 @@ def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
     return registration_get(cid, user)
 
 
+@app.get("/api/registration/{cid}/draft/{kind}")
+def registration_draft(cid: str, kind: str, user=Depends(need("operator"))):
+    """The agreement (PDF) or the quotation (Word), filled into the client's templates."""
+    c, d = closeout.data(_cid(cid))
+    if not (c["name"] and c["address"]):
+        raise HTTPException(400, "the customer's name and address are needed first: upload the bill")
+    try:
+        if kind == "agreement":
+            if not d.get("rts_cost"):
+                raise HTTPException(400, "pick the installation cost under Details first: the agreement prints it")
+            blob, ext, mime = drafts.agreement_pdf(c["name"], c["address"], cost=d["rts_cost"]), "pdf", "application/pdf"
+        elif kind == "quotation":
+            q = next((q for q in registration.quotes() if d.get("rts_cost") and float(q["amount"]) == float(d["rts_cost"])), None)
+            if not q:
+                raise HTTPException(400, "pick the installation cost (one of the quotations) under Details first")
+            blob = drafts.quotation_docx(registration.QUOTES_DIR() / q["file"], c["name"], c["place"] or d.get("district") or "")
+            ext, mime = "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            raise HTTPException(404, "unknown document")
+    except (FileNotFoundError, ValueError) as ex:
+        raise HTTPException(400, str(ex))
+    db.audit(user["username"], user["role"], f"Made the {kind}", cid, "")
+    name = f"{kind}_{cid}_{(c['name'] or '').replace(' ', '_')}.{ext}"
+    return Response(blob, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.delete("/api/customers/{cid}")
+def customer_delete(cid: str, user=Depends(need("supervisor"))):
+    try:
+        registration.delete_customer(_cid(cid), user)
+    except KeyError:
+        raise HTTPException(404, "unknown customer")
+    return {"ok": True}
+
+
 @app.get("/api/registration/{cid}")
 def registration_get(cid: str, user=Depends(current)):
     c, d = closeout.data(_cid(cid))
+    sealed = d.pop("aadhaar_enc", None)
+    if sealed and ROLES[user["role"]] >= ROLES["operator"]:   # the full Aadhaar number, for the people who file it
+        try:
+            d["aadhaar_full"] = vault.unseal(sealed)
+        except Exception:
+            pass
     reqs = db.q("""SELECT status,created_at,signed_at,signer_name FROM sign_requests WHERE customer_id=?
                    AND docs LIKE '%agreement%' ORDER BY created_at DESC LIMIT 3""", (cid,))
     return {"customer": c, "data": d, **registration.status(cid),
@@ -697,7 +739,8 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(), "quotes": registration.quotes(),
+            "doc_status": registration.doc_status(cid),
             "otp": registration.heads_up(cid, "approve" if registration.status(cid)["next"]["act"] == "approve" else "register"),
             "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
 
@@ -718,10 +761,28 @@ async def take_document(cid, kind, file, user):
     return None
 
 
+def front_and_back(blobs):
+    """The two photos of an Aadhaar (front and back) as one two-page PDF, so the QR and the address on the
+    back are read with the name and number on the front."""
+    from PIL import Image
+    try:
+        pages = [Image.open(io.BytesIO(b)).convert("RGB") for b in blobs]
+    except Exception:
+        raise HTTPException(400, "send the front and the back as photos (JPG or PNG), or one PDF")
+    out = io.BytesIO()
+    pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], resolution=200)
+    return out.getvalue()
+
+
 @app.post("/api/registration/{cid}/document")
-async def registration_document(cid: str, kind: str, file: UploadFile = File(...),
+async def registration_document(cid: str, kind: str, file: list[UploadFile] = File(...),
                                 user=Depends(need("operator"))):
-    problem = await take_document(_cid(cid), kind, file, user)
+    if len(file) > 2 or (len(file) == 2 and kind != "aadhaar"):
+        raise HTTPException(400, "one file per document; the Aadhaar takes two photos (front and back)")
+    if len(file) == 2:
+        pdf = front_and_back([await f.read() for f in file])
+        file = [StarletteUploadFile(io.BytesIO(pdf), filename="front_back.pdf", size=len(pdf))]
+    problem = await take_document(_cid(cid), kind, file[0], user)
     out = registration_get(cid, user)
     out["extract_error"] = problem
     return out

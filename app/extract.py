@@ -35,11 +35,15 @@ load_env()
 
 
 def llm_status():
-    """AI is off unless SOLARA_USE_AI=1 is set AND a key is present. Reading a bill's text, the
-    Aadhaar QR, validation and every other basic task are plain rules and never call a model."""
+    """AI is off unless SOLARA_USE_AI=1 is set AND a key is present. With it on, the bill and the
+    Aadhaar are read by the model on upload (Gemini first); the rules and the Aadhaar QR still run
+    first and a value they read cleanly is not overwritten."""
     load_env()
     if os.environ.get("SOLARA_USE_AI", "").lower() not in ("1", "true", "yes"):
         return {"enabled": False, "provider": None, "model": None}
+    if os.environ.get("GEMINI_API_KEY"):
+        return {"enabled": True, "provider": "gemini",
+                "model": os.environ.get("SOLARA_MODEL", "gemini-3.6-flash")}
     if os.environ.get("ANTHROPIC_API_KEY"):
         return {"enabled": True, "provider": "anthropic",
                 "model": os.environ.get("SOLARA_MODEL", "claude-sonnet-5-5")}
@@ -183,9 +187,11 @@ PRETTY = {
     "meter_no": "Meter number", "bill_mobile": "Registered mobile",
     "address": "Billing address", "pin": "PIN code",
     "avg_units": "Average units per month", "amount": "Net amount payable",
+    "bill_email": "Email on bill", "bill_district": "District (bill)", "bill_place": "Place (bill)",
     "aadhaar_name": "Name on identity document", "aadhaar_masked": "Identity number (masked)",
     "aadhaar_address": "Address on Aadhaar", "aadhaar_pin": "PIN on Aadhaar",
     "aadhaar_district": "District", "aadhaar_dob": "Date of birth", "aadhaar_gender": "Gender",
+    "aadhaar_mobile": "Mobile on Aadhaar", "aadhaar_place": "Place on Aadhaar",
     "account_holder": "Bank account holder", "account_no": "Bank account (masked)",
     "ifsc": "IFSC code",
     "owner_name": "Property owner", "property_address": "Property address",
@@ -193,8 +199,8 @@ PRETTY = {
     "bill_unread": "Electricity bill", "aadhaar_unread": "Aadhaar", "passbook_unread": "Bank page",
 }
 KEY_OF = {v: k for k, v in PRETTY.items()}
-ORDER = (list(LABELS) + list(AADHAAR_LABELS) +
-         ["aadhaar_address", "aadhaar_pin", "aadhaar_district", "aadhaar_dob", "aadhaar_gender"] +
+ORDER = (list(LABELS) + ["bill_email", "bill_district", "bill_place"] + list(AADHAAR_LABELS) +
+         ["aadhaar_address", "aadhaar_pin", "aadhaar_district", "aadhaar_dob", "aadhaar_gender", "aadhaar_mobile", "aadhaar_place"] +
          list(PASSBOOK_LABELS) + list(OWNERSHIP_LABELS) +
          ["bill_unread", "aadhaar_unread", "passbook_unread"])
 
@@ -234,7 +240,7 @@ def kind_of(key):
     """Which uploaded document a field is read from."""
     if key.startswith("aadhaar"):
         return "aadhaar"
-    if key in LABELS or key == "bill_unread":
+    if key in LABELS or key.startswith("bill_"):
         return "bill"
     if key in PASSBOOK_LABELS or key == "passbook_unread":
         return "passbook"
@@ -271,7 +277,18 @@ def _unread(why):
     return _f("not read", 0, "—", "review", why)
 
 
+_LOCKS = {}
+MODEL_STATE = {}   # (customer, "bill"|"aadhaar") -> "" when the model read it, else why it did not
+
+
 async def run(customer_id, use_llm=True, fresh=None):
+    """One read at a time per customer. Without this, a slow read of the bill that started before the Aadhaar
+    arrived would finish last and write over the Aadhaar's results with what it saw: no Aadhaar."""
+    async with _LOCKS.setdefault(customer_id, asyncio.Lock()):
+        return await _run(customer_id, use_llm, fresh)
+
+
+async def _run(customer_id, use_llm=True, fresh=None):
     """fresh: the kind of document just uploaded; operator corrections to fields read from it are
     dropped (the document changed), corrections to every other field are kept."""
     c = db.one("SELECT * FROM customers WHERE id=?", (customer_id,))
@@ -289,17 +306,17 @@ async def run(customer_id, use_llm=True, fresh=None):
     if "bill" in docs:
         bill_text, imgs, problem = read_doc(docs["bill"]["path"])
         fields.update({k: _f(v, conf, "bill") for k, (v, conf) in grab(bill_text, LABELS).items()})
-        found = len(fields)
-        primary = found < 4  # the parser does not know this bill's layout
         use_text = len(bill_text.strip()) >= 200
-        if model and primary and (use_text or imgs):   # only when the rules cannot read this bill at all
+        if model and (use_text or imgs):   # every upload: the rules read first, the model fills the gaps
             try:
-                got = await llm_read("bill", st, text=bill_text if use_text else None,
-                                     image=None if use_text else imgs[0])
-                merge_model(fields, got, st, primary=primary)
+                got = await llm_read_cached(docs["bill"], "bill", st, text=bill_text if use_text else None,
+                                            images=imgs[:1])   # the image too: a Marathi bill's text layer is glyph soup
+                merge_model(fields, got, st)
                 notes.append(f"bill read with {st['provider']}")
+                MODEL_STATE[(customer_id, "bill")] = ""
             except Exception as e:
                 notes.append(f"model pass skipped: {type(e).__name__}")
+                MODEL_STATE[(customer_id, "bill")] = type(e).__name__
         if not any(k in fields for k in ("consumer_no", "bill_name")):
             fields["bill_unread"] = _unread(
                 problem or ("the bill could not be read automatically. " +
@@ -307,6 +324,7 @@ async def run(customer_id, use_llm=True, fresh=None):
                              else "Photos need the AI model key; type the consumer number and name")))
 
     # ---- Aadhaar: QR first, offline ----
+    full_aadhaar = None
     if "aadhaar" in docs:
         text, imgs, problem = read_doc(docs["aadhaar"]["path"])
         q = aadhaar_qr(imgs) if imgs else None
@@ -323,10 +341,20 @@ async def run(customer_id, use_llm=True, fresh=None):
         else:
             got = grab(text, AADHAAR_LABELS)
             fields.update({k: _f(v, conf, "identity") for k, (v, conf) in got.items()})
-            if not got:
-                fields["aadhaar_unread"] = _unread(
-                    problem or "the QR code on the Aadhaar could not be read. Take a straight, "
-                               "sharp photo of the side with the QR code, or type the name")
+        if model and (imgs or text):   # the QR and the text rules came first; the model fills what they missed
+            try:
+                got = await llm_read_cached(docs["aadhaar"], "aadhaar", st, text=text[:2000] or None, images=imgs[:2])
+                got, full_aadhaar = split_aadhaar(got)
+                merge_model(fields, got, st)
+                notes.append(f"Aadhaar read with {st['provider']}")
+                MODEL_STATE[(customer_id, "aadhaar")] = ""
+            except Exception as e:
+                notes.append(f"model pass skipped: {type(e).__name__}")
+                MODEL_STATE[(customer_id, "aadhaar")] = type(e).__name__
+        if not any(k in fields for k in ("aadhaar_name", "aadhaar_masked")):
+            fields["aadhaar_unread"] = _unread(
+                problem or "the QR code on the Aadhaar could not be read. Take a straight, "
+                           "sharp photo of the side with the QR code, or type the name")
 
     # ---- bank page ----
     if "passbook" in docs:
@@ -334,7 +362,7 @@ async def run(customer_id, use_llm=True, fresh=None):
         got = {k: _f(v, conf, "passbook") for k, (v, conf) in grab(text, PASSBOOK_LABELS).items()}
         if len(got) < 2 and model and imgs:
             try:
-                merge_model(got, await llm_read("passbook", st, image=imgs[0]), st, primary=True)
+                merge_model(got, await llm_read("passbook", st, images=imgs[:1]), st)
                 notes.append(f"bank page read with {st['provider']}")
             except Exception as e:
                 notes.append(f"model pass skipped: {type(e).__name__}")
@@ -383,7 +411,7 @@ async def run(customer_id, use_llm=True, fresh=None):
         fields["consumer_no"]["note"] = f"The record already holds {c['consumer_no']}."
     _, rec = _record(customer_id)
     rec_mobile = re.sub(r"\D", "", rec.get("mobile") or "")[-10:]
-    if fields.get("bill_mobile") and rec_mobile and fields["bill_mobile"]["value"] != rec_mobile:
+    if fields.get("bill_mobile") and len(rec_mobile) == 10 and fields["bill_mobile"]["value"] != rec_mobile:
         fields["bill_mobile"]["status"] = "review"
         fields["bill_mobile"]["note"] = f"The record holds {rec_mobile}, typed by hand."
     dupes = db.q("SELECT id FROM customers WHERE consumer_no=? AND id<>?", (cno, customer_id)) if cno else []
@@ -413,7 +441,12 @@ async def run(customer_id, use_llm=True, fresh=None):
                   (customer_id, PRETTY[k], f["value"], f["confidence"], f["source"], f["status"],
                    f["note"], db.now()))
             rows.append({"key": k, "field": PRETTY[k], **f})
-    apply_to_record(customer_id)
+    # a new upload of the bill or the Aadhaar refreshes the details from it
+    apply_to_record(customer_id, overwrite=fresh in ("bill", "aadhaar"))
+    m = fields.get("aadhaar_masked") or {}
+    if full_aadhaar and m.get("status") == "ok" and str(m.get("value", "")).endswith(full_aadhaar[-4:]):
+        from . import closeout
+        closeout.mark(customer_id, "extraction", aadhaar_enc=vault.seal(full_aadhaar))   # encrypted; never logged
     model_note = "; ".join(notes) or None
     db.audit("agent", "agent", "Document extraction", customer_id,
              f"{len(rows)} fields, {sum(1 for r in rows if r['status'] == 'review')} flagged" +
@@ -427,31 +460,100 @@ async def run(customer_id, use_llm=True, fresh=None):
 # ------------------------------- the model -------------------------------
 PROMPTS = {
     "bill": ("an Indian electricity bill", "consumer_no, bill_name, tariff, sanctioned_load "
-             "(number, kW), meter_no, bill_mobile, address, pin, avg_units"),
+             "(number, kW), meter_no, bill_mobile, bill_email, address, pin, bill_district (the district of "
+             "the address), bill_place (the village, town or area of the address, one short name), avg_units"),
+    "aadhaar": ("an Indian Aadhaar card or its printout (either side)",
+                "aadhaar_name, aadhaar_address, aadhaar_pin, aadhaar_district, aadhaar_dob, aadhaar_gender, "
+                "aadhaar_mobile (only if a full 10-digit mobile number is printed), "
+                "aadhaar_place (the village, town or area of the address, one short name), "
+                "aadhaar_number (the 12-digit Aadhaar number exactly as printed)"),
     "passbook": ("the first page of an Indian bank passbook or a cancelled cheque",
                  "account_holder, account_no, ifsc"),
 }
+STRICT = {"consumer_no", "bill_name", "pin", "bill_mobile", "aadhaar_name", "aadhaar_pin", "aadhaar_masked"}
+_LLM_CACHE = {}   # one model call per document version: uploading the Aadhaar does not re-read the bill
 
 
-async def llm_read(kind, st, text=None, image=None):
-    """Ask the model for the fields, each with how sure it is. Never used for Aadhaar."""
+GEMINI_BACKUP = [m.strip() for m in os.environ.get("SOLARA_MODEL_BACKUP",
+                                                   "gemini-3-flash-preview,gemini-flash-lite-latest").split(",") if m.strip()]
+GEMINI_TIMEOUT = 25   # seconds per try; the bill usually takes 3-8
+
+
+def gemini_keys():
+    """GEMINI_API_KEY holds one or more keys, comma-separated; quotes around each are tolerated."""
+    return [k for k in (x.strip(" \"'") for x in os.environ.get("GEMINI_API_KEY", "").split(",")) if k]
+
+
+async def llm_read_cached(doc, kind, st, **kw):
+    key = (doc["path"], doc["uploaded_at"], kind, st["provider"], st["model"])
+    if key not in _LLM_CACHE:
+        _LLM_CACHE[key] = await llm_read(kind, st, **kw)
+    return _LLM_CACHE[key]
+
+
+def split_aadhaar(got):
+    """(fields with the number masked, the full 12-digit number or None). The full number is returned only
+    when it passes the format and check-digit test; it is stored encrypted, never in the extraction rows."""
+    v = (got or {}).get("aadhaar_number")
+    d = re.sub(r"\D", "", str(v.get("value") if isinstance(v, dict) else v or ""))
+    out = {k: x for k, x in (got or {}).items() if k != "aadhaar_number"}
+    full = None
+    try:
+        valid.aadhaar_number(d)
+        full = d
+    except ValueError:
+        pass
+    if len(d) >= 4:
+        sure = bool(isinstance(v, dict) and v.get("sure")) and (full is not None or len(d) == 4)
+        out["aadhaar_masked"] = {"value": f"XXXX XXXX {d[-4:]}", "sure": sure}
+    return out, full
+
+
+def _jpeg64(im):
+    im = im.copy()
+    im.thumbnail((1600, 1600))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+async def llm_read(kind, st, text=None, images=None):
+    """Ask the model for the fields, each with how sure it is."""
     what, keys = PROMPTS[kind]
     ask = (f"This is {what}. Reply with JSON only, no prose. For each of these keys: {keys} "
            'give {"value": <exact text as printed, or null if absent>, "sure": <true only if you '
            'can read it clearly>}.')
-    content = [{"type": "text", "text": ask + ("\n\nTEXT:\n" + text[:6000] if text else "")}]
-    if image is not None:
-        im = image.copy()
-        im.thumbnail((1600, 1600))
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=85)
-        b64 = base64.b64encode(buf.getvalue()).decode()
+    ask += ("\n\nTEXT:\n" + text[:6000]) if text else ""
+    b64s = [_jpeg64(im) for im in images or []]
     import httpx
     async with httpx.AsyncClient(timeout=60) as cl:
-        if st["provider"] == "anthropic":
-            if image is not None:
-                content.insert(0, {"type": "image", "source": {"type": "base64",
-                                                                "media_type": "image/jpeg", "data": b64}})
+        if st["provider"] == "gemini":
+            parts = [{"text": ask}] + [{"inline_data": {"mime_type": "image/jpeg", "data": b}} for b in b64s]
+            # GEMINI_API_KEY may hold several keys, comma-separated. A rate limit (429) is the key's quota: the next
+            # key is tried. A busy model (5xx) or a timeout is the model's: the next backup model is tried.
+            # shortcut: tried in order every call, no rotation memory.
+            r, err = None, None
+            for model in dict.fromkeys([st["model"], *GEMINI_BACKUP]):
+                for key in gemini_keys():
+                    try:
+                        r = await cl.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                                          headers={"x-goog-api-key": key}, timeout=GEMINI_TIMEOUT,
+                                          json={"contents": [{"parts": parts}],
+                                                "generationConfig": {"responseMimeType": "application/json", "temperature": 0}})
+                    except httpx.TransportError as ex:   # timeouts included
+                        err, r = ex, None
+                        break
+                    if r.status_code != 429:
+                        break
+                if r is not None and r.status_code != 429 and r.status_code < 500:
+                    break
+            if r is None:
+                raise err
+            r.raise_for_status()
+            out = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        elif st["provider"] == "anthropic":
+            content = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b}}
+                       for b in b64s] + [{"type": "text", "text": ask}]
             r = await cl.post("https://api.anthropic.com/v1/messages",
                               headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"],
                                        "anthropic-version": "2023-06-01"},
@@ -460,9 +562,8 @@ async def llm_read(kind, st, text=None, image=None):
             r.raise_for_status()
             out = r.json()["content"][0]["text"]
         else:
-            if image is not None:
-                content.append({"type": "image_url",
-                                "image_url": {"url": "data:image/jpeg;base64," + b64}})
+            content = [{"type": "text", "text": ask}] + [
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b}} for b in b64s]
             r = await cl.post("https://api.openai.com/v1/chat/completions",
                               headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
                               json={"model": st["model"], "max_tokens": 900,
@@ -473,9 +574,9 @@ async def llm_read(kind, st, text=None, image=None):
     return json.loads(m.group(0)) if m else {}
 
 
-def merge_model(fields, got, st, primary):
-    """primary: the model is the only reader, so its unsure values are flagged. Otherwise it is
-    a second opinion, and any disagreement with the parser is flagged."""
+def merge_model(fields, got, st):
+    """The rules and the QR read first. The model fills what they missed (unsure values are flagged);
+    where it disagrees with a value they read, only the identifying fields in STRICT are flagged."""
     for k, v in (got or {}).items():
         if k not in PRETTY:
             continue
@@ -484,12 +585,12 @@ def merge_model(fields, got, st, primary):
             continue
         val = " ".join(str(val).split())
         if k in fields:
-            if val.upper() != str(fields[k]["value"]).upper():
+            if k in STRICT and val.upper() != str(fields[k]["value"]).upper():
                 fields[k]["status"] = "review"
                 fields[k]["note"] = (fields[k]["note"] + " " if fields[k]["note"] else "") + \
                                     f"The model read this as “{val}”."
             fields[k]["source"] += f" + {st['provider']}"
-        elif primary:
+        else:
             fields[k] = _f(val, 90 if sure else 50, st["provider"], "ok" if sure else "review",
                            "" if sure else "The model was not sure of this; check it on the document.")
 
@@ -500,8 +601,8 @@ def apply_to_record(customer_id, only=None, overwrite=False):
     person confirms them; by default nothing already in the record is overwritten."""
     from . import closeout
     rows = {KEY_OF.get(r["field"]): r for r in saved(customer_id)}
-    ok = {k: r["value"] for k, r in rows.items()
-          if k and r["status"] != "review" and r["value"] != "not read" and (only is None or k in only)}
+    read = {k: r["value"] for k, r in rows.items() if k and r["status"] != "review" and r["value"] != "not read"}
+    ok = {k: v for k, v in read.items() if only is None or k in only}
     c = db.one("SELECT * FROM customers WHERE id=?", (customer_id,))
     cols = {}
     for key, col in (("consumer_no", "consumer_no"), ("aadhaar_name", "aadhaar_name")):
@@ -513,17 +614,43 @@ def apply_to_record(customer_id, only=None, overwrite=False):
         cols["pin"] = ok.get("pin") or ok.get("aadhaar_pin")
     if "account_no" in ok and "ifsc" in ok:
         cols["bank"] = f"{ok['account_no']} / {ok['ifsc']}"
-    if "aadhaar_name" in ok and not c["name"]:
-        cols["name"] = ok["aadhaar_name"]
+    district = valid.district(read.get("bill_district") or read.get("aadhaar_district") or "", strict=False)
+    place = read.get("bill_place") or read.get("aadhaar_place")
+    if place and ok.keys() & {"bill_place", "aadhaar_place", "bill_district", "aadhaar_district"}:
+        cols["place"] = place.title() + (f", {district}" if district and district.lower() != place.lower() else "")
+    if "bill_name" in ok or "aadhaar_name" in ok:
+        # the bill is the ground truth (the portal matches the DISCOM's records); the Aadhaar when the bill has none
+        cols["name"] = read.get("bill_name") or read.get("aadhaar_name")
     for col, v in cols.items():
         if v and (overwrite or not c[col]):
             db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, customer_id))
     _, d = closeout.data(customer_id)
-    extra = {"mobile": ok.get("bill_mobile"), "sanctioned_load": ok.get("sanctioned_load"),
-             "tariff": ok.get("tariff"), "district": valid.district(ok.get("aadhaar_district") or "", strict=False),
+    def checked(fn, *keys):   # the first value that passes the check, or None
+        for k in keys:
+            try:
+                if v := fn(ok.get(k) or ""):
+                    return v
+            except ValueError:
+                pass
+        return None
+    extra = {"email": checked(valid.email, "bill_email"), "sanctioned_load": ok.get("sanctioned_load"),
+             "tariff": ok.get("tariff"),
+             # the bill's district first (the premises), the Aadhaar's when the bill gives none
+             "district": district if ok.keys() & {"bill_district", "aadhaar_district"} else None,
              "aadhaar_last4": (ok.get("aadhaar_masked") or "")[-4:] or None}
-    # the mobile the owner typed is the one the OTP goes to: a bill never replaces it
-    extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "mobile") or not d.get(k))}
+    # the mobile and email the owner typed are the ones the OTP and mail go to: a bill never replaces them
+    extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "email") or not d.get(k))}
+    if only is None or only & {"bill_mobile", "aadhaar_mobile"}:
+        # the bill's mobile, as printed even when partly hidden (90xxxxxx32); else a full one on the Aadhaar; else N/A.
+        # A full number already on file (typed by the owner: the OTP goes to it) is never replaced.
+        bill_m = (read.get("bill_mobile") or "").replace(" ", "")
+        mob = checked(valid.mobile, "bill_mobile") or (bill_m if valid.mobile_masked(bill_m) else None)             or checked(valid.mobile, "aadhaar_mobile") or "N/A"
+        try:
+            have_full = bool(valid.mobile(d.get("mobile") or ""))
+        except ValueError:
+            have_full = False
+        if not have_full and mob != d.get("mobile"):
+            extra["mobile"] = mob
     if extra:
         closeout.save(customer_id, extra, "extraction")
 

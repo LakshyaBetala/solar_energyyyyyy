@@ -93,7 +93,13 @@ r = put({"aadhaar": good})
 check("the Details box accepts a full valid Aadhaar number", r.status_code == 200, r.text[:80])
 g = sup.get(f"/api/registration/{cid}").json()
 check("only the last 4 are on file", g["data"].get("aadhaar_last4") == good[-4:])
-check("the full number is nowhere in the saved record", good not in sup.get(f"/api/registration/{cid}").text)
+check("the full number is shown to a supervisor", g["data"].get("aadhaar_full") == good.replace(" ", ""))
+from app import db as _db  # noqa: E402
+_row = _db.one("SELECT data FROM closeout WHERE customer_id=?", (cid,))["data"]
+check("the full number is stored only encrypted", good.replace(" ", "") not in _row and good not in _row and '"aadhaar_enc"' in _row)
+viewer = httpx.Client(base_url=BASE, timeout=60)
+viewer.post("/api/login", json={"username": "a.more", "password": "demo"}).raise_for_status()
+check("a viewer never sees the full number", good.replace(" ", "") not in viewer.get(f"/api/registration/{cid}").text)
 from app import db as _db  # noqa: E402
 dump = chr(10).join(str(tuple(row)) for (t,) in _db.conn().execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
                   for row in _db.conn().execute(f"SELECT * FROM {t}"))
@@ -144,6 +150,12 @@ for k in ("pin", "aadhaar_pin"):
 check("the PIN the owner picked is the one on file", sup.get(f"/api/registration/{cid}").json()["customer"]["pin"] == "410503")
 check("a PIN that is not 6 digits is refused", sup.post(f"/api/registration/{cid}/confirm", json={"key": "pin", "value": "41"}).status_code == 400)
 
+# ---- the customer name must be the Aadhaar's: a middle name may be left out, nothing else may differ
+A = "Priya Sanjay Kulkarni"
+same = [n for n in ("Priya Kulkarni", "PRIYA SANJAY KULKARNI", "Priya S Kulkarni") if registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
+differ = [n for n in ("Priya Kulkarny", "Priya Ramesh Kulkarni", "Kulkarni Priya", "Priya", "Someone Else") if not registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
+check("a customer name that differs from the Aadhaar is caught; a left-out middle name is not", not same and not differ, f"{same} {differ}")
+
 # ---- a value typed in the co-pilot box because Solara had none
 r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
                json={"customer_id": cid, "event": "detail", "key": "email", "value": "typed.here@example.com"})
@@ -157,6 +169,22 @@ check("...and it is validated like any other entry", r.status_code == 400)
 tok = "x" * 24
 check("an unknown link shows no crafted text",
       "Your payment failed" not in httpx.get(f"{BASE}/sign/{tok}?error=Your payment failed").text)
+
+# ---- the quotation: date, name and place changed in a Word file whose date is split over runs, as Word saves it
+import io as _io, re as _re, tempfile as _tf, zipfile as _zf  # noqa: E402
+from datetime import date as _date  # noqa: E402
+from pathlib import Path as _P  # noqa: E402
+from app import drafts  # noqa: E402
+_body = ('<w:document><w:body><w:p><w:r><w:t>Outward no. x/2026/13/01   Date : </w:t></w:r><w:r><w:t>13</w:t></w:r>'
+         '<w:r><w:t>.10.2026</w:t></w:r></w:p><w:p><w:r><w:t>To,</w:t></w:r></w:p><w:p><w:r><w:t>Old </w:t></w:r>'
+         '<w:r><w:t>Name</w:t></w:r></w:p><w:p><w:r><w:t>Manchar, Pune</w:t></w:r></w:p><w:p><w:r><w:t>A &amp; B</w:t></w:r></w:p></w:body></w:document>')
+_tmp = _P(_tf.mkdtemp()) / "q.docx"
+with _zf.ZipFile(_tmp, "w") as _z:
+    _z.writestr("word/document.xml", _body)
+_out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dighi, Pune", _date(2026, 11, 14)))).read("word/document.xml").decode()
+_lines = [_re.sub(r"<[^>]+>", "", q) for q in _re.findall(r"<w:p[ >].*?</w:p>", _out)]
+check("the quotation gets the date, the name and the place; the outward number and the rest stay",
+      _lines == ["Outward no. x/2026/13/01   Date : 14.11.2026", "To,", "ASHA D SAMPLE", "Dighi, Pune", "A &amp; B"], str(_lines))
 
 sup.post("/api/demo/reset")
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

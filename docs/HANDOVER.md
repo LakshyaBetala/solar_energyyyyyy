@@ -131,8 +131,10 @@ tests/                smoke, ui, closeout, milestone1, live_mode, run_all, fixtu
    box, and never overwrites something already typed.** (`RULES` in `panel.js`, first rule.)
 4. **The customer's consent steps stay with the customer**: accepting the agreement on the portal,
    and their e-signature. The signature goes only on documents they approved, in the version they saw.
-5. **Aadhaar never goes to an AI model.** It is read from the QR on our server. Only the last 4
-   digits are stored. Never log, print or commit a full Aadhaar number.
+5. **Aadhaar images go to the AI model only if the owner turns AI on** (`SOLARA_USE_AI=1` and
+   `GEMINI_API_KEY`); the QR is still read first, on our server. The full number is stored only encrypted
+   (`vault.seal`, closeout `aadhaar_enc`), shown only to operators and supervisors; everything else keeps the
+   last 4 digits. Never log, print or commit a full Aadhaar number.
 6. **This repository is public.** No client name, no real customer documents, no pricing, no keys.
    Real samples live outside the repo; fixtures are synthetic (`tests/fixtures.py`).
 7. **Run `python tests/run_all.py` before every push.** CI runs the same on GitHub; keep it green.
@@ -172,10 +174,11 @@ Open <http://127.0.0.1:8900>, sign in as `r.deshmukh` / `demo` (supervisor) and 
 `extension/` folder. In Solara: Close-out → **Connect co-pilot** gives a key. Extension → Options →
 address `http://127.0.0.1:8900` and the key → Save.
 
-**AI is off by default** and is never used for basic tasks. Bill PDFs with a text layer, the Aadhaar QR,
-validation and the Aadhaar number check all run on plain rules. Only if you set `SOLARA_USE_AI=1` **and**
-`ANTHROPIC_API_KEY=...` in `.env` (gitignored; never paste it into chat) is a model tried, and only for
-a bill the rules cannot read at all. Otherwise photos of bills are flagged for typing.
+**AI is off by default.** Bill PDFs with a text layer, the Aadhaar QR, validation and the Aadhaar number
+check always run on plain rules first. If you set `SOLARA_USE_AI=1` **and** `GEMINI_API_KEY=...` in `.env`
+(gitignored; never paste it into chat), Gemini also reads the bill and the Aadhaar on every upload and fills
+what the rules missed (a value the rules read cleanly is kept; a disagreement on name, PIN, mobile or
+consumer number is flagged). Otherwise photos of bills are flagged for typing.
 
 **Live install (the client's machine or server):**
 
