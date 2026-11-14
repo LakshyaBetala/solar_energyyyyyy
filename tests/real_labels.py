@@ -152,7 +152,7 @@ async def main():
     sup.post("/api/login", json={"username": "r.deshmukh", "password": "demo"}).raise_for_status()
     sup.post("/api/demo/reset")
     sup.put(f"/api/registration/{CID}", json={"mobile": "9028144531", "email": "vaishali.p@example.com",
-                                             "kw": "3", "rts_cost": "198000", "district": "Nashik"}).raise_for_status()
+                                             "kw": "3", "rts_cost": "200000", "district": "Nashik"}).raise_for_status()
     # this suite is about portal labels, not the flow; the flow guard is tested in k1_complete.py
     db.ex("UPDATE customers SET application_no=?, stage='feasible' WHERE id=?", ("NP-MHSED26-16188888", CID))
     closeout.save(CID, {"pmsg_app_no": "NP-MHSED26-16188888"}, "test")

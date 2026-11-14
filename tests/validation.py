@@ -27,12 +27,13 @@ def refuses(fn, *a):
 
 
 # ---- pure rules
-for good, want in [("250000", "250000"), ("2,50,000", "250000"), ("Rs 285000", "285000"), ("₹ 1,85,000.5", "185000.50"),
-                   ("250000.50", "250000.50")]:
+for good, want in [("250000", "250000"), ("2,50,000", "250000"), ("Rs 300000", "300000"), ("₹ 1,85,000", "185000"),
+                   ("143000", "143000"), ("125000.00", "125000")]:
     check(f"cost {good!r} -> {want}", valid.cost(good) == want, valid.cost(good))
-for bad in ["-250000", "0", "999999999999", "Rs 1.5 lakh", "250000.555", "abc", "1e6", "5000"]:
-    check(f"cost {bad!r} refused", refuses(valid.cost, bad))
-check("cost keeps paise: never 25000050", valid.cost("250000.50") != "25000050")
+for bad in ["-250000", "0", "999999999999", "Rs 1.5 lakh", "250000.50", "abc", "1e6", "5000", "210000", "199999", "300001"]:
+    check(f"cost {bad!r} refused (not on the price list)", refuses(valid.cost, bad))
+check("exactly the nine listed costs are accepted", sorted(c for c in range(100000, 350001, 1000) if not refuses(valid.cost, str(c)))
+      == sorted(valid.COST_OPTIONS))
 
 for bad in ["123", "@@@ ###", "Priya1234", "<script>x</script>", "A" * 300, "ab", "..."]:
     check(f"name {bad[:20]!r} refused", refuses(valid.name, bad))
@@ -76,8 +77,10 @@ check("garbage consumer number refused with 400", r.status_code == 400, r.text[:
 check("...and the saved number is still there",
       sup.get(f"/api/registration/{cid}").json()["customer"]["consumer_no"] == "170011122233")
 
-check("cost 250000.50 saved as 250000.50", put({"rts_cost": "250000.50"}).status_code == 200
-      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000.50")
+check("a listed cost is saved", put({"rts_cost": "250000"}).status_code == 200
+      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000")
+check("a cost that is not on the list is refused and the saved one kept", put({"rts_cost": "210000"}).status_code == 400
+      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000")
 check("negative cost refused", put({"rts_cost": "-250000"}).status_code == 400)
 check("one bad field saves nothing", put({"kw": "3", "rts_cost": "abc"}).status_code == 400
       and sup.get(f"/api/registration/{cid}").json()["customer"]["kw"] != 3)
@@ -108,7 +111,11 @@ check("a wrong check digit is refused with a reason", put({"aadhaar": wrong}).st
 check("a bad Aadhaar leaves the saved last 4 alone",
       sup.get(f"/api/registration/{cid}").json()["data"].get("aadhaar_last4") == good[-4:])
 check("saving the masked form again changes nothing", put({"aadhaar": "XXXX XXXX " + good[-4:]}).status_code == 200)
-check("AI is off by default", sup.get("/api/bootstrap").json().get("llm", {}).get("enabled") is False)
+import os as _os  # noqa: E402
+from app import extract as _ex  # noqa: E402
+_os.environ["SOLARA_USE_AI"] = "0"
+check("SOLARA_USE_AI=0 switches the AI off even with a key in .env", _ex.llm_status()["enabled"] is False)
+_os.environ.pop("SOLARA_USE_AI", None)
 
 # ---- order of steps
 r = sup.post(f"/api/registration/{cid}/mark", json={"step": "registered", "app_no": "NP-MHSED26-16190001"})

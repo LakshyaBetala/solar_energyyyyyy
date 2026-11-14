@@ -4,7 +4,8 @@ fit is refused, never trimmed into something else."""
 import re, unicodedata
 from decimal import Decimal, InvalidOperation
 
-COST_MIN, COST_MAX = Decimal("10000"), Decimal("2500000")  # Rs; a 0.5-10 kW home system
+# The installation costs on the vendor's price list: nothing else is ever entered. Typing is allowed, but it must match one.
+COST_OPTIONS = (125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000)
 KW_MIN, KW_MAX = 0.5, 10
 
 
@@ -80,14 +81,14 @@ def cost(v):
     if not s:
         return ""
     if not re.match(r"^\d+(\.\d{1,2})?$", s):
-        raise ValueError("the installation cost is an amount in rupees, like 285000 or 285000.50")
+        raise ValueError("pick the installation cost from the list: " + ", ".join(f"{c:,}" for c in COST_OPTIONS))
     try:
         amt = Decimal(s)
     except InvalidOperation:
         raise ValueError("the installation cost is not a valid amount")
-    if not COST_MIN <= amt <= COST_MAX:
-        raise ValueError(f"the installation cost should be between Rs {COST_MIN:,.0f} and Rs {COST_MAX:,.0f}")
-    return s if "." not in s else f"{amt:.2f}"
+    if amt not in COST_OPTIONS:
+        raise ValueError("the installation cost must be one of: " + ", ".join(f"{c:,}" for c in COST_OPTIONS))
+    return str(int(amt))
 
 
 def kw(v):
@@ -207,3 +208,34 @@ def app_no(v):
     if s.startswith("NP-MHSED") and len(s.rsplit("-", 1)[1]) != 8:
         raise ValueError("a Maharashtra application number ends in 8 digits, like NP-MHSED26-12345678; check for a missed digit")
     return s
+
+
+LOCATION_TYPES = ("Urban", "Rural")
+RESIDENCE_CATEGORIES = ("Residential (usual method)", "Residential Welfare Association")
+GENDERS = ("Male", "Female", "Other")
+
+
+def choice(v, options, field):
+    """One of a short fixed list, matched without caring about case; blank is allowed (not set)."""
+    t = text(v, field).strip()
+    if not t:
+        return ""
+    for o in options:
+        if t.lower() == o.lower():
+            return o
+    raise ValueError(f"{field} must be one of: " + ", ".join(options))
+
+
+def coord(v, field):
+    """A latitude or longitude inside India, kept to 6 decimals."""
+    t = text(v, field).strip()
+    if not t:
+        return ""
+    try:
+        x = float(t)
+    except ValueError:
+        raise ValueError(f"{field} is a number, e.g. 18.5679")
+    lo, hi = (6.0, 38.0) if field == "latitude" else (68.0, 98.0)
+    if not lo <= x <= hi:
+        raise ValueError(f"{field} {x} is outside India ({lo:g} to {hi:g})")
+    return f"{x:.6f}".rstrip("0").rstrip(".")

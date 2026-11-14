@@ -119,12 +119,15 @@ def values(cid):
     read = lambda label: (rows.get(label) or {}).get("value") if (rows.get(label) or {}).get("status") != "review" else None
     ifsc = (read(extract.PRETTY["ifsc"]) or "").upper()
     return {**region(), "consumer_no": c["consumer_no"], "mobile": d.get("mobile"),
-            "gender": GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
+            "gender": d.get("gender") or GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
+            "location_type": d.get("location_type") or None, "ulb": d.get("ulb") or None, "taluka": d.get("taluka") or None,
+            "panchayat": d.get("panchayat") or None,
             "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
             "account_type": "Savings" if ifsc else None,
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
-            "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
+            "capacity": f"{c['kw']:g}" if c["kw"] else None,
+            "category": d.get("residence_category") or valid.RESIDENCE_CATEGORIES[0],   # the portal's Category box; changeable in Solara
             "module_type": d.get("module_type") or os.environ.get("SOLARA_MODULE_TYPE", "Mono PERC (DCR)"),
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng")}
@@ -270,6 +273,19 @@ def save_details(cid, body, user):
                             else valid.name(body["district"], "district", required=False))
     if "rts_cost" in body:
         rest["rts_cost"] = valid.cost(body["rts_cost"])
+    for k, opts in (("gender", valid.GENDERS), ("location_type", valid.LOCATION_TYPES),
+                    ("residence_category", valid.RESIDENCE_CATEGORIES)):
+        if k in body:
+            rest[k] = valid.choice(body[k], opts, k.replace("_", " "))
+    from . import geo
+    for k, opts in (("ulb", geo.ULB_PUNE), ("taluka", geo.TALUKA_PUNE), ("panchayat", None)):
+        if k in body:
+            v = valid.name(body[k], k, required=False) if valid.text(body[k], k).strip() else ""
+            rest[k] = (geo.canon(v, opts) or v) if opts else v
+    if "lat" in body:
+        rest["lat"] = valid.coord(body["lat"], "latitude")
+    if "lng" in body:
+        rest["lng"] = valid.coord(body["lng"], "longitude")
     sealed = None
     if valid.text(body.get("aadhaar"), "Aadhaar").strip():
         rest["aadhaar_last4"] = valid.aadhaar_any(body["aadhaar"])
@@ -345,7 +361,8 @@ def quotes():
             out.append({"amount": m.group(1), "inverter_kw": kw.group(1) if kw else None, "file": p.name})
         _QUOTES.clear()
         _QUOTES[key] = sorted(out, key=lambda q: int(q["amount"]))
-    return _QUOTES[key]
+    out = _QUOTES[key]
+    return out or [{"amount": str(a), "inverter_kw": None, "file": None} for a in valid.COST_OPTIONS]
 
 
 def delete_customer(cid, user):
@@ -586,3 +603,31 @@ def today(close_rows):
         else:
             portal.append({**line, "act": "upload", "text": f"Upload {first}'s six documents to MSEDCL"})
     return {"calls": calls, "todo": todo, "portal": portal, "waiting": waiting}
+
+
+def locate(cid, user, force=False):
+    """Find the premises on the map from the address (Aadhaar's address when it was read, else the bill's)
+    and keep latitude, longitude and urban/rural. What a person typed is not overwritten unless force."""
+    from . import geo
+    c, d = closeout.data(cid)
+    rows = {extract.KEY_OF.get(r["field"]): r["value"] for r in extract.saved(cid)}
+    # the billing address on the electricity bill decides Urban / Rural and the position; the Aadhaar's is the fallback
+    addr = rows.get("address") or c["address"] or rows.get("aadhaar_address") or ""
+    pin = rows.get("pin") or c["pin"] or rows.get("aadhaar_pin") or ""
+    if rows.get("bill_district") and rows["bill_district"].lower() not in addr.lower():
+        addr = f"{addr}, {rows['bill_district']}"
+    if not (addr or pin):
+        return None
+    if d.get("lat") and d.get("lng") and not force:
+        return {"lat": d["lat"], "lng": d["lng"], "kind": d.get("location_type"), "accuracy": "saved", "found": ""}
+    hit = geo.locate(addr, pin)
+    if not hit:
+        return None
+    new = {"lat": hit["lat"], "lng": hit["lng"]}
+    if hit["kind"] and (force or not d.get("location_type")):
+        new["location_type"] = hit["kind"]
+    for k in ("ulb", "taluka"):   # a hint from the map for the box that appears after Urban / Rural; the portal's own list decides
+        if hit.get(k) and (force or not d.get(k)):
+            new[k] = hit[k]
+    closeout.save(cid, new, user["username"])
+    return hit

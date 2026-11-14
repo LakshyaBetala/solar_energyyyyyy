@@ -58,6 +58,20 @@ function toast(msg, bad) {
   $('#toast').classList.toggle('bad', !!bad);
   clearTimeout(toastT); toastT = setTimeout(() => { $('#toast').hidden = true; }, 4200);
 }
+/* A slim bar at the top while Gemini (or the rules) read a document, so nobody wonders if it hung. */
+const busyBar = (() => {
+  let el, t0, tick, depth = 0;
+  const make = () => { el = document.createElement('div'); el.id = 'busyBar'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.innerHTML = '<div class="bsweep"></div><div class="bpill"><span class="bspin"></span><span class="btext"></span><span class="bsec"></span></div>'; document.body.appendChild(el); };
+  return {
+    on(text) { depth += 1; if (!el) make(); el.querySelector('.btext').textContent = text; t0 = Date.now(); el.classList.add('show');
+      clearInterval(tick); el.querySelector('.bsec').textContent = '0s';
+      tick = setInterval(() => { el.querySelector('.bsec').textContent = Math.round((Date.now() - t0) / 1000) + 's'; }, 500); },
+    off() { depth = Math.max(0, depth - 1); if (depth) return; clearInterval(tick); if (el) el.classList.remove('show'); }
+  };
+})();
+const readerName = () => { const l = S.regData && S.regData.llm; return l && l.enabled ? (l.provider === 'gemini' ? 'Gemini' : 'the AI model') : 'Solara'; };
+
 function modal(title, sub, body, foot) {
   $('#mtitle').textContent = title; $('#msub').textContent = sub;
   $('#mbody').innerHTML = body; $('#mfoot').innerHTML = foot;
@@ -623,6 +637,8 @@ const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).pad
 const VD = ['0123456789', '1234067895', '2340178956', '3401289567', '4012395678', '5987604321', '6598710432', '7659821043', '8765932104', '9876543210'];
 const VP = ['0123456789', '1576283094', '5803796142', '8916043527', '9453126870', '4286573901', '2793806415', '7046913258'];
 const verhoeff = n => { let c = 0; [...n].reverse().forEach((ch, i) => { c = +VD[c][+VP[i % 8][+ch]]; }); return c === 0; };
+const COST_LIST = [125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000];
+const costOpts = () => (S.regData && S.regData.quotes && S.regData.quotes.length ? S.regData.quotes.map(q => +q.amount) : COST_LIST);
 const REG_RULES = {
   aadhaar: { hint: 'The 12-digit number, read from the card. Checked, then stored encrypted', max: 16, mode: 'numeric', check: v => {
     v = v.trim(); if (!v) return ''; if (/^[Xx*]{4}[ -]?[Xx*]{4}[ -]?\d{4}$/.test(v) || /^\d{4}$/.test(v)) return '';
@@ -634,7 +650,15 @@ const REG_RULES = {
   consumer_no: { hint: '12 digits, printed on the bill', max: 16, mode: 'numeric', check: v => { if (!v) return ''; if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, ''); return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^(\d)\1+$/.test(n) ? 'Repeats one digit; check the bill' : ''; } },
   kw: { hint: '0.5 to 10, e.g. 3 or 3.3', max: 6, mode: 'decimal', check: v => !v ? '' : !/^\d+(\.\d+)?$/.test(v.trim()) ? 'A number, e.g. 3.3' : +v < 0.5 || +v > 10 ? 'Between 0.5 and 10 kW' : '' },
   place: { hint: 'Area and district, as the quotation prints it, e.g. Dighi, Pune', max: 80, check: () => '' },
-  rts_cost: { hint: 'In rupees, e.g. 285000', max: 14, mode: 'decimal', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); if (!/^\d+(\.\d{1,2})?$/.test(t)) return 'An amount in rupees; up to 2 decimals'; return +t < 10000 || +t > 2500000 ? 'Between Rs 10,000 and Rs 25,00,000' : ''; } },
+  rts_cost: { hint: 'Pick from the list, or type one of the listed amounts', max: 14, mode: 'numeric', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); const n = Number(t); if (!/^\d+(\.0+)?$/.test(t)) return 'Pick one of the listed amounts'; return costOpts().includes(n) ? '' : 'Only the listed amounts: ' + costOpts().map(x => x.toLocaleString('en-IN')).join(', '); } },
+  gender: { hint: 'From the Aadhaar; change it if it is wrong', max: 10, check: () => '' },
+  location_type: { hint: 'Urban or Rural, found from the address; check it', max: 10, check: () => '' },
+  residence_category: { hint: 'What the portal asks as Category. Usual method for a house', max: 40, check: () => '' },
+  ulb: { hint: 'The municipal body, as the portal lists it. A map hint; the portal list decides', max: 80, check: () => '' },
+  taluka: { hint: 'The block / taluka, as the portal lists it', max: 80, check: () => '' },
+  panchayat: { hint: 'Type it; the map cannot find this', max: 80, check: () => '' },
+  lat: { hint: 'Found from the address on the map; type it if wrong', max: 12, mode: 'decimal', check: v => !v ? '' : !/^\d{1,2}(\.\d+)?$/.test(v.trim()) || +v < 6 || +v > 38 ? 'A number inside India, e.g. 18.5679' : '' },
+  lng: { hint: 'Found from the address on the map; type it if wrong', max: 12, mode: 'decimal', check: v => !v ? '' : !/^\d{2}(\.\d+)?$/.test(v.trim()) || +v < 68 || +v > 98 ? 'A number inside India, e.g. 73.8567' : '' },
   district: { hint: 'Optional', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
   app_no: { hint: 'Copied by the co-pilot; type only if it missed', max: 40, check: v => { v = v.trim().toUpperCase(); return !v ? '' : !/^NP-[A-Z0-9]+-\d{6,}$/.test(v) ? 'Looks like NP-MHSED26-12345678' : /^NP-MHSED/.test(v) && v.split('-').pop().length !== 8 ? 'Ends in 8 digits; check for a missed digit' : ''; } }
 };
@@ -659,8 +683,11 @@ const regSyncButtons = () => {
    Sections the owner opens or closes stay that way until another customer is picked. */
 const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Registered', accepted: 'Accepted', signed: 'E-signed', uploaded: 'Uploaded', approved: 'Customer approved' };
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
+const REG_MISS = [['consumer_no', 'Consumer number'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['kw', 'Capacity (kW)']];
 const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['place', 'Place'],
-  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar']];
+  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'],
+  ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)']];
+const REG_SEL = { ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
 const REG_KW = [1, 2, 3, 4, 5];
 // a document's stage: needed, uploading, reading, then read / check / not read, from what was actually taken
 const regDocPill = (g, k, docs) => {
@@ -757,8 +784,11 @@ VIEWS.reg = () => {
   const open = g.validation.issues.filter(i => !flagged.some(f => f.note && f.note === i.message));
   const issues = !regd && open.length ? `<div class="rgissues" id="regIssues"><p>Also needed before registering:</p><ul>${open.map(i =>
     `<li><b>${REG_KIND[i.kind] || esc(i.kind)}</b><span>${esc(i.kind === 'missing' ? i.field[0].toUpperCase() + i.field.slice(1) : i.message)}</span></li>`).join('')}</ul></div>` : '';
+  const missNow = REG_MISS.filter(([k]) => !({ name: c.name, mobile: d.mobile, consumer_no: c.consumer_no, kw: c.kw })[k]);
+  const missBar = !regd && missNow.length ? `<div class="missbar" id="regMissing"><b>Still missing</b>${missNow.map(([k, l]) => `<button type="button" data-focusfield="${k}">${l}</button>`).join('')}</div>` : '';
   const next = `<div class="rgnext${act ? '' : ' idle'}">
     <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
+    ${missBar}
     ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
     ${['register', 'approve'].includes(act) && g.otp ? `<div class="rgline">Call ${esc((c.aadhaar_name || c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the code. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
     ${act === 'approve' ? `<div class="rgline">Approved on the portal without the co-pilot? <button class="btn sm" id="regApproved"${op}>Mark it approved</button></div>` : ''}
@@ -787,17 +817,18 @@ VIEWS.reg = () => {
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
   const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+    rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
-      ${k === 'rts_cost' && g.quotes.length ? `<select id="r_rts_cost" data-r="rts_cost" aria-describedby="h_rts_cost"${op}><option value="">Pick the quotation</option>
-        ${(val && !g.quotes.some(q => +q.amount === +val) ? [{ amount: val }, ...g.quotes] : g.quotes).map(q => `<option value="${esc(q.amount)}"${+q.amount === +val ? ' selected' : ''}>Rs ${(+q.amount).toLocaleString('en-IN')}${q.inverter_kw ? ` (${esc(q.inverter_kw)} kW inverter)` : ''}</option>`).join('')}</select>`
+      ${k === 'rts_cost' ? `<input type="text" id="r_rts_cost" data-r="rts_cost" list="costList" value="${esc(val ?? '')}" placeholder="Choose or type" maxlength="14" inputmode="numeric" autocomplete="off" aria-describedby="h_rts_cost"${op}><datalist id="costList">${costOpts().map(x => `<option value="${x}">Rs ${x.toLocaleString('en-IN')}</option>`).join('')}</datalist>`
+      : REG_SEL[k] ? `<select id="r_${k}" data-r="${k}" aria-describedby="h_${k}"${op}><option value="">Not set</option>${(val && !REG_SEL[k].includes(val) ? [val, ...REG_SEL[k]] : REG_SEL[k]).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
       : k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
         ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
       : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
       ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
     <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button>
+      <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude from the address</button>
       ${regDraftLink(g, 'agreement', 'Make the agreement (PDF)')}${regDraftLink(g, 'quotation', 'Make the quotation (Word)')}</div>`, !stepDone('details') || ['check', 'details'].includes(act));
   const portalSec = regFold('regPortal', 'On PM Surya Ghar', c.application_no ? esc(c.application_no) : 'not registered yet',
     `<dl class="rgfiled">${[['Name filed', v.name], ['Consumer number', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
@@ -875,7 +906,7 @@ const CO_STATE = {
   needs_approval: ['info', 'Customer to sign'], changed: ['warn', 'Changed, re-approve'],
   needs_vendor_sig: ['warn', 'Company signature']
 };
-const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
+const CO_SELECT = { rts_cost: COST_LIST.map(String), phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
 const MSEDCL_URL = '/msedcl/'; // sandbox; the live build opens https://rts.mahadiscom.in/RoofTopSolarVendor/
 
 async function loadCo(cid) {
@@ -1246,6 +1277,11 @@ document.addEventListener('click', async e => {
     }
     return;
   }
+  if (t.dataset.focusfield !== undefined) {
+    (S.regOpen ||= {}).regDetails = true; if (!$('#r_' + t.dataset.focusfield)) render();
+    const i = $('#r_' + t.dataset.focusfield); if (i) { i.closest('details')?.setAttribute('open', ''); i.scrollIntoView({ behavior: 'smooth', block: 'center' }); i.focus(); i.classList.add('flash'); setTimeout(() => i.classList.remove('flash'), 1600); }
+    return;
+  }
   if (t.dataset.pinpick) {
     const v = t.dataset.pinpick;
     if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
@@ -1260,6 +1296,12 @@ document.addEventListener('click', async e => {
   if (t.dataset.confirm) {
     const k = t.dataset.confirm;
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
+    return;
+  }
+  if (t.id === 'regLocate') {
+    t.disabled = true; t.textContent = 'Looking on the map…';
+    try { const r = await api('/registration/' + S.regCid + '/locate?force=true', { method: 'POST' }); S.regData = r.registration; (S.regOpen ||= {}).regDetails = true; render(); toast(`Found: ${r.lat}, ${r.lng}${r.kind ? ' · ' + r.kind : ''} (${r.accuracy === 'address' ? 'the address' : 'the area only; check it'})`); }
+    catch (err) { toast(err.message, true); render(); }
     return;
   }
   if (t.id === 'regSave') {
@@ -1317,20 +1359,29 @@ This cannot be undone.`)) return;
     try { await navigator.clipboard.writeText($(t.id === 'askCopy' ? '#askUrl' : '#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
     return;
   }
-  if (t.id === 'coKey') {
+  if (t.id === 'coKey' || t.closest('[data-connect]')) {
+    if (!can('operator')) { toast('Connecting the extension needs the operator role.', true); return; }
     try {
       const k = await api('/copilot/key', { method: 'POST' });
-      modal('Connect the co-pilot', 'Do this once on the computer you use for the portals. The key is shown only now.',
-        `<div class="field"><label>Your key</label><input type="text" readonly value="${esc(k.key)}"></div>
-         <div class="field"><label>Solara address</label><input type="text" readonly value="${esc(location.origin)}"></div>
-         <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
-           <li>Open <span class="mono">chrome://extensions</span>, switch on Developer mode, press Load unpacked and pick the <span class="mono">extension</span> folder.</li>
-           <li>Open the co-pilot's Options, paste the address and the key, press Save.</li>
-           <li>Log in to a portal yourself. On a customer's page the Solara panel appears at the bottom right.</li></ol>`,
+      const row = (label, id, val, secret) => `<div class="field"><label for="${id}">${label}</label>
+        <div class="row" style="flex-wrap:nowrap;gap:8px"><input type="${secret ? 'password' : 'text'}" readonly id="${id}" value="${esc(val)}" style="flex:1;min-width:0;font-family:var(--font-mono)">
+        ${secret ? `<button class="btn sm" type="button" data-reveal="${id}">Show</button>` : ''}<button class="btn sm pri" type="button" data-copyfield="${id}">Copy</button></div></div>`;
+      modal('Connect the extension', 'Do this once on the computer you use for the portals.',
+        `${row('Solara address', 'exUrl', location.origin, false)}${row('Co-pilot key', 'exKey', k.key, true)}
+         <p class="hint" style="margin:2px 0 12px">This key is shown only now. If you lose it, press Connect extension again to create a new one.</p>
+         <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:5px">
+           <li>Open <span class="mono">chrome://extensions</span>, switch on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the <span class="mono">extension</span> folder.</li>
+           <li>Open <b>Solara co-pilot</b> &rarr; Details &rarr; Extension options. Paste the address and the key, press <b>Save and test</b>.</li>
+           <li>Open a portal. In the Solara panel pick the customer, then press <b>Start</b>.</li></ol>`,
         '<button class="btn" data-close>Done</button>');
     } catch (err) { toast(err.message, true); }
     return;
   }
+  if (t.dataset.copyfield) {
+    const f = $('#' + t.dataset.copyfield); try { await navigator.clipboard.writeText(f.value); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy'; }, 1500); } catch { f.select(); toast('Press Ctrl+C to copy', true); }
+    return;
+  }
+  if (t.dataset.reveal) { const f = $('#' + t.dataset.reveal), hide = f.type === 'text'; f.type = hide ? 'password' : 'text'; t.textContent = hide ? 'Show' : 'Hide'; return; }
   if (t.dataset.themeSet) {
     document.documentElement.setAttribute('data-theme', t.dataset.themeSet);
     try { localStorage.setItem('solara-theme', t.dataset.themeSet); } catch { }
@@ -1466,6 +1517,7 @@ document.addEventListener('change', async e => {
     const cid = S.regCid, kind = e.target.dataset.doc, files = [...e.target.files], busy = ((S.docBusy ||= {})[cid] ||= {});
     const label = (S.regData && S.regData.doc_kinds[kind]) || kind;
     busy[kind] = 'reading'; if (S.view === 'reg') render();
+    busyBar.on(`Reading the ${label.toLowerCase()} with ${readerName()}. Please wait, this takes a few seconds.`);
     const fd = new FormData(); files.forEach(f => fd.append('file', f));
     try {
       const r = await fetch(`/api/registration/${cid}/document?kind=${kind}`, { method: 'POST', body: fd });
@@ -1477,6 +1529,7 @@ document.addEventListener('change', async e => {
       toast(j.extract_error ? j.extract_error : !st ? `${label} saved.`
         : st.missing.length ? `${label} read. Not found: ${st.missing.join(', ')}.` : `${label} read: ${st.got.join(', ')}.`, !!(j.extract_error || (st && st.missing.length)));
     } catch (err) { delete busy[kind]; render(); toast(err.message, true); }
+    finally { busyBar.off(); }
     return;
   }
   if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);
@@ -1488,13 +1541,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 async function uploadBill(file) {
   const fd = new FormData(); fd.append('file', file);
+  busyBar.on(`Reading ${file.name} with ${readerName()}. Please wait, this takes a few seconds.`);
   try {
     const r = await fetch(`/api/documents/${S.docCid}/upload?kind=bill`, { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     toast(`${file.name} stored, parsing it now`);
     S.extract = await api(`/extract/${S.docCid}`, { method: 'POST' });
     render();
-  } catch (err) { toast(err.message, true); }
+  } catch (err) { toast(err.message, true); } finally { busyBar.off(); }
 }
 document.addEventListener('dragover', e => {
   const d = e.target.closest('#drop'); if (!d) return;

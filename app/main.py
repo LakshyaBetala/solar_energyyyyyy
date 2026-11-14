@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from . import (db, drafts, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
                msedcl, pmsg, registration, intake, reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import clean, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
 from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
@@ -40,16 +40,17 @@ async def startup():
         if not db.q("SELECT 1 FROM users"):
             print('  no users yet: python -m app.users add <username> "<Full Name>" supervisor\n')
         return
-    if fresh or not db.q("SELECT 1 FROM documents LIMIT 1"):
+    if not clean() and (fresh or not db.q("SELECT 1 FROM documents LIMIT 1")):
         await docs_gen.generate([c[0] for c in db.CUSTOMERS])  # sample files are for the demo's own customers only
         for c in db.q("SELECT id FROM customers"):
             try:
                 await extract.run(c["id"], use_llm=False)
             except Exception:
                 pass
-    if not db.q("SELECT 1 FROM closeout LIMIT 1"):
-        db.seed_closeout()
-    closeout.demo_assets()
+    if not clean():
+        if not db.q("SELECT 1 FROM closeout LIMIT 1"):
+            db.seed_closeout()
+        closeout.demo_assets()
     print(f"\n  Solara ready -> http://127.0.0.1:8900   (portal sandbox at {PORTAL_URL})")
     print("  sign in: r.deshmukh / s.kale / a.more   password: demo\n")
 
@@ -804,6 +805,16 @@ def registration_put(cid: str, body: dict = Body(...), user=Depends(need("operat
     return registration_get(cid, user)
 
 
+@app.post("/api/registration/{cid}/locate")
+def registration_locate(cid: str, force: bool = False, user=Depends(need("operator"))):
+    """Latitude, longitude and urban/rural from the address, through OpenStreetMap."""
+    hit = registration.locate(_cid(cid), user, force)
+    if not hit:
+        raise HTTPException(404, "the map service found no place for this address; type the latitude and longitude")
+    db.audit(user["username"], user["role"], "Found the premises on the map", cid, hit["accuracy"])
+    return {**hit, "registration": registration_get(cid, user)}
+
+
 @app.post("/api/registration/{cid}/confirm")
 def registration_confirm(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
     try:
@@ -926,6 +937,11 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
         except Exception as ex:  # report it; the fields still fill and the person is told
             build_error = f"Could not generate the signed documents ({type(ex).__name__}). Try again."
             db.audit(user["username"], user["role"], "Document generation failed", cid, type(ex).__name__)
+    if not closeout.data(cid)[1].get("lat"):   # the portal asks for the position: find it once, keep it
+        try:
+            registration.locate(cid, {"username": user["username"]})
+        except Exception:
+            pass   # no map answer: the co-pilot asks the operator instead
     cust, d = closeout.data(cid)
     made = closeout.built(cid)
     fields = [("Consumer name", cust["aadhaar_name"] or cust["name"]), ("Consumer number", cust["consumer_no"]),
@@ -941,6 +957,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"]}.items() if v},
             "issues": registration.validate(cid)["issues"], "build_error": build_error,
             "derived": registration.derived(cid),
+            "cost_options": [str(x) for x in valid.COST_OPTIONS],
             "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
                                              "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]}

@@ -171,7 +171,7 @@ async def main():
         await dash.click('[data-confirm="bill_name"]')                       # owner confirms the bill spelling
         await dash.wait_for_function("!document.querySelector('[data-confirm]')")
         await dash.fill('[data-r="kw"]', "3")                                # from the customer's order
-        await dash.fill('[data-r="rts_cost"]', "210000")
+        await dash.fill('[data-r="rts_cost"]', "200000")
         await dash.fill('[data-r="email"]', "priya.k@example.com")                # the portal verifies it by OTP
         await dash.click("#regSave")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Register')")
@@ -274,13 +274,13 @@ async def main():
         await ven.wait_for_selector("#solaraFilled")
         await shot(ven, "3-agreement-attached")
         check("cost filled and the signed agreement attached",
-              await ven.input_value("#cost") == "210000" and
+              await ven.input_value("#cost") == "200000" and
               await ven.evaluate("document.querySelector('#agreementCopy').files.length") == 1)
         await ven.click("#btnSubmitAgreement")                               # owner
         await ven.wait_for_selector("text=Agreement updated successfully")
         up = db.one("SELECT * FROM pmsg_vendor WHERE application_no=?", (app_no,))
         check("the portal received the agreement as a PDF under 2 MB with the cost",
-              up["cost"] == "210000" and up["agreement_file"].endswith(".pdf") and up["agreement_bytes"] < 2 * 1024 * 1024,
+              up["cost"] == "200000" and up["agreement_file"].endswith(".pdf") and up["agreement_bytes"] < 2 * 1024 * 1024,
               f"{up['agreement_file']} {up['agreement_bytes'] // 1024} KB")
         await ven.wait_for_selector("#solaraMarkUploaded", timeout=20000)
         await ven.click("#solaraMarkUploaded")

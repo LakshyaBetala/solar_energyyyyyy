@@ -35,11 +35,11 @@ load_env()
 
 
 def llm_status():
-    """AI is off unless SOLARA_USE_AI=1 is set AND a key is present. With it on, the bill and the
+    """AI is used when a key is in .env (a key is the opt-in); SOLARA_USE_AI=0 switches it off. With it on, the bill and the
     Aadhaar are read by the model on upload (Gemini first); the rules and the Aadhaar QR still run
     first and a value they read cleanly is not overwritten."""
     load_env()
-    if os.environ.get("SOLARA_USE_AI", "").lower() not in ("1", "true", "yes"):
+    if os.environ.get("SOLARA_USE_AI", "").lower() in ("0", "false", "no", "off"):
         return {"enabled": False, "provider": None, "model": None}
     if os.environ.get("GEMINI_API_KEY"):
         return {"enabled": True, "provider": "gemini",

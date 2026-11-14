@@ -686,3 +686,28 @@ a.btn{text-decoration:none}
 :root:not([data-theme="dark"]) .gatecard h1{font-size:24px;font-weight:700}
 :root:not([data-theme="dark"]) table{font-size:13.5px}
 :root:not([data-theme="dark"]) ::-webkit-scrollbar-thumb{background:#D0D5DD}
+
+/* ---- processing bar (document being read) ---- */
+#busyBar{position:fixed;top:0;left:0;right:0;z-index:95;height:0;pointer-events:none}
+#busyBar .bsweep{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--amber),transparent);background-size:40% 100%;background-repeat:no-repeat;opacity:0;animation:bsweep 1.2s linear infinite}
+#busyBar .bpill{position:absolute;top:12px;left:50%;transform:translate(-50%,-80px);display:flex;align-items:center;gap:10px;background:var(--panel);color:var(--fg);
+  border:1px solid var(--line);border-radius:99px;padding:9px 18px;font-size:13px;font-weight:550;box-shadow:0 10px 30px -10px rgba(16,24,40,.3);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-width:calc(100% - 24px)}
+#busyBar.show .bsweep{opacity:1}
+#busyBar.show .bpill{transform:translate(-50%,0)}
+#busyBar .bsec{color:var(--fg-faint);font-variant-numeric:tabular-nums;font-weight:500}
+#busyBar .bspin{width:14px;height:14px;border-radius:50%;border:2px solid var(--amber-soft);border-top-color:var(--amber);animation:bspin .8s linear infinite;flex:0 0 auto}
+@keyframes bsweep{from{background-position:-40% 0}to{background-position:140% 0}}
+@keyframes bspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){#busyBar .bsweep,#busyBar .bspin{animation:none}}
+
+/* ---- what is still missing ---- */
+.missbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bad-soft);color:var(--bad);font-size:13px}
+.missbar b{margin-right:4px}
+.missbar button{border:1px solid currentColor;border-radius:99px;padding:3px 11px;background:var(--panel);color:var(--bad);font-weight:600;font-size:12.5px}
+.missbar button:hover{background:var(--bad);color:#fff}
+.field.miss label{color:var(--bad)}
+.field.miss input,.field.miss select{border-color:var(--bad)!important;box-shadow:0 0 0 3px var(--bad-soft)!important}
+.field input.flash{animation:flashin 1.6s ease-out}
+@keyframes flashin{0%,40%{box-shadow:0 0 0 6px var(--bad-soft)}100%{box-shadow:0 0 0 0 transparent}}
+
+:root:not([data-theme="dark"]) #mtitle{text-transform:none;letter-spacing:0;font-size:18px;font-weight:650}

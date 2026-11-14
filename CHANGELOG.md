@@ -185,3 +185,85 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - Light is now the default theme (dark is still one click away); the choice is applied before first paint so there is no flash.
 - `web/styles.css`: a closing override layer gives a minimal, modern look: Inter typeface, white cards with hairline borders and soft shadows, 10 to 14 px rounded corners, one indigo accent, sentence-case labels instead of uppercase, quiet side rail with a soft active state, separate KPI tiles, rounded pills, calm form fields with a focus ring. No markup or script changed beyond the theme default; the dark theme is untouched.
 - `web/index.html`: Inter font added.
+
+### Processing bar, missing highlights, and a faster, fuller co-pilot (uncommitted)
+- **Solara web:** a slim bar at the top ("Reading the electricity bill with Gemini… 7s") shows while a bill or Aadhaar is being read, on both the Registration and Documents uploads. A red "Still missing" bar lists what the customer still needs (consumer number, name, mobile, capacity); each chip jumps to the field and flashes it, and empty required fields glow red.
+- **Co-pilot, customer first:** it asks "Fill this page for:" and only then fills; a "FILLING FOR <name>" header stays on every page with a Change link. The customer's data is fetched the moment they are picked and kept for the tab, so the first page fills at once.
+- **Co-pilot, missing data:** a document Solara does not have (passbook, roof photos) is outlined red on the portal and offered in the bottom popup with a file picker; the chosen file is attached to the portal's box.
+- **Co-pilot, forward button (opt-in):** after a page is filled it shows "Looks right: press <Save and continue / Upload / Next / Submit>". With the new option "Press Save and continue / Upload / Next / Submit for me" it presses it itself, but only when nothing is missing, the popup is empty, the OTP and CAPTCHA are typed and any declaration is ticked by the person. It never types the OTP or CAPTCHA and never ticks a consent box. Off by default.
+- `tests/k1_complete.py` safety check updated for the new button (still limited to the card, Yes, Fetch Details and the gated forward button). Browser tests could not run (Playwright's Chromium is missing).
+- `.env` with a Gemini key is now used: AI turns on when a key is present (set `SOLARA_USE_AI=0` to switch off). A bill read took about 19 s and an Aadhaar about 8 s on the first try.
+
+### Installation cost list, extension options page, "Connect extension" (uncommitted)
+- **Installation cost is limited to the vendor's price list:** 125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000 (`valid.COST_OPTIONS`). On the Registration form the field is a dropdown you can also type in; a typed value that is not on the list is refused with the list shown, in the browser and again on the server (400). Decimals are gone. The Close-out page uses the same list as a dropdown. The extension's popup offers the nine amounts as chips when a portal asks for a cost Solara lacks. `registration.quotes()` falls back to this list when there is no quotation folder. Seed customers and the tests were moved onto listed amounts.
+- **`extension/options.html` and `options.js` redesigned:** a clean card layout, a Connection card (address, key with Show/Hide, "Save and test"), and three switches that save as you flip them (fill on open, answer Yes to vendor-fills, press Save/Upload/Next/Submit for me), plus a short first-time guide.
+- **Solara: "Connect extension" button in the top bar** opens a window with the address and a new key, each with Copy (and Show for the key), and the three setup steps. The key is shown once.
+- `tests/validation.py`: cost tests rewritten for the list; the "AI off by default" test now checks that `SOLARA_USE_AI=0` switches it off.
+
+### Co-pilot fills one field at a time, with a toast, and the CA number bug (uncommitted)
+- **Bug fixed: the Consumer Account Number was not filled.** The portal re-draws that input whenever State, District or the distribution company changes, so the co-pilot was holding a dead copy of the field. Fields are now found again by meaning at the moment they are filled, and re-filled after any later dropdown change (including a district chosen in the bottom popup, followed by Fetch Details again).
+- **Fills one by one, slowly:** each field is scrolled into view, dropdowns are picked with a pause, and text such as the consumer number is typed character by character. A toast at the top reads "Filling State (1 of 3)", "Filling Consumer Account Number (3 of 3)", "Pressing Fetch Details…".
+- **Closing toast:** "All filled. Press Next to continue." with the Next button ringed in green; if something is missing it names it ("District still to fill in the box below"); if Fetch Details must be pressed first it says so and rings that button; if the portal has no data for the number it says so.
+- **Race fixed:** reading the dropdown lists (for suggestions) no longer opens lists while the automatic fill is running.
+- Checked against a copy of the "Start a new Application" dialog built from the user's screenshot (including the field re-draw), not on the real portal (the session had ended).
+
+### Island, paced fill order, and placement options (uncommitted)
+- **Fill order on "Start a new Application":** State, District and the distribution company first, then a deliberate pause ("The portal needs a moment. The consumer number is next…", 1.8 s), then the Consumer Account Number typed in, then **Fetch Details** pressed (now whenever the co-pilot has just typed the number, not only in a Start run). Measured on a copy of the dialog: 0.2 s State, 1.1 s District, 2.1 s Company, 3.1 s wait, 4.9 s consumer number, 5.6 s Fetch, 7.1 s "Press Next".
+- **Dynamic island** replaces the toast: a dark pill at the top that shrinks to "● Solara · <customer>" when idle, grows with a spring animation and a progress bar while filling, and turns into a green "All filled. Press Next to continue." or an amber warning.
+- **Options page, "Where things appear":** island top/bottom and left/centre/right, panel top/bottom and left/right, and the distance from the edge (0 to 120 px). Applied live; the bottom help box always sits on the opposite side of the panel.
+
+### Bento island, a fixed rule for "Start a new Application", no more refresh clicks (uncommitted)
+- **The island is the whole interface.** Collapsed it is a small frosted-glass pill; a click opens a bento grid: who you are filling for (with Change), the steps (State, District, Company, Consumer no., Fetch, Ready) with live state, four value tiles (State, District, Company, Consumer no.) that turn green when confirmed, and buttons: Fill now, Retry, Fetch Details, Next, More. When no customer is chosen it shows a picker. The old side panel is hidden by default (options: "Show the classic side panel"; "More" in the island also shows it).
+- **Apple-style look:** system font, frosted glass, 32 px corners, spring animation, SF-like colours (blue, green, orange).
+- **A fixed rule for the "Start a new Application" box** (`startAppPlaybook`): it starts by itself as soon as that box opens, for the customer you picked, with no refresh click. Order: State, District (from Solara, else the one named in the address, else you choose in the box below), Company, a pause, the Consumer Account Number, Fetch Details. Every step is checked and retried up to three times; at the end it re-checks everything (the portal clears the consumer number when a dropdown changes) and fixes what is missing, then shows "All set. Press Next" and rings Next. Opt-in "press for me" presses Next too.
+- **Real mouse clicks** (pointer down/up and click) for Fetch Details and Next, retried and confirmed by the "Consumer Details" panel appearing.
+- Measured on a copy of the dialog opened by hand after the co-pilot loaded. Timings in a hidden browser tab are slower because Chrome throttles timers there.
+
+### Fix: the "Start a new Application" rule looped (uncommitted)
+- Cause: the portal re-draws the dialog after each step, and the rule treated every re-drawn dialog as a new one, so it started again and again.
+- Fix: once the rule has finished (done or failed) it stays finished for that opening of the box. It runs again only when you press **Retry** in the island (or the refresh icon), or when the box has been closed for about 3 seconds and opened again. A page change no longer restarts it.
+- Checked on a copy of the dialog: one run, then the dialog was re-drawn and the page address changed twice over 22 s with no new run; Retry started a second run.
+
+### Calm, fast, and it waits for the person (uncommitted)
+- **Stops and waits.** When the "Start a new Application" rule has filled everything it says "Filled. Check it, then press Next when you are ready. I will wait." and does nothing more: no clicks, no typing, no page changes, no re-checks. It never presses Next unless "Press for me" is on. It runs again only on Retry, or after the box has been closed and reopened.
+- **No loops, no flicker.** The page watcher ignores the co-pilot's own changes and does nothing while a run is active or finished; a run cannot start more than once every 20 s on its own; the island batches its drawing and plays its entrance animation once (it was replaying on every update, which looked like constant refreshing); a hands-free fill on an ordinary page runs once per page.
+- **Aggressive and fast by default.** A new Speed setting (Instant / Fast / Smooth, default Fast): faster typing, shorter pauses and quicker dropdown polling. Measured on a copy of the dialog: State, District, Company, consumer number, Fetch Details and the final check in about 2.8 s, then zero page changes for the next 16 s; a number edited by hand afterwards is left alone.
+
+### Position from the bill's address; the next screen fills itself (uncommitted)
+- `app/registration.py` `locate`: Urban/Rural, position, urban body and taluka now come from the electricity bill's billing address, PIN and district; the Aadhaar's address is only the fallback.
+- `extension/panel.js`: after Next, it waits 2 seconds and fills the next screen on its own; no Fill button to press. This also works inside the 10-minute quiet period after the first box.
+
+### Portal lists for Urban local body and Taluka (Pune district) (uncommitted)
+- `app/geo.py`: the portal's 22 urban local bodies and 13 talukas. A map hint or a typed value is kept only if it is a sure match to one (Pimpri-Chinchwad becomes Pimpri Chinchwad, Haveli Subdistrict becomes Haveli); otherwise nothing is guessed. Solara shows them as dropdowns. The village panchayat has no list in Solara: the extension matches the customer's Solara value or one name in the address against the portal's list, else asks the person to choose.
+
+### New: boxes that appear after Urban / Rural; the portal's own errors shown (uncommitted)
+- Urban shows "Urban Local Body Name"; Rural shows "Development Block / Taluka" and "Village Panchayat". Rules, Solara fields (`ulb`, `taluka`, `panchayat`, map hint from OpenStreetMap) and a re-look in the co-pilot (up to 4 passes) that fills them or asks with the portal's own list.
+- `extension/panel.js`: the portal's red messages (e.g. "must be filled", "capacity is more than the sanctioned load") are read and shown in the island as "The portal says"; if Next is refused it shows why and does not wait for a new screen.
+
+### New: gender, urban/rural, residence category, latitude/longitude, next-screen fill (uncommitted)
+- `app/geo.py` (new): latitude, longitude and Urban/Rural from the address through OpenStreetMap Nominatim (no key; the address is sent to that service). `registration.locate`, `POST /api/registration/{cid}/locate`; the co-pilot lookup finds it once when a customer has none.
+- `app/valid.py`: `choice` (Gender, Urban/Rural, Residential (usual method) / Residential Welfare Association) and `coord` (inside India). `closeout.FIELDS`: gender, location_type, residence_category, lat, lng. `registration.values`: gender from the Aadhaar unless changed, `category` is now the portal's residence category (default Residential (usual method)).
+- `web/app.js`: those fields in "Details for the portal", and a "Find latitude and longitude from the address" button.
+- `extension/panel.js`: rule for "Type of Location"; latitude/longitude boxes the portal greys out are still filled; the screens of the application form are recognised by their fixed headings; pressing Next (by anyone) waits for the next screen, asks Solara again and fills it.
+
+### Hardening: the fill can run only once per Start box (uncommitted)
+- `extension/panel.js`: instead of timing guesses, a run is tied to the box itself. Each Start-a-new-Application box (page node) is run once (`handled`); the same customer is not run again within 3 minutes even if the portal rebuilds the box (`solaraRun:<id>` lock); Fetch Details at most once per 10 minutes.
+- Only the newest copy of the script on a page may act (owner marker); an older copy left by an extension reload stops mid-run.
+- Pressing Retry, the refresh icon, or choosing a customer in the island clears the locks, so a deliberate re-run still works.
+
+### Fix: no more "needs your help" popup for fields Solara has no rule for (uncommitted)
+- `extension/panel.js`: the header's "Raise a Query" menu was asked about on every page. Only fields Solara has a rule for, and no data, are asked about now; menus and unknown boxes are ignored.
+
+### Fix: the fill ran a second time right after the first finished (uncommitted)
+- Found by reading the user's screen recording frame by frame: after the details appeared, the island went back to "Filling State…" and pressed Fetch again.
+- Cause: the watcher, its timer and the page-change scan could all start the flow at once; the late ones were still waiting for Solara when the first finished, then ran it again. `startModalFlow` now lets one start at a time and re-checks "finished / box closed" after each wait.
+
+### Fix: Fetch Details pressed again after the details filled; Search box prompt (uncommitted)
+- `extension/panel.js`: the once-only guard for Fetch Details was per page address, so when the portal changed its address after Fetch the generic filler pressed Fetch again (rate-limit risk). It is now once per tab per 10 minutes, also counting the Fetch the playbook pressed. The generic filler stays out for 10 minutes after the playbook ran.
+- Search / filter boxes are never filled and never asked about (no more yellow "missing field" for Search).
+
+### Fix: the loop on the real portal; stop after Fetch Details (uncommitted)
+- **Cause of the loop:** when the "Start a new Application" box opened and no customer was chosen, the co-pilot asked Solara "who is this for?" again every 1.5 s and redrew the island each time. It now asks once per opening of the box and waits for the answer (also when Solara cannot be reached: it says so and waits for Retry). The watcher does nothing while a question is open, only looks for a box when one exists, and the island leaves the page alone when its content has not changed.
+- **After Fetch Details it stops.** The "check and fix, up to three rounds" loop after Fetch is gone. The only re-check is one look just before pressing Fetch (the portal clears the consumer number when a dropdown changes). After Fetch, Next is pressed only if "Press Save, Upload, Next and Submit for me" is on in the options; otherwise it waits.
+- Checked on a copy of the dialog: no customer chosen: one question in 12 s (was one every 1.5 s); after choosing: Fetch pressed once, Next pressed 0 times, "I will wait"; with the permission on: Fetch once, Next once.
+- Server restarted.

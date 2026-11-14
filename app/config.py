@@ -29,6 +29,12 @@ ROLES = {"viewer": 0, "operator": 1, "supervisor": 2}
 MAX_UPLOAD_KB = 300  # MSEDCL rooftop portal: PDF only, 300 KB per file
 
 
+def clean():
+    """SOLARA_CLEAN=1: sandbox portals as usual, but no sample customers, documents or calls; only the three sign-in users."""
+    import os
+    return os.environ.get("SOLARA_CLEAN", "").lower() in ("1", "true", "yes")
+
+
 def live():
     """SOLARA_MODE=live: no demo data, and the links open the real portals."""
     import os

@@ -149,7 +149,7 @@ async def main():
     check("replacing the corrected document asks for the check again", f["bill_name"]["status"] == "review")
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]})
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_mobile", "value": "9876543211"})
-    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "210000", "email": "k1.customer@example.test"}).raise_for_status()
+    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "200000", "email": "k1.customer@example.test"}).raise_for_status()
     g = sup.get(f"/api/registration/{cid}").json()
     check("once corrected and complete, nothing blocks the portal fill",
           not g["validation"]["blocking"] and g["next"]["act"] == "register", str(g["validation"]["issues"]))
@@ -210,7 +210,7 @@ async def main():
     snap = closeout.snapshot_html(tok1, "agreement", cid)
     check("the exact version sent is kept, encrypted", snap is not None and snap == closeout.unsigned_html("agreement", cid)
           and snap.encode() not in Path(closeout.snapshot_path(tok1, "agreement", cid)).read_bytes())
-    sup.put(f"/api/registration/{cid}", json={"rts_cost": "230000"})
+    sup.put(f"/api/registration/{cid}", json={"rts_cost": "220000"})
     out = sign(s1["url"], fx.NEW["consumer_no"][-4:])
     check("a change after sending stops the signature; nothing is signed", "changed after this link" in out)
     check("no approval was recorded for the changed document", not db.one("SELECT 1 FROM approvals WHERE customer_id=?", (cid,)))
@@ -222,7 +222,7 @@ async def main():
         pub.post(s2["url"] + "/verify", data={"digits": fx.NEW["consumer_no"][-4:]})
         shown = pub.get(s2["url"] + "/doc/agreement").text
     # a phone viewport is prepended to the response only; the kept copy itself follows byte for byte
-    check("the customer is shown the kept copy", shown.endswith(closeout.snapshot_html(tok2, "agreement", cid)) and "Rs 230000" in shown)
+    check("the customer is shown the kept copy", shown.endswith(closeout.snapshot_html(tok2, "agreement", cid)) and "Rs 220000" in shown)
     check("the customer e-signs the current version", "signed" in sign(s2["url"], fx.NEW["consumer_no"][-4:]))
     ap = db.one("SELECT * FROM approvals WHERE customer_id=?", (cid,))
     rq = db.one("SELECT * FROM sign_requests WHERE token=?", (tok2,))
@@ -388,10 +388,11 @@ async def main():
     rest = code.replace(pick.group(0), "") if pick else code
     card = re.search(r"function openApplyCard\(\w*\) \{.*?\n  \}\n", rest, re.S)   # opens one page; never submits
     rest = rest.replace(card.group(0), "") if card else rest
+    rest = re.sub(r"const realClick = [^\n]*\n", "", rest)   # the one mouse-click helper, used only for the non-submitting buttons and the opt-in forward button
     PRESS_BLOCK = code[code.index("const PRESS = {"):code.index("function openApplyCard")]
     presses = set(re.findall(r"^    (\w+): \{ find:", code, re.M))   # the only buttons ever pressed for the owner
-    check("the extension presses only three non-submitting buttons: the card, the vendor Yes, Fetch Details",
-          presses == {"card", "vendor", "fetch"} and "submit" not in PRESS_BLOCK.lower(), str(presses))
+    check("the extension presses only the card, the vendor Yes, Fetch Details, and (opt-in, fully filled pages only) the forward button",
+          presses == {"card", "vendor", "fetch", "forward"} and "autoSubmit" in code and "readyToPress" in code, str(presses))
     clicks = re.findall(r"(\w+(?:\[0\])?)\.dispatchEvent\(new MouseEvent", pick.group(0)) if pick else []
     sels = re.search(r"const boxOf = .*?\n", code).group(0) + re.search(r"const OPTS = .*?\n", code).group(0)
     check("the extension never clicks, submits or ticks anything on a portal (only a dropdown and its option)",
