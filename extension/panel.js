@@ -57,7 +57,7 @@
     [/module (technology|type)|panel type/, 'module_type'],
     [/total cost|cost of rts|installation cost|project cost|quotation amount/, 'rts_cost'],
   ];
-  const FILES = [[/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
+  const FILES = [[/quotation|quote/, 'quotation'], [/agreement/, 'agreement'], [/bill/, 'bill'], [/aadhaar|identity/, 'aadhaar'],
                  [/passbook|bank|cheque/, 'passbook'], [/roof|site photo|pre ?installation/, 'roof']];
 
   // anything the person changed with their own keyboard or mouse is theirs: isTrusted is false for our events
@@ -258,7 +258,7 @@
 
   async function attach(input, msg) {
     const f = await ask(msg);
-    if (!f || !f.ok) return false;
+    if (!f || !f.ok) { attach.err = (f && f.error) || ''; return false; }
     const bin = Uint8Array.from(atob(f.b64), ch => ch.charCodeAt(0));
     const dt = new DataTransfer();
     dt.items.add(new File([bin], f.name, { type: f.type || 'application/pdf' }));
@@ -503,7 +503,7 @@
     }
     return b;
   };
-  const FILE_NAMES = { bill: 'Electricity bill', aadhaar: 'Aadhaar', passbook: 'Bank passbook', roof: 'Roof photographs', agreement: 'Signed agreement' };
+  const FILE_NAMES = { bill: 'Electricity bill', aadhaar: 'Aadhaar', passbook: 'Bank passbook', roof: 'Roof photographs', agreement: 'Signed agreement', quotation: 'Quotation' };
   const fbInput = 'flex:1;min-width:0;padding:8px;border-radius:6px;border:0;color:#04150D;font-size:15px';
   function showFallback(c) {
     const box = fbBox();
@@ -1035,11 +1035,13 @@
       for (const { el, kind } of files) {
         if (kind === 'agreement' && !agreementReady) { left.push('agreement (not signed yet)'); continue; }
         if (el.files && el.files.length) { kept += 1; continue; }   // a file you chose stays
-        const ok = kind === 'agreement' ? await attach(el, { type: 'file', cid: c.customer_id, key: 'agreement' })
+        attach.err = '';
+        const ok = kind === 'quotation' ? await attach(el, { type: 'draft', cid: c.customer_id, kind: 'quotation' })
+          : kind === 'agreement' ? await attach(el, { type: 'file', cid: c.customer_id, key: 'agreement' })
           : c.docs.includes(kind) && await attach(el, { type: 'doc', cid: c.customer_id, kind });
         if (ok) attached += 1;
         else {
-          left.push(kind + (c.docs.includes(kind) || kind === 'agreement' ? ' (could not be fetched from Solara)' : ' (not on file)'));
+          left.push(kind + (attach.err ? ` (${attach.err})` : c.docs.includes(kind) || kind === 'agreement' ? ' (could not be fetched from Solara)' : ' (not on file)'));
           el.style.outline = '2px solid #F2A6A0';
           fallbackItems.push({ type: 'file', el, key: null, label: FILE_NAMES[kind] || kind, why: 'not in Solara: choose the file' });
         }

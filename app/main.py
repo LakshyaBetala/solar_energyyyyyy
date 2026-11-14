@@ -690,6 +690,10 @@ def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
 @app.get("/api/registration/{cid}/draft/{kind}")
 def registration_draft(cid: str, kind: str, user=Depends(need("operator"))):
     """The agreement (PDF) or the quotation (Word), filled into the client's templates."""
+    return _draft(cid, kind, user)
+
+
+def _draft(cid, kind, user):
     c, d = closeout.data(_cid(cid))
     if not (c["name"] and c["address"]):
         raise HTTPException(400, "the customer's name and address are needed first: upload the bill")
@@ -997,6 +1001,12 @@ def portal_jpeg(blob, name, limit):
             break
     stem = name.rsplit(".", 1)[0]
     return out.getvalue(), stem + ".jpg", "image/jpeg"
+
+
+@app.get("/api/copilot/draft/{cid}/{kind}")
+def copilot_draft(cid: str, kind: str, user=Depends(copilot_user)):
+    """The same two documents, for the portal's upload boxes."""
+    return _draft(cid, kind, user)
 
 
 @app.get("/api/copilot/file/{cid}/{key}")

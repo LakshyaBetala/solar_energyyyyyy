@@ -229,6 +229,9 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - **No loops, no flicker.** The page watcher ignores the co-pilot's own changes and does nothing while a run is active or finished; a run cannot start more than once every 20 s on its own; the island batches its drawing and plays its entrance animation once (it was replaying on every update, which looked like constant refreshing); a hands-free fill on an ordinary page runs once per page.
 - **Aggressive and fast by default.** A new Speed setting (Instant / Fast / Smooth, default Fast): faster typing, shorter pauses and quicker dropdown polling. Measured on a copy of the dialog: State, District, Company, consumer number, Fetch Details and the final check in about 2.8 s, then zero page changes for the next 16 s; a number edited by hand afterwards is left alone.
 
+### Agreement and quotation uploaded by the extension (uncommitted)
+- `app/main.py`: `GET /api/copilot/draft/{cid}/{kind}` (same documents as the Solara buttons, one shared `_draft`). `extension/background.js` fetches it; `extension/panel.js` recognises an upload box labelled Quotation and attaches the quotation (Word file, made from the chosen installation cost's template); the agreement is attached as before once it is signed. A reason (e.g. "pick the installation cost first") is shown when a file cannot be made.
+
 ### Position from the bill's address; the next screen fills itself (uncommitted)
 - `app/registration.py` `locate`: Urban/Rural, position, urban body and taluka now come from the electricity bill's billing address, PIN and district; the Aadhaar's address is only the fallback.
 - `extension/panel.js`: after Next, it waits 2 seconds and fills the next screen on its own; no Fill button to press. This also works inside the 10-minute quiet period after the first box.
