@@ -5,7 +5,7 @@
 - the bank quotation: the Word file in the quotation folder for the chosen installation cost, with the date,
   the customer's name and their place changed; the outward number is kept as it is.
 
-The templates are the client's files and stay out of the repository (it is public); their folders are found
+The templates are the client's files, kept in the repository ("agreement draft/", "Quoatation (all range)/"); their folders are found
 beside the code, or through SOLARA_AGREEMENT_DIR and SOLARA_QUOTES_DIR.
 """
 import html, io, os, re, zipfile
