@@ -342,27 +342,16 @@ def QUOTES_DIR():
 def quotes():
     """The installation-cost choices: one per quotation in the client's quotation folder, named by its amount
     ("Bank Quotation - 125000.docx"). Read from disk, never written into the code: the repo is public.
-    [{"amount": "125000", "inverter_kw": "3", "file": "..."}], cheapest first; [] when there is no folder."""
+    [{"amount": "125000", "file": "..."}], cheapest first; the standard amounts when there is no folder."""
     folder = QUOTES_DIR()
     files = sorted(folder.glob("*.docx")) if folder.is_dir() else []
     key = tuple((p.name, p.stat().st_mtime) for p in files)
     if key not in _QUOTES:
-        import zipfile
-        out = []
-        for p in files:
-            m = re.search(r"(\d{5,7})", p.stem)
-            if not m:
-                continue
-            try:
-                xml = zipfile.ZipFile(p).read("word/document.xml").decode("utf-8", "ignore")
-                kw = re.search(r"Inverter[^<(]*\((\d+(?:\.\d+)?)\s*kW\)", re.sub(r"<[^>]+>", "", xml))
-            except Exception:
-                kw = None
-            out.append({"amount": m.group(1), "inverter_kw": kw.group(1) if kw else None, "file": p.name})
+        out = [{"amount": m.group(1), "file": p.name} for p in files if (m := re.search(r"(\d{5,7})", p.stem))]
         _QUOTES.clear()
         _QUOTES[key] = sorted(out, key=lambda q: int(q["amount"]))
     out = _QUOTES[key]
-    return out or [{"amount": str(a), "inverter_kw": None, "file": None} for a in valid.COST_OPTIONS]
+    return out or [{"amount": str(a), "file": None} for a in valid.COST_OPTIONS]
 
 
 def delete_customer(cid, user):

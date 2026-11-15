@@ -171,6 +171,24 @@ def _set_span(par, pattern, new, group=0):
     return "".join(out) + par[last:], True
 
 
+FLAT = '<w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>'
+# what may follow <w:spacing> inside <w:pPr>, in the order the Word schema requires
+_AFTER_SPACING = ("ind", "contextualSpacing", "mirrorIndents", "suppressOverlap", "jc", "textDirection",
+                  "textAlignment", "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange")
+
+
+def _flatten(par):
+    """The same paragraph, 1 pt high: its line spacing set to exactly 1 pt, nothing before or after."""
+    if re.search(r"<w:spacing\b[^>]*/>", par):
+        return re.sub(r"<w:spacing\b[^>]*/>", FLAT, par, count=1)
+    m = re.search(r"<w:pPr>(.*?)</w:pPr>", par, flags=re.S)
+    if not m:
+        return re.sub(r"(<w:p\b[^>]*>)", r"\1<w:pPr>" + FLAT + "</w:pPr>", par, count=1)
+    body = m.group(1)
+    at = min([j for t in _AFTER_SPACING if (j := body.find(f"<w:{t}")) >= 0] or [len(body)])
+    return par[:m.start(1)] + body[:at] + FLAT + body[at:] + par[m.end(1):]
+
+
 def _esc(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -202,6 +220,13 @@ def quotation_docx(template, name, place, when=None):
     lines = [i for i in range(to + 1, len(pars)) if _plain(pars[i].group(0)).strip()][:2]
     for i, value in zip(lines, (name, place)):
         new[i] = _set_span(pars[i].group(0), r"\S(?:.*\S)?", value)[0]
+    # The white "GST NO." line sits on the letterhead's green banner, 9 pt above its bottom edge. A blank
+    # line above it (two of the nine templates have one, holding only leftover picture definitions) pushes it
+    # half off the banner, where white on white vanishes. Those lines are kept but made 1 pt high.
+    gst = next((i for i, p in enumerate(pars) if "GST NO" in _plain(p.group(0))), None)
+    for i in range(gst or 0):
+        if not _plain(pars[i].group(0)).strip() and "<w:sectPr" not in pars[i].group(0):
+            new[i] = _flatten(pars[i].group(0))
     out, last = [], 0
     for i, p in enumerate(pars):
         if i in new:

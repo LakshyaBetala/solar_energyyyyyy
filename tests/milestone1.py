@@ -171,7 +171,7 @@ async def main():
         await dash.click('[data-confirm="bill_name"]')                       # owner confirms the bill spelling
         await dash.wait_for_function("!document.querySelector('[data-confirm]')")
         await dash.fill('[data-r="kw"]', "3")                                # from the customer's order
-        await dash.fill('[data-r="rts_cost"]', "200000")
+        await dash.select_option('[data-r="rts_cost"]', "200000")
         await dash.fill('[data-r="email"]', "priya.k@example.com")                # the portal verifies it by OTP
         await dash.click("#regSave")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Register')")

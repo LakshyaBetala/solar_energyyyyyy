@@ -192,6 +192,15 @@ _out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dig
 _lines = [_re.sub(r"<[^>]+>", "", q) for q in _re.findall(r"<w:p[ >].*?</w:p>", _out)]
 check("the quotation gets the date, the name and the place; the outward number and the rest stay",
       _lines == ["Outward no. x/2026/13/01   Date : 14.11.2026", "To,", "ASHA D SAMPLE", "Dighi, Pune", "A &amp; B"], str(_lines))
+# a blank line above "GST NO." (as in two templates) is made 1 pt high, so the white text stays on the banner
+_gst = _body.replace("<w:body>", '<w:body><w:p><w:pPr><w:spacing w:after="0" w:line="276"/></w:pPr><w:r><w:pict/></w:r></w:p>'
+                     '<w:p><w:r><w:t>GST NO. 27XXXXX</w:t></w:r></w:p>')
+with _zf.ZipFile(_tmp, "w") as _z:
+    _z.writestr("word/document.xml", _gst)
+_out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dighi, Pune"))).read("word/document.xml").decode()
+_first = _re.findall(r"<w:p[ >].*?</w:p>", _out)[0]
+check("a blank line above the GST number is flattened, its picture kept",
+      drafts.FLAT in _first and "<w:pict/>" in _first and 'w:line="276"' not in _first, _first[:120])
 
 sup.post("/api/demo/reset")
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

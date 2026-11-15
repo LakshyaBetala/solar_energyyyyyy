@@ -352,7 +352,7 @@ async def main():
         now = await pg.evaluate("document.querySelector('#r_kw').closest('.field').classList.contains('miss')")
         case("M4", "details form", "type 3 into the highlighted capacity box", "the 'missing' highlight goes as soon as it has a value",
              was and not now, (was, now))
-        await pg.fill("#r_rts_cost", "200000")
+        await pg.select_option("#r_rts_cost", "200000")
         shown = await pg.inner_text("#h_rts_cost")
         case("M5", "details form", "type 200000 as the cost", "read back as Rs 2,00,000 (a missed zero shows)", shown == "Rs 2,00,000", shown)
         look = await pg.evaluate("""() => { const s = [...document.querySelectorAll('.rgpane > .rgsec')];
