@@ -701,7 +701,10 @@ def _draft(cid, kind, user):
         if kind == "agreement":
             if not d.get("rts_cost"):
                 raise HTTPException(400, "pick the installation cost under Details first: the agreement prints it")
-            blob, ext, mime = drafts.agreement_pdf(c["name"], c["address"], cost=d["rts_cost"]), "pdf", "application/pdf"
+            sig = closeout.signature("consumer_upload", c["id"])
+            blob = drafts.agreement_pdf(c["name"], c["address"], cost=d["rts_cost"],
+                                        sign=vault.read(Path(sig["path"])) if sig else None)
+            ext, mime = "pdf", "application/pdf"
         elif kind == "quotation":
             q = next((q for q in registration.quotes() if d.get("rts_cost") and float(q["amount"]) == float(d["rts_cost"])), None)
             if not q:
@@ -715,6 +718,19 @@ def _draft(cid, kind, user):
     db.audit(user["username"], user["role"], f"Made the {kind}", cid, "")
     name = f"{kind}_{cid}_{(c['name'] or '').replace(' ', '_')}.{ext}"
     return Response(blob, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/registration/{cid}/signature")
+def registration_signature(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    """The customer's signature, from a photo cropped in the browser; it goes on the agreement's Sign line."""
+    c, _ = closeout.data(_cid(cid))
+    try:
+        png = closeout.png_from_upload(body.get("image"))
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    closeout.save_signature("consumer_upload", png, c["name"] or "", cid)
+    db.audit(user["username"], user["role"], "Added the customer's signature", cid, "photo, cropped")
+    return registration_get(cid, user)
 
 
 @app.delete("/api/customers/{cid}")
@@ -743,6 +759,7 @@ def registration_get(cid: str, user=Depends(current)):
                                  customer_id=? AND kind NOT LIKE 'co_%'""", (cid,)),
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
+            "customer_sign": (lambda s: closeout._sig_img(s) if s else None)(closeout.signature("consumer_upload", cid)),
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
             "suggest": registration.suggest(cid), "llm": extract.llm_status(), "quotes": registration.quotes(),
             "doc_status": registration.doc_status(cid),

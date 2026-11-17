@@ -827,6 +827,9 @@ VIEWS.reg = () => {
         ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
       : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
       ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
+    <div class="field" style="grid-column:1/-1"><label>Customer's signature <span class="sub">(goes on the agreement's Sign line)</span></label>
+      <div class="row" style="gap:12px;align-items:center">${g.customer_sign ? `<img src="${g.customer_sign}" alt="The customer's signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet: upload a photo of it</span>'}
+      <label class="btn sm">${g.customer_sign ? 'Replace' : 'Upload a photo of the signature'}<input type="file" id="signFile" accept="image/*" hidden${op}></label></div></div>
     <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button>
       <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude from the address</button>
       ${regDraftLink(g, 'agreement', 'Make the agreement (PDF)')}${regDraftLink(g, 'quotation', 'Make the quotation (Word)')}</div>`, !stepDone('details') || ['check', 'details'].includes(act));
@@ -1006,6 +1009,68 @@ VIEWS.closeout = () => {
     </div>
   </div></div>`;
 };
+
+/* The customer's signature from a photo: a crop box with four corner dots joined by lines. Drag a corner to
+   resize it, drag inside it to move it, zoom with the slider. crop() returns the boxed part as a PNG. */
+function signCrop(img) {
+  // at zoom 1 the whole photo fits the dialog, so all four dots can be reached; zooming in scrolls
+  const cv = $('#scCanvas'), ctx = cv.getContext('2d'), fit = Math.min(1, (cv.parentElement.clientWidth - 2) / img.width);
+  let z = 1, drag = null;
+  const b = { x0: img.width * .08, y0: img.height * .25, x1: img.width * .92, y1: img.height * .75 };
+  const pts = () => [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
+  const draw = () => {
+    const s = fit * z; cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    const [x0, y0, x1, y1] = [b.x0 * s, b.y0 * s, b.x1 * s, b.y1 * s];
+    ctx.fillStyle = 'rgba(0,0,0,.45)';   // shade what is cut away
+    ctx.fillRect(0, 0, cv.width, y0); ctx.fillRect(0, y1, cv.width, cv.height - y1); ctx.fillRect(0, y0, x0, y1 - y0); ctx.fillRect(x1, y0, cv.width - x1, y1 - y0);
+    ctx.strokeStyle = '#2f80ed'; ctx.lineWidth = 2; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.fillStyle = '#fff';
+    pts().forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x * s, y * s, 8, 0, 7); ctx.fill(); ctx.stroke(); });
+  };
+  const at = e => { const r = cv.getBoundingClientRect(), s = fit * z; return [(e.clientX - r.left) / s, (e.clientY - r.top) / s]; };
+  const clamp = () => {
+    [b.x0, b.x1] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)]; [b.y0, b.y1] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)];
+    b.x0 = Math.max(0, b.x0); b.y0 = Math.max(0, b.y0); b.x1 = Math.min(img.width, b.x1); b.y1 = Math.min(img.height, b.y1);
+  };
+  cv.onpointerdown = e => {
+    const [x, y] = at(e), near = 14 / (fit * z), i = pts().findIndex(([px, py]) => Math.hypot(px - x, py - y) < near);
+    if (i >= 0) drag = { corner: i };
+    else if (x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1) drag = { from: [x, y] };
+    if (drag) cv.setPointerCapture(e.pointerId);
+  };
+  cv.onpointermove = e => {
+    if (!drag) return;
+    const [x, y] = at(e);
+    if (drag.corner !== undefined) {
+      if (drag.corner === 0 || drag.corner === 3) b.x0 = x; else b.x1 = x;
+      if (drag.corner < 2) b.y0 = y; else b.y1 = y;
+    } else {
+      const dx = Math.max(-b.x0, Math.min(img.width - b.x1, x - drag.from[0])), dy = Math.max(-b.y0, Math.min(img.height - b.y1, y - drag.from[1]));
+      b.x0 += dx; b.x1 += dx; b.y0 += dy; b.y1 += dy; drag.from = [x, y];
+    }
+    draw();
+  };
+  cv.onpointerup = cv.onpointercancel = () => { drag = null; clamp(); draw(); };
+  draw();
+  return {
+    zoom: v => { z = v; draw(); },
+    box: () => ({ ...b }),
+    crop: () => {
+      clamp();
+      const w = b.x1 - b.x0, h = b.y1 - b.y0, k = Math.min(1, 900 / w, 400 / h), out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(w * k)); out.height = Math.max(1, Math.round(h * k));
+      out.getContext('2d').drawImage(img, b.x0, b.y0, w, h, 0, 0, out.width, out.height);
+      return out.toDataURL('image/png');
+    }
+  };
+}
+async function regSaveSign(image) {
+  try {
+    S.regData = await api(`/registration/${S.regCid}/signature`, { method: 'POST', body: { image } });
+    (S.regOpen ||= {}).regDetails = true; closeModal(); render(); toast("Signature saved. It goes on the agreement's Sign line.");
+  } catch (err) { toast(err.message, true); }
+}
 
 function signPad(canvas) {
   const ctx = canvas.getContext('2d'), k = devicePixelRatio || 1, r = canvas.getBoundingClientRect();
@@ -1311,6 +1376,7 @@ document.addEventListener('click', async e => {
     catch (err) { toast(err.message, true); }
     return;
   }
+  if (t.id === 'scUse') { regSaveSign(S.crop.crop()); return; }
   if (t.dataset.reread) {
     const cid = S.regCid, kind = t.dataset.reread, busy = ((S.docBusy ||= {})[cid] ||= {});
     busy[kind] = 'reading'; render();
@@ -1504,6 +1570,7 @@ This cannot be undone.`)) return;
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset && (t.dataset.r || t.dataset.rule)) { regFieldCheck(t); regSyncButtons(); }
+  if (t.id === 'scZoom' && S.crop) S.crop.zoom(+t.value);
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
@@ -1511,6 +1578,20 @@ document.addEventListener('change', async e => {
   if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
+  if (e.target.id === 'signFile' && e.target.files[0]) {
+    const img = new Image(), url = URL.createObjectURL(e.target.files[0]);
+    img.onload = () => {
+      modal("Customer's signature", 'Drag the corner dots to box the signature; drag inside the box to move it. Zoom in for a closer look.',
+        `<div style="overflow:auto;max-height:58vh;border:1px solid var(--line);border-radius:var(--r);background:#f4f4f4"><canvas id="scCanvas" style="display:block;touch-action:none;cursor:crosshair"></canvas></div>
+         <div class="row" style="gap:10px;align-items:center;margin-top:10px"><label for="scZoom">Zoom</label><input type="range" id="scZoom" min="1" max="4" step="0.1" value="1" style="flex:1"></div>
+`,
+        '<button class="btn" data-close>Cancel</button><button class="btn go" id="scUse">Use this crop</button>');
+      S.crop = signCrop(img); URL.revokeObjectURL(url);
+    };
+    img.onerror = () => toast('That file is not a photo the browser can open (use JPG or PNG).', true);
+    img.src = url; e.target.value = '';
+    return;
+  }
   if (e.target.dataset.doc && e.target.files[0]) {
     (S.regOpen ||= {}).regDocs = true;  // the owner is adding documents: keep the list open after the last one
     if (e.target.files.length > 2) { toast('Pick at most two photos: the front and the back of the Aadhaar.', true); e.target.value = ''; return; }

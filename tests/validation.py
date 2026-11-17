@@ -192,6 +192,18 @@ _out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dig
 _lines = [_re.sub(r"<[^>]+>", "", q) for q in _re.findall(r"<w:p[ >].*?</w:p>", _out)]
 check("the quotation gets the date, the name and the place; the outward number and the rest stay",
       _lines == ["Outward no. x/2026/13/01   Date : 14.11.2026", "To,", "ASHA D SAMPLE", "Dighi, Pune", "A &amp; B"], str(_lines))
+# the customer's signature from a photo: saved through the API, and put on the agreement as ink only
+from PIL import Image as _Im, ImageDraw as _Dr  # noqa: E402
+import base64 as _b64  # noqa: E402
+_ph = _Im.new("RGB", (600, 200), (240, 236, 225))
+_Dr.Draw(_ph).line([(40, 150), (120, 50), (200, 150), (300, 60), (420, 140), (560, 90)], fill=(20, 25, 70), width=6)
+_buf = _io.BytesIO(); _ph.save(_buf, "JPEG")
+_url = "data:image/jpeg;base64," + _b64.b64encode(_buf.getvalue()).decode()
+_r = sup.post(f"/api/registration/{cid}/signature", json={"image": _url})
+check("a cropped signature photo is saved and shown back", _r.status_code == 200 and (_r.json().get("customer_sign") or "").startswith("data:image/png"), _r.text[:80])
+check("anything that is not an image is refused", sup.post(f"/api/registration/{cid}/signature", json={"image": "data:text/plain;base64,aGk="}).status_code == 400)
+_ink = _Im.open(_io.BytesIO(drafts.ink_only(_b64.b64decode(_r.json()["customer_sign"].split(",", 1)[1])))).getchannel("A").histogram()
+check("on the agreement the paper drops out and the ink stays", _ink[0] > 0.7 * sum(_ink) and sum(_ink[200:]) > 0)
 # a blank line above "GST NO." (as in two templates) is made 1 pt high, so the white text stays on the banner
 _gst = _body.replace("<w:body>", '<w:body><w:p><w:pPr><w:spacing w:after="0" w:line="276"/></w:pPr><w:r><w:pict/></w:r></w:p>'
                      '<w:p><w:r><w:t>GST NO. 27XXXXX</w:t></w:r></w:p>')

@@ -38,7 +38,18 @@ def inr(amount):
     return (re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", head) + "," if head else "") + tail
 
 
-def agreement_pdf(name, address, when=None, cost=None):
+def ink_only(png):
+    """A signature photo as dark ink on a see-through background: the paper, its tint and shading drop out."""
+    from PIL import Image, ImageOps
+    g = ImageOps.autocontrast(Image.open(io.BytesIO(png)).convert("L"), cutoff=2)
+    ink = Image.new("RGBA", g.size, (20, 25, 70, 0))
+    ink.putalpha(g.point(lambda v: 0 if v > 170 else min(255, (190 - v) * 2)))
+    out = io.BytesIO()
+    ink.save(out, "PNG")
+    return out.getvalue()
+
+
+def agreement_pdf(name, address, when=None, cost=None, sign=None):
     import fitz
     when = when or date.today()
     doc = fitz.open(agreement_template())
@@ -128,6 +139,13 @@ def agreement_pdf(name, address, when=None, cost=None):
     base = lab[0][0]["base"]
     for r in rows:
         n = max(1, len(lines[0][r]), len(lines[1][r]))
+        if r == "Sign" and sign:   # the customer's signature (a PNG), two lines high, at the start of the value column
+            n = max(n, 2)
+            sign = ink_only(sign)
+            pm = fitz.Pixmap(sign)
+            h = size * 2.4
+            w = min(h * pm.width / pm.height, col_end[0] - col_x[0])
+            p4.insert_image(fitz.Rect(col_x[0], base - size, col_x[0] + w, base - size + w * pm.height / pm.width), stream=sign)
         for c in (0, 1):
             write(p4, lab[c][0]["x0"], base, r, size)
             for i, t in enumerate(lines[c][r]):
