@@ -229,6 +229,67 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - **No loops, no flicker.** The page watcher ignores the co-pilot's own changes and does nothing while a run is active or finished; a run cannot start more than once every 20 s on its own; the island batches its drawing and plays its entrance animation once (it was replaying on every update, which looked like constant refreshing); a hands-free fill on an ordinary page runs once per page.
 - **Aggressive and fast by default.** A new Speed setting (Instant / Fast / Smooth, default Fast): faster typing, shorter pauses and quicker dropdown polling. Measured on a copy of the dialog: State, District, Company, consumer number, Fetch Details and the final check in about 2.8 s, then zero page changes for the next 16 s; a number edited by hand afterwards is left alone.
 
+### Site Feasibility Report: the equipment certification box (uncommitted)
+- `extension/options.html` / `options.js`: a switch "Tick the equipment certification on the Site Feasibility Report" (`certify`, on). `extension/panel.js` ticks only the box whose text starts "This is to certify that the proposed equipment…" (the portal names it `certificationCheck`) and only when the switch is on; the customer's declarations are still never ticked. Checked on the real dialog: the box answers a click on `.p-checkbox-box` (not on its outer div); the label is five levels up from the hidden input, so the search now goes six.
+- Seen live with the previous build: capacity 5.5, contact 8149111471 and the quotation amount went in; the radios did not (fixed since); the box asked for the roof area and the visiting employee's name.
+
+### Site Feasibility Report: Yes, Yes, Yes, same capacity, fixed contact number (uncommitted)
+- `app/registration.py`: the three Yes/No answers default to Yes (changeable per customer in Details, flagged as "check"); permissible capacity = the customer's capacity; the contact number comes from `.env` (`SOLARA_SITE_VISITOR_PHONE`, `SOLARA_SITE_VISITOR_NAME` optional), so the client's number is not in the public repo.
+- `extension/panel.js`, checked against the real dialog's HTML (opened and cancelled, nothing submitted): the radios are hidden native inputs inside `.p-radiobutton` with value true/false and no id; the "Yes" text sits in the label beside the box and the question in the label above. Options are now read that way and chosen with a plain click on the box. The question is also named from the input's own name (roofLoadCapacity, shadowFreeRoof, vendorVisited), and the rule matching is done on lower-case text.
+- The portal's menus answer a plain click, not the pointer sequence: opening "Site Feasibility Report" from Action used the sequence and did nothing (the island sat on "Opening…"); now it uses a plain click. Errors in that step are shown on the island.
+
+### Agreement uploaded for Amanatali Sherali Meer (SS-2002) through the vendor login (uncommitted)
+- Done in the real vendor portal with the extension and Claude in Chrome: the extension detected the dialog for that application, checked the names and numbers, and typed the cost 2,20,000 (Rs 220000); the agreement PDF made by Solara (`/api/registration/SS-2002/draft/agreement`, 4 pages, 145 KB) was attached with the file-upload tool; Submit was pressed once. The portal then offered "Update Agreement" in place of "Upload Agreement". Only that application was touched.
+- Two bugs found: the real portal formats the cost as 2,20,000, which the extension called "not accepted" (digits are compared now); the file box's own label is "Choose File", so the agreement box was not recognised (the button's text is skipped now, so "Agreement Copy:" is found). Reload the extension to get both.
+
+### Vendor "Upload Agreement" dialog: cost and agreement filled by the extension (uncommitted)
+- `extension/panel.js`: the vendor's Upload Agreement dialog is a screen of its own. It names its own customer (application and consumer number), so no customer needs to be chosen. It fills Total Cost of RTS Installation from Solara and attaches the agreement (the signed copy when there is one, otherwise the agreement Solara makes, `GET /api/copilot/draft/{cid}/agreement`, with the customer's uploaded signature on it). Submit stays the person's (or the opt-in press setting).
+- A file box whose label is not linked to it (the real portal's says "Choose File") is named by the nearest label before it ("Agreement Copy:").
+- Checked on the real vendor portal (read-only, nothing submitted): the application row's chevron opens an expansion row whose Action button opens a menu (Upload Agreement, View Application, Site Feasibility Report, Track Application). `openVendorAction` follows exactly that; the feasibility opener now uses it.
+
+### Consumer login first; Find A Vendor instantly (uncommitted)
+- `extension/panel.js`: on the consumer login page (a mobile box with a CAPTCHA or OTP box) it fills the chosen customer's mobile number and puts the cursor in the CAPTCHA box. It never types the CAPTCHA or OTP and never presses Send OTP or Login. No customer chosen: the island asks who. Manual mode: a Fill button.
+- Find A Vendor now runs the moment the page is open (no 2 second wait, checked every 0.6 s) and no longer needs a customer chosen.
+
+### Button: Find and select vendor (uncommitted)
+- `extension/panel.js`: on the Find A Vendor screen the island (click it to open) has a "Find and select vendor" button that searches the vendor and presses Select Vendor at once, in both modes and whatever the earlier tries did. If the search box is not seen, the island opens by itself so the button is in view.
+- Bug fixed: the island's own buttons were answered before the "Vendor login" button, so that button did nothing. Fixed.
+
+### Find A Vendor: finding the search box on the real page, two ways (uncommitted)
+- `extension/panel.js` `vendorBox`: (1) the heading "Search Vendor" is found by its text in any tag, and the nearest text box below it is used; (2) otherwise any text box in the left sidebar whose placeholder or label says Search. When neither works the island reports how many text boxes it can see.
+
+### Find A Vendor: why it did not act on the real page (uncommitted)
+- Found by reproducing it on the mock: the island's own tile is labelled "Search vendor", and the co-pilot took that label for the page's Search Vendor heading, so it never found the real search box after the first try. Our own island, panel and popup are now ignored when looking for the heading.
+- A search box that is itself an autocomplete (`role=combobox`) was being skipped; it is not now.
+- The route `#/signed-in/find-vendor` is recognised first; a stale run from the earlier Start box can no longer hold this screen; a failed try repeats after 20 s, a done one is not repeated for 10 minutes.
+
+### Find A Vendor: screen-aware and more reliable (uncommitted)
+- `extension/panel.js`: the Search Vendor box is found by where it is on the screen (the nearest ordinary text box under its heading), not by the first input in its container (which could be a dropdown's own box). If the screen is Find A Vendor but the box is not there, the island says so. It searches the full name (default `SOLARSEA ELECTROTECH SOLUTIONS PVT LTD`, changeable in the options), then either clicks the suggestion or, when the page filters its cards while typing, goes straight to the one card left and presses Select Vendor. The island also names the screen it recognises while idle ("Screen: Find A Vendor").
+
+### Site Feasibility Report, quotation PDF, vendor login (uncommitted)
+- `app/closeout.py` / `registration.py`: the form's facts (roof load OK, shadow-free roof, roof area, permissible capacity (defaults to the proposed kW, flagged to check), vendor visited, visitor name and phone). Same key names as the K2 branch where they overlap. Facts seen on site are never guessed.
+- `app/drafts.py` `docx_to_pdf` (Microsoft Word on Windows, or LibreOffice); `GET /api/copilot/draft/{cid}/quotation?fmt=pdf` (the form takes PDF only, 2 MB at most).
+- `web/app.js`: those fields in "Details for the portal".
+- `extension/panel.js`: labels of the form, Yes/No questions as radio buttons, dropdowns or boxes; quotation attached as PDF; a box is named by its own label first (a wrapper holding two file boxes had given the photo box the quotation); on the vendor portal it opens Action > Site Feasibility Report for the customer's application by itself (Manual mode: a Fill button); "Vendor login" button on the island opens vendor.pmsuryaghar.gov.in. The certification tick, Submit, OTP, CAPTCHA and passwords stay the person's.
+- `tests/validation.py`: three checks adjusted for the new defaults.
+
+### Find A Vendor screen: search "solarsea", pick it, press Select Vendor (uncommitted)
+- `extension/panel.js`: on the Find A Vendor screen (customer chosen) it types the word from the options page (default `solarsea`) in Search Vendor, picks the matching line in the list, then presses Select Vendor only when exactly one card names that vendor (never another vendor's). Once per address (Retry repeats). Manual mode shows two tiles with Fill buttons instead.
+- `extension/options.html` / `options.js`: "Vendor to select on Find A Vendor" (stored as `vendorSearch`).
+
+### Two modes for the extension: Automatic and Manual (uncommitted)
+- Options page: a choice at the top, Automatic (fills every detail, screen after screen) or Manual (shows each value with a Fill button; nothing is filled until pressed). Stored as `mode`; replaces the old "Fill each page as soon as it opens" switch.
+- `extension/panel.js`: in Manual the Start box, the screen watcher and the forms only show the values on the island, each with its own Fill button, plus Fill now for all. Found while testing: reading the dropdown lists also filled dropdowns when no run was active (`retryPending` inside `suggestLists`); removed.
+
+### Every new screen fills itself, with live status on the island (uncommitted)
+- Why "Fill now" was needed: the automatic fill depended on a click handler and a one-time marker, and the island said "Filling it now" even when nothing would start. 
+- `extension/panel.js`: a screen watcher (every 1.2 s) recognises each screen of the application form by its fixed headings, waits 2 seconds and fills it, once per screen and address; no click needed. Issues no longer stop it. Only one fill runs at a time.
+- The island opens during the fill with one tile per value (blue while typing, green when done, amber when it needs you), a moving progress bar, then collapses; softer spring easing, message and tile animations.
+- Pressing Next shows the portal's refusal reason, or "Looking for the next screen".
+
+### Fix: a name the portal lists twice (Urban Local Body "Pune", "Pune") (uncommitted)
+- `extension/panel.js` `pickCustom`: when several options have exactly the same text, the first is chosen instead of asking. Different names that merely contain the word are still left to the person.
+
 ### Agreement and quotation uploaded by the extension (uncommitted)
 - `app/main.py`: `GET /api/copilot/draft/{cid}/{kind}` (same documents as the Solara buttons, one shared `_draft`). `extension/background.js` fetches it; `extension/panel.js` recognises an upload box labelled Quotation and attaches the quotation (Word file, made from the chosen installation cost's template); the agreement is attached as before once it is signed. A reason (e.g. "pick the installation cost first") is shown when a file cannot be made.
 
@@ -270,3 +331,6 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - **After Fetch Details it stops.** The "check and fix, up to three rounds" loop after Fetch is gone. The only re-check is one look just before pressing Fetch (the portal clears the consumer number when a dropdown changes). After Fetch, Next is pressed only if "Press Save, Upload, Next and Submit for me" is on in the options; otherwise it waits.
 - Checked on a copy of the dialog: no customer chosen: one question in 12 s (was one every 1.5 s); after choosing: Fetch pressed once, Next pressed 0 times, "I will wait"; with the permission on: Fetch once, Next once.
 - Server restarted.
+
+## Site Feasibility: nothing left to type
+- Shadow-free roof area defaults to 10 m² per kW (change per customer in Details); the visiting employee defaults to the vendor name, or `SOLARA_SITE_VISITOR_NAME` in `.env`.

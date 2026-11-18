@@ -256,3 +256,30 @@ def quotation_docx(template, name, place, when=None):
         for n, data in files.items():
             z.writestr(infos[n], data)
     return buf.getvalue()
+
+
+def docx_to_pdf(blob):
+    """A Word file as PDF bytes, through Microsoft Word (Windows) or LibreOffice (anywhere). ValueError when neither is there."""
+    import hashlib, shutil, subprocess, tempfile
+    from pathlib import Path
+    key = hashlib.sha256(blob).hexdigest()[:20]
+    work = Path(tempfile.gettempdir()) / "solara_pdf"
+    work.mkdir(exist_ok=True)
+    src, out = work / f"{key}.docx", work / f"{key}.pdf"
+    if out.exists():
+        return out.read_bytes()
+    src.write_bytes(blob)
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    try:
+        if soffice:
+            subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", str(work), str(src)],
+                           check=True, capture_output=True, timeout=90)
+        elif os.name == "nt":
+            ps = ("$w=New-Object -ComObject Word.Application;$w.Visible=$false;"
+                  f"$d=$w.Documents.Open('{src}',$false,$true);$d.SaveAs([ref]'{out}',[ref]17);$d.Close($false);$w.Quit()")
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True, capture_output=True, timeout=90)
+    except (subprocess.SubprocessError, OSError):
+        pass
+    if not out.exists():
+        raise ValueError("the quotation as a PDF needs Microsoft Word or LibreOffice on the Solara computer")
+    return out.read_bytes()

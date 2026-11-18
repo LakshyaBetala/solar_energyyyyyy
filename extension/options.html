@@ -43,6 +43,7 @@ button{font:inherit;cursor:pointer}
 .steps{margin:0;padding-left:18px;color:var(--dim);font-size:13px;display:grid;gap:4px}
 .steps b{color:var(--fg)}
 .note{font-size:12.5px;color:var(--faint);margin-top:18px;text-align:center}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:6px 0 14px}.seg label{position:relative;cursor:pointer}.seg input{position:absolute;opacity:0}.seg span{display:block;padding:12px 14px;border:1.5px solid #D0D5DD;border-radius:12px;background:#fff;transition:all .25s cubic-bezier(.22,1,.36,1)}.seg b{display:block;font-size:14px}.seg em{display:block;font-style:normal;font-size:12px;color:#667085;margin-top:3px;line-height:1.35}.seg input:checked+span{border-color:#0A84FF;background:#F0F7FF;box-shadow:0 0 0 3px rgba(10,132,255,.14)}.seg input:focus-visible+span{outline:2px solid #0A84FF;outline-offset:2px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}select{width:100%;padding:11px 13px;font:inherit;border:1px solid #D0D5DD;border-radius:10px;background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.04)}select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 4px var(--brand-soft)}input[type=range]{accent-color:var(--brand)}
 </style></head>
 <body><div class="wrap">
@@ -62,9 +63,16 @@ button{font:inherit;cursor:pointer}
   <div class="card">
     <h2>How it works for you</h2>
     <p class="hint">Turn these on or off. You always type the OTP and the CAPTCHA yourself.</p>
-    <div class="row"><div class="t"><b>Fill each page as soon as it opens</b><span>After you pick a customer and press Start, forms fill by themselves.</span></div><label class="sw"><input type="checkbox" id="auto"><i></i></label></div>
+    <div class="seg" role="radiogroup" aria-label="How the co-pilot fills">
+      <label><input type="radio" name="mode" id="mode_auto" value="auto"><span><b>Automatic</b><em>Fills every detail by itself, one screen after another.</em></span></label>
+      <label><input type="radio" name="mode" id="mode_manual" value="manual"><span><b>Manual</b><em>Shows each value with a Fill button. Nothing is filled until you press it.</em></span></label>
+    </div>
+    <label class="f" for="vendorSearch">Vendor to select on “Find A Vendor”</label>
+    <input id="vendorSearch" type="text" placeholder="SOLARSEA ELECTROTECH SOLUTIONS PVT LTD" autocomplete="off" spellcheck="false">
+    <p class="hint">The co-pilot types this in Search Vendor, picks the match, and presses Select Vendor.</p>
     <div class="row"><div class="t"><b>Answer “Yes” to “vendor fills the form”</b><span>The vendor fills the application for the customer.</span></div><label class="sw"><input type="checkbox" id="vendorFills"><i></i></label></div>
     <div class="row"><div class="t"><b>Show the classic side panel</b><span>The island does everything. Turn this on only if you also want the old panel.</span></div><label class="sw"><input type="checkbox" id="classic"><i></i></label></div>
+    <div class="row"><div class="t"><b>Tick the equipment certification on the Site Feasibility Report</b><span>The vendor's own statement that the equipment follows the scheme guidelines. Only that one box; no other declaration is ever ticked for you.</span></div><label class="sw"><input type="checkbox" id="certify"><i></i></label></div>
     <div class="row"><div class="t"><b>Press Save, Upload, Next and Submit for me</b><span>Only when a page is completely filled and the OTP, CAPTCHA and declaration are done by the person.</span></div><label class="sw"><input type="checkbox" id="autoSubmit"><i></i></label></div>
   </div>
 

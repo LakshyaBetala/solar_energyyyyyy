@@ -25,7 +25,7 @@ async function handle(msg) {
     return r.ok ? { ok: true, data } : { ok: false, error: data.detail || r.statusText };
   }
   if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'draft') {
-    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `${msg.type}/${msg.cid}/${msg.kind}`;
+    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : `${msg.type}/${msg.cid}/${msg.kind}` + (msg.fmt ? `?fmt=${msg.fmt}` : '');
     const r = await call(`${url}/api/copilot/${path}`, { headers });
     if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, error: `could not fetch ${msg.key || msg.kind}: ${e.detail || r.statusText}` }; }
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);

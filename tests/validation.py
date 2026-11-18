@@ -139,12 +139,12 @@ check("...and every one has its own ID", len(ids) == len(set(ids)))
 check("favicon request is answered, not a 404", httpx.get(BASE + "/favicon.ico").status_code == 204)
 put({"kw": "3"})
 v = sup.get(f"/api/registration/{cid}").json()
-check("roof area is never guessed (it is measured on site)", "roof_area" not in v["values"])
+check("roof area is never guessed (it is measured on site)", not v["values"].get("roof_area"))
 check("module technology defaults from settings", bool(v["values"]["module_type"]))
 key = sup.post("/api/copilot/key").json()["key"]
 look = httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()
-check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type"}, str(look.get("derived")))
-check("co-pilot receives the module technology, not a roof area", "roof_area" not in look["values"] and look["values"].get("module_type"))
+check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type", "permissible_kw"}, str(look.get("derived")))
+check("co-pilot receives the module technology, not a roof area", not look["values"].get("roof_area") and look["values"].get("module_type"))
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402

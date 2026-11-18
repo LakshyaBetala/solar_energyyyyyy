@@ -27,6 +27,12 @@
   // labels are taken from the client's real portal screens (tests/real_labels.py checks them)
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
+    [/roof has enough load|load bearing|roof ?load/, 'roof_load_ok'],
+    [/shadow ?free roof area|roof area/, 'roof_area'],
+    [/shadow ?free roof|availability of shadow/, 'shadow_free'],
+    [/permissible/, 'permissible_kw'],
+    [/vendor has visited|visited the installation site|vendor ?visited/, 'site_visited'],
+    [/name of vendor employee|employee visited|vendor employee/, 'visitor_name'],
     [/user ?id|username|register email|login/, null],         // the vendor's own login, never the customer's
     [/employee|contact person|contact number/, null],         // the vendor's site staff, not the customer
     [/application (no|number)/, 'application_no'],
@@ -110,7 +116,9 @@
     el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.closest('.form-group,.fg,.f')?.querySelector('label')?.innerText ||
     el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^(please\s+)?(enter|select)\s+/i, '').trim().slice(0, 50);
   const has = v => v != null && String(v).trim() !== '';
-  const ruleFor = label => { const r = RULES.find(([re]) => re.test(label)); return r ? r[1] : undefined; };
+  const ruleFor = label => {
+    if (/contact number/i.test(label) && /site feasibility/i.test(scope().innerText || '')) return 'visitor_phone';   // the visiting employee's number, only inside that form
+    const r = RULES.find(([re]) => re.test(label)); return r ? r[1] : undefined; };
 
   function setVal(el, v) {
     if (el.tagName === 'SELECT') {
@@ -138,8 +146,10 @@
   // how fast it works: instant = no animation, fast (default) = quick, smooth = slow and easy to follow
   const PACES = { instant: { char: 0, step: 30, settle: 300, poll: 40 }, fast: { char: 6, step: 110, settle: 650, poll: 60 }, smooth: { char: 28, step: 450, settle: 1800, poll: 150 } };
   const PACE = { ...PACES.fast };
+  let MODE = 'auto';   // 'auto': fills everything by itself. 'manual': shows each value with a Fill button
+  store.get({ mode: 'auto' }).then(v => { MODE = v.mode === 'manual' ? 'manual' : 'auto'; });
   store.get({ speed: 'fast' }).then(v => Object.assign(PACE, PACES[v.speed] || PACES.fast));
-  try { chrome.storage.onChanged.addListener(ch => { if (ch.speed) Object.assign(PACE, PACES[ch.speed.newValue] || PACES.fast); }); } catch (e) { /* skip */ }
+  try { chrome.storage.onChanged.addListener(ch => { if (ch.mode) MODE = ch.mode.newValue === 'manual' ? 'manual' : 'auto'; if (ch.speed) Object.assign(PACE, PACES[ch.speed.newValue] || PACES.fast); }); } catch (e) { /* skip */ }
   const boxOf = el => el.closest('.p-dropdown, .p-select, mat-select, .mat-select, .ng-select') || el;
   const OPTS = '.p-dropdown-panel li[role=option], .p-select-overlay li[role=option], .cdk-overlay-pane mat-option, .ng-dropdown-panel .ng-option, [role=listbox] [role=option]';
   const optText = o => norm(o.getAttribute('aria-label') || o.innerText);
@@ -166,6 +176,7 @@
     }
     let hit = opts.filter(o => optText(o) === want);
     if (hit.length !== 1) hit = opts.filter(o => optText(o).length > 3 && (optText(o).includes(want) || want.includes(optText(o))));
+    if (hit.length > 1 && new Set(hit.map(optText)).size === 1) hit = [hit[0]];   // the same name listed twice (Pune, Pune): one choice, take the first
     if (hit.length !== 1) {   // none or several: close the list again and leave it to the owner
       if ([...document.querySelectorAll(OPTS)].some(visible)) box.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       return false;
@@ -352,7 +363,15 @@
   #solaraToast .si-link{background:none;border:0;color:#64B5FF;font:500 12px ${FONT};cursor:pointer;padding:0}
   #solaraToast .si-pick{display:flex;align-items:center;gap:10px;width:100%;border:0;background:rgba(255,255,255,.07);color:#F5F5F7;border-radius:14px;padding:10px 12px;margin-top:6px;cursor:pointer;text-align:left;font:500 13px ${FONT}}
   #solaraToast .si-pick:hover{background:rgba(255,255,255,.14)}
-  @keyframes siIn{from{opacity:0;transform:translateY(8px) scale(.97)}}
+  @keyframes siIn{from{opacity:0;transform:translateY(10px) scale(.96);filter:blur(4px)}}
+  @keyframes siMsg{from{opacity:0;transform:translateY(6px);filter:blur(3px)}}
+  @keyframes siPop{0%{transform:scale(.97);box-shadow:0 0 0 0 rgba(10,132,255,.45)}55%{transform:scale(1.025)}100%{transform:scale(1);box-shadow:0 0 0 10px rgba(10,132,255,0)}}
+  @keyframes siPopOk{0%{transform:scale(.97);background:rgba(48,209,88,.42)}55%{transform:scale(1.03)}100%{transform:scale(1);background:rgba(255,255,255,.07)}}
+  @keyframes siShine{to{background-position:-200% 0}}
+  #solaraToast .si-msg.swap{animation:siMsg .5s cubic-bezier(.22,1,.36,1)}
+  #solaraToast .si-tile.pop{animation:siPop .8s cubic-bezier(.22,1,.36,1)}
+  #solaraToast .si-tile.ok.pop{animation:siPopOk .9s cubic-bezier(.22,1,.36,1)}
+  #solaraToast .si-tile.doing{background:rgba(10,132,255,.16)}
   @keyframes siPulse{50%{box-shadow:0 0 0 5px rgba(10,132,255,0)}0%{box-shadow:0 0 0 0 rgba(10,132,255,.6)}}`;
   document.head.appendChild(islCss);
 
@@ -371,10 +390,14 @@
     if (!toastEl) {
       toastEl = document.createElement('div'); toastEl.id = 'solaraToast'; toastEl.setAttribute('role', 'status');
       toastEl.style.cssText = 'position:fixed;z-index:2147483647;display:flex;flex-direction:column;overflow:hidden;' +
-        'transition:transform .55s cubic-bezier(.32,.72,0,1),opacity .3s,padding .4s cubic-bezier(.32,.72,0,1),border-radius .4s cubic-bezier(.32,.72,0,1),width .5s cubic-bezier(.32,.72,0,1)';
+        'transition:transform .8s cubic-bezier(.22,1,.36,1),opacity .45s ease,padding .6s cubic-bezier(.22,1,.36,1),border-radius .6s cubic-bezier(.22,1,.36,1),width .7s cubic-bezier(.22,1,.36,1)';
       toastEl.onclick = e => {
+        if (e.target.closest('[data-isl="vendorgo"]')) { e.stopPropagation(); runVendorNow(); return; }
+        if (e.target.closest('[data-isl="vendorlogin"]')) { e.stopPropagation(); window.open('https://vendor.pmsuryaghar.gov.in/', '_blank', 'noopener'); return; }
         const b = e.target.closest('[data-isl]');
         if (b) { e.stopPropagation(); const f = ISL.actions[b.dataset.isl]; if (f && !b.disabled) f(); return; }
+        const f1 = e.target.closest('[data-fill1]');
+        if (f1) { e.stopPropagation(); if (ISL.actions.fillOne) ISL.actions.fillOne(f1.dataset.fill1); return; }
         const pc = e.target.closest('[data-pickcust]');
         if (pc) { e.stopPropagation(); islandPick(pc.dataset.pickcust); return; }
         if (e.target.closest('.si-grid')) return;
@@ -392,9 +415,10 @@
     toastEl.style.borderRadius = open ? '32px' : compact ? '999px' : '26px';
     toastEl.style.width = open ? 'min(540px,94vw)' : 'auto'; toastEl.style.maxWidth = 'min(580px,94vw)';
     toastEl.style.fontSize = compact ? '12.5px' : '14px';
-    let html = `<div class="si-head">${dot}<span class="si-msg">${ISL.msg || 'Solara'}</span>` + (k === 'idle' && !open ? '' : '<span class="si-chev">&#9660;</span>') + '</div>';
-    if (!open && k === 'busy' && ISL.progress != null)
-      html += `<div style="height:3px;border-radius:3px;background:rgba(255,255,255,.15);margin-top:7px"><div style="height:100%;width:${Math.round(ISL.progress * 100)}%;background:#0A84FF;border-radius:3px;transition:width .5s cubic-bezier(.32,.72,0,1)"></div></div>`;
+    const swap = ISL.lastMsg !== ISL.msg; ISL.lastMsg = ISL.msg;
+    let html = `<div class="si-head">${dot}<span class="si-msg${swap ? ' swap' : ''}">${ISL.msg || 'Solara'}</span>` + (k === 'idle' && !open ? '' : '<span class="si-chev">&#9660;</span>') + '</div>';
+    if (k === 'busy' && ISL.progress != null)
+      html += `<div style="height:3px;border-radius:3px;background:rgba(255,255,255,.15);margin-top:7px"><div style="height:100%;width:${Math.round(ISL.progress * 100)}%;background:linear-gradient(90deg,#0A84FF,#64D2FF,#0A84FF);background-size:200% 100%;animation:siShine 1.6s linear infinite;border-radius:3px;transition:width .7s cubic-bezier(.22,1,.36,1)"></div></div>`;
     if (open) {
       let i = 0; const T = (cls, inner) => `<div class="si-tile ${cls}" style="--i:${i++}">${inner}</div>`;
       html += `<div class="si-grid${ISL.fresh ? ' fresh' : ''}">`; ISL.fresh = false;
@@ -403,12 +427,15 @@
       } else {
         if (ISL.cust) html += T('si-2', `<div class="si-cust"><div class="si-av">${esc((ISL.cust.name || '?')[0])}</div><div style="flex:1;min-width:0"><div class="si-k">Filling for</div><div class="si-v">${esc(ISL.cust.name)}</div><div style="opacity:.55;font-size:12px">${esc(ISL.cust.id)}</div></div><button class="si-link" data-isl="change">Change</button></div>`);
         if (ISL.steps.length) html += T('si-2', '<div class="si-steps">' + ISL.steps.map(x => `<span class="si-step ${x.s}"><span class="si-dot"></span>${esc(x.l)}</span>`).join('') + '</div>');
-        ISL.tiles.forEach(t => { html += T(t.s || '', `<div class="si-k">${esc(t.l)}</div><div class="si-v" title="${esc(t.v || '')}">${esc(t.v || '—')}</div>`); });
+        ISL.tiles.forEach(t => { const b1 = ISL.actions.fillOne && t.v && t.s !== 'ok' && t.s !== 'doing' ? `<button class="si-btn pri" data-fill1="${esc(t.k)}" style="padding:6px 12px;font-size:12px">Fill</button>` : '';
+          html += T((t.s || '') + (t.fx ? ' pop' : ''), `<div style="display:flex;align-items:center;gap:8px"><div style="min-width:0;flex:1"><div class="si-k">${esc(t.l)}</div><div class="si-v" title="${esc(t.v || '')}">${esc(t.v || '—')}</div></div>${b1}</div>`); t.fx = false; });
         const A = ISL.actions, btns = [];
+        if (/#\/signed-in\/find-vendor/i.test(location.href) || /find a vendor/i.test(document.body.innerText)) btns.push('<button class="si-btn pri" data-isl="vendorgo">Find and select vendor</button>');
         if (A.fill) btns.push('<button class="si-btn pri" data-isl="fill">Fill now</button>');
         if (A.retry) btns.push('<button class="si-btn" data-isl="retry">Retry</button>');
         if (A.fetch) btns.push('<button class="si-btn" data-isl="fetch">Fetch Details</button>');
         if (A.next) btns.push('<button class="si-btn ok" data-isl="next">Next</button>');
+        if (/pmsuryaghar\.gov\.in$/.test(location.host) && !/^vendor\./.test(location.host)) btns.push('<button class="si-btn" data-isl="vendorlogin">Vendor login</button>');
         if (A.more) btns.push('<button class="si-btn" data-isl="more">More</button>');
         if (btns.length) html += T('si-2', '<div class="si-act">' + btns.join('') + '</div>');
       }
@@ -426,7 +453,7 @@
   const stepSet = (i, st) => { if (ISL.steps[i]) { ISL.steps[i].s = st; islandRender(); } };
   const TILE_KEYS = [['state', 'State'], ['district', 'District'], ['discom', 'Company'], ['consumer_no', 'Consumer no.']];
   const setTiles = c => { ISL.tiles = TILE_KEYS.map(([k, l]) => ({ k, l, v: (c.values && c.values[k]) || '', s: '' })); islandRender(); };
-  const tileSet = (k, st, v) => { const t = ISL.tiles.find(x => x.k === k); if (t) { t.s = st; if (v != null) t.v = v; islandRender(); } };
+  const tileSet = (k, st, v) => { const t = ISL.tiles.find(x => x.k === k); if (t) { if (t.s !== st) t.fx = true; t.s = st; if (v != null) t.v = v; islandRender(); } };
   async function islandPick(id) {
     await store.set({ current: { cid: id, at: Date.now(), picked: true }, run: { cid: id, at: Date.now() } });
     ISL.pend = null; ISL.cust = null; pbDone = false; pbAsked = false; tip('Getting the customer ready…', 'busy');
@@ -449,6 +476,65 @@
   // a field is found again by its meaning, because the portal re-draws parts of the dialog after a dropdown changes
   const freshInput = key => [...scope().querySelectorAll('input')].find(el => visible(el) && !el.readOnly && !el.disabled &&
     !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password', 'file'].includes(el.type) && !humanOnly(el) && ruleFor(labelOf(el)) === key) || null;
+  // Yes / No questions drawn as radio buttons: grouped by name, the question read from the nearest label, each option by its own label
+  const radioText = r => {
+    const own = ((r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.innerText) || r.closest('label')?.innerText || r.getAttribute('aria-label') || '').trim();
+    if (own) return own;
+    const w = r.closest('.p-radiobutton'), host = w && (w.parentElement || w);
+    const sib = w && ((w.nextElementSibling && (w.nextElementSibling.innerText || '').trim()) || ((host.querySelector('label') || {}).innerText || '').trim());
+    if (sib) return sib;
+    return r.value === 'true' ? 'Yes' : r.value === 'false' ? 'No' : (r.value || '');
+  };
+  function radioGroups(root) {
+    const all = [...root.querySelectorAll('input[type=radio]')], by = new Map();
+    all.forEach((r, i) => { if (r.disabled) return; const k = r.name || (r.closest('[role=radiogroup]') || {}).id || 'g' + i; if (!by.has(k)) by.set(k, []); by.get(k).push(r); });
+    return [...by.values()].map(rs => {
+      let q = '', p = rs[0].closest('[role=radiogroup],fieldset,.p-field,.form-group,.field,.col,div');
+      for (let i = 0; i < 5 && p && !q; i++, p = p.parentElement) {
+        const l = [...p.querySelectorAll('label,legend,h5,h6,.p-field > span')].find(e => !rs.some(r => e.contains(r)) && !rs.some(r => radioText(r) === (e.innerText || '').trim()) && (e.innerText || '').trim().length > 6);
+        if (l) q = l.innerText.trim();
+      }
+      const camel = (rs[0].name || '').replace(/([a-z])([A-Z])/g, '$1 $2');   // roofLoadCapacity -> roof Load Capacity
+      return { key: ruleFor(norm(q)) || ruleFor(norm(camel)), q: q.replace(/[*:\s]+$/, '') || camel, rs, opts: rs.map(r => ({ el: r, text: radioText(r) })) };
+    });
+  }
+  function pickRadio(g, value) {
+    const o = g.opts.find(x => norm(x.text) === norm(value)); if (!o) return false;
+    if (o.el.checked) return true;
+    (o.el.closest('.p-radiobutton') || o.el).click(); if (!o.el.checked) o.el.click();   // a plain click: the portal's own handler picks it
+    return o.el.checked;
+  }
+  // The vendor's equipment certification on the Site Feasibility Report. It is the one declaration that is ticked, and only
+  // because the owner turned the switch on in the options; the customer's declarations are never ticked.
+  const CERT_RE = /certify that the proposed equipment/i;
+  function certBox(root) {
+    return [...root.querySelectorAll('input[type=checkbox]')].find(el => {
+      if (/certification/i.test((el.closest('p-checkbox') || {}).getAttribute?.('formcontrolname') || '')) return true;   // the portal's own name for it
+      let p = el;
+      for (let i = 0; i < 6 && p; i++, p = p.parentElement) { const t = p.innerText || ''; if (t.length < 600 && CERT_RE.test(t)) return true; }
+      return false;
+    }) || null;
+  }
+  function tickCert(el) {
+    if (el.checked) return true;
+    const w = el.closest('.p-checkbox');
+    ((w && w.querySelector('.p-checkbox-box')) || w || el).click(); if (!el.checked) el.click();   // the portal's checkbox answers a click on its box
+    return el.checked;
+  }
+  // Manual mode: the Fill button next to one value. Dropdowns are picked by their text, boxes are typed.
+  async function fillOne(c, key) {
+    if (key === 'certify') { const el = certBox(scope()); tileSet('certify', 'doing'); tileSet('certify', el && tickCert(el) ? 'ok' : 'warn'); return; }
+    const v = c.values && c.values[key]; if (!has(v)) return;
+    tileSet(key, 'doing');
+    let ok = false;
+    try {
+      const rg = radioGroups(scope()).find(x => x.key === key), cu = rg ? null : customsIn(scope()).find(x => x.key === key);
+      if (rg) ok = pickRadio(rg, v);
+      else if (cu) ok = isEmpty(cu.el) ? await pickCustom(cu.el, v) : true;
+      else { const el = freshInput(key); if (el) { ok = !el.value || el.value === String(v) ? true : false; if (!el.value) ok = !!(await typeInto(el, v)) && el.value === String(v); } }
+    } catch (e) { ok = false; }
+    tileSet(key, ok ? 'ok' : 'warn', ok ? null : 'not found or not accepted');
+  }
   // type it in character by character, the way a person would, so it is easy to follow
   async function typeInto(el, value) {
     const v = String(value);
@@ -629,7 +715,7 @@
   //   1 State  2 District  3 Company  (pause)  4 Consumer Account Number  5 Fetch Details  6 check all, fix, ready for Next
   const START_RE = /start a new application/i;
   const startModal = () => [...document.querySelectorAll('.p-dialog,[role=dialog],.p-dynamic-dialog,.modal.show')].filter(visible).find(d => START_RE.test(d.innerText || ''));
-  let afterNextGo = false, pbStarting = false, pbActive = false, pbDone = false, pbAsked = false, pbAbsent = 0, pbLastRun = 0;   // pbDone: this opening of the box has been handled; it is not run again until Retry or the box is closed and reopened
+  let fillBusy = false, screensDone = new Set(), afterNextGo = false, pbStarting = false, pbActive = false, pbDone = false, pbAsked = false, pbAbsent = 0, pbLastRun = 0;   // pbDone: this opening of the box has been handled; it is not run again until Retry or the box is closed and reopened
   async function startAppPlaybook(c) {
     if (pbActive) return; pbActive = true; pbDone = false; pbLastRun = Date.now(); ISL.phase = 'filling';
     const v = c.values || {}, caWant = String(v.consumer_no || '');
@@ -731,6 +817,14 @@
     const lockKey = 'solaraRun:' + rec.cid;   // the same customer is not filled again within 3 minutes, even if the portal rebuilt the box
     if (!force && Date.now() - (+sessionStorage.getItem(lockKey) || 0) < 180000) { pbDone = true; return; }
     sessionStorage.setItem(lockKey, String(Date.now())); handled.add(d2);
+    if (MODE === 'manual') {   // show the values; the person presses Fill for each, or Fill all
+      const c = r.data; pbDone = true;
+      ISL.cust = { name: c.name, id: c.customer_id }; ISL.pend = null; ISL.steps = []; setTiles(c);
+      ISL.actions = { fillOne: k => fillOne(c, k), fill: () => { pbDone = false; startAppPlaybook(c); }, change: () => pick() };
+      ISL.open = true; ISL.fresh = true; ISL.phase = 'waiting';
+      tip('Manual: press Fill next to a value, or Fill now for all of them.', 'idle');
+      return;
+    }
     await startAppPlaybook(r.data);
   }
   let modalTimer;
@@ -787,7 +881,7 @@
       panel.querySelector('#solaraRetry').onclick = scan; return; }
     const c = r.data;
     remember(c);
-    ISL.cust = { name: c.name, id: c.customer_id }; ISL.pend = null; setTiles(c); ISL.actions.change = () => pick();
+    ISL.cust = { name: c.name, id: c.customer_id }; ISL.pend = null; ISL.tiles = []; ISL.actions.change = () => pick();
     tip(`Solara &middot; ${esc((c.name || '').split(' ')[0])}`, 'idle');
     const head = `<div style="margin-top:6px;padding:7px 9px;border-radius:7px;background:#16303A"><div style="font-size:10px;letter-spacing:.08em;color:#8FA3B2">FILLING FOR</div>` +
       `<b style="font-size:14px">${esc(c.name)}</b> <span style="color:#8FA3B2">&middot; ${esc(c.customer_id)}</span> ` +
@@ -890,6 +984,8 @@
   const SCREENS = [
     ['Details of Applicant', [/details of applicant/i, /name as per electricity bill/i, /\bgender\b/i, /type of location/i, /pin ?code/i]],
     ['Electricity Distribution Company Details', [/electricity distribution company details/i, /consumer (account )?(no|number)|ca no/i]],
+    ['Site Feasibility Report', [/site feasibility report/i, /roof has enough load|load bearing/i, /shadow ?free roof/i, /permissible rts installation capacity|permissible/i, /quotation (amount|document)/i]],
+    ['Upload Agreement', [/upload agreement/i, /agreement copy/i, /total cost of rts installation/i, /application number/i]],
     ['Solar Rooftop Details', [/solar rooftop details/i, /proposed solar plant capacity/i, /latitude/i, /longitude/i, /category/i]],
   ];
   function screenOf(root) {
@@ -922,8 +1018,9 @@
       .filter(Boolean);
     const customs = customsAll.filter(x => x.key && has(c.values[x.key]));
     const lackCustoms = customsAll.filter(x => x.key && !has(c.values[x.key]) && isEmpty(x.el) && !x.el.closest('header,nav,.p-menubar,.p-menu,.navbar,.dropdown-menu'));   // only fields Solara has a rule for: never menus or boxes it does not know
+    const radios = radioGroups(root).filter(g => g.key);
     const known = screenOf(root);
-    if (known) { ISL.screen = known.name + ' (' + known.hit + ' of ' + known.total + ' marks seen)'; tip(`This is <b>${esc(known.name)}</b>. Filling it now.`, 'busy'); }
+    if (known) { ISL.screen = known.name + ' (' + known.hit + ' of ' + known.total + ' marks seen)'; }
     else if (els.length > 6) { ISL.screen = ''; tip('I do not know this screen by its headings. I fill only the fields whose names I recognise. Check the page.', 'warn'); }
     const issues = c.issues || [];
     const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
@@ -951,14 +1048,19 @@
           panel.querySelector('#solaraFilled')?.insertAdjacentHTML('beforeend', `<div style="margin-top:4px;color:#F2C879">${esc(it.label)}: chose <b>${esc(inAddr[0])}</b> from the customer's address. Check it.</div>`);
         }
       }
-      showFallback(c);
-      await retryPending(c, customs);   // a company list that was empty until the district was chosen
+      showFallback(c);   // (it only reads the lists; filling is the Fill step's job, never this)
     };
     // reading the dropdown lists opens them, so it waits until the automatic fill (if any) has finished
-    store.get({ auto: false, run: null }).then(({ auto, run }) => { if (!(auto || (run && run.cid === c.customer_id && Date.now() - run.at < 3600000))) suggestLists(); });
+    store.get({ auto: false, run: null }).then(({ auto, run }) => { if (!(auto || (run && run.cid === c.customer_id && Date.now() - run.at < 3600000)) && MODE === 'auto') suggestLists(); });
     const files = [...root.querySelectorAll('input[type=file]')].filter(el => !el.disabled).map(el => {
-      const lab = labelOf(el) + ' ' + norm((el.closest('tr,.upr,.fg,.form-group') || el.parentElement).innerText);
-      const hit = FILES.find(([re]) => re.test(lab));
+      const own = norm(labelOf(el));   // the box's own label first: a wrapper that holds several boxes must not name this one
+      let hit = FILES.find(([re]) => re.test(own));
+      if (!hit) {   // a label that is not linked to the box: the nearest label or text just before it
+        let near = '', q = el;
+        for (let i = 0; i < 4 && q && !near; i++, q = q.parentElement) { let sib = q.previousElementSibling; while (sib && !near) { const t = (sib.innerText || '').trim(); if (t && t.length < 80 && !/^(choose file|browse|upload|select file|view file)$/i.test(t)) near = t; sib = sib.previousElementSibling; } }
+        hit = FILES.find(([re]) => re.test(norm(near)));
+      }
+      if (!hit) { const t = norm((el.closest('tr,.upr,.fg,.form-group') || el.parentElement).innerText); if (t.length < 200) hit = FILES.find(([re]) => re.test(own + ' ' + t)); }
       return hit && { el, kind: hit[1] };
     }).filter(Boolean);
     // after Submit the portal locks the box, which is exactly when the owner marks it done
@@ -969,7 +1071,7 @@
     // a blank form says nothing about whose it is: the button names the customer, so a carried-over
     // customer is seen before anything is filled
     const pickable = customs.filter(x => isEmpty(x.el));
-    say(head + saved + issueHtml + lackHtml + (fillable.length || files.length || pickable.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length + pickable.length} field(s) for ${esc((c.name || '').split(' ')[0])}` +
+    say(head + saved + issueHtml + lackHtml + (fillable.length || files.length || pickable.length || radios.length ? btn('solaraFill', (issues.length ? 'Fill anyway: ' : 'Fill ') + `${fillable.length + pickable.length} field(s) for ${esc((c.name || '').split(' ')[0])}` +
       (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length) : '<div style="margin-top:6px;color:#8FA3B2">No field here that Solara knows.</div>') +
       (agreementBox && c.agreement_draft ? '<div style="margin-top:6px;color:#F2C879">This agreement is a DRAFT format; the client has not approved the wording yet.</div>' : '') +
       (agreementBox ? btn('solaraMarkUploaded', 'I pressed Submit: mark agreement uploaded') : '') +
@@ -992,9 +1094,24 @@
     const fill = panel.querySelector('#solaraFill');
     if (!fill) { delete ISL.actions.fill; return; }
     ISL.actions.fill = () => fill.onclick && fill.onclick();
-    fill.onclick = async () => {
+    ISL.actions.fillOne = k => fillOne(c, k);
+    if (MODE === 'manual') {   // show every value this screen can take; nothing is filled until the person presses
+      ISL.cust = { name: c.name, id: c.customer_id }; ISL.steps = [];
+      const keys = [...customs.map(x => [x.key, shown(x.el)]), ...plan.filter(p => p.key && has(c.values[p.key]) && !p.el.value).map(p => [p.key, shown(p.el)]), ...radios.filter(g => has(c.values[g.key]) && !g.rs.some(r => r.checked)).map(g => [g.key, g.q]), ...(certBox(root) && !certBox(root).checked ? [['certify', 'Equipment certification']] : [])];
+      ISL.tiles = keys.filter(([k], i) => keys.findIndex(z => z[0] === k) === i).map(([k, l]) => ({ k, l, v: k === 'certify' ? 'tick' : String(c.values[k] || ''), s: '' }));
+      ISL.open = true; ISL.fresh = true; ISL.phase = 'waiting';
+      tip(`Manual: ${ISL.tiles.length} value(s) ready. Press Fill next to one, or Fill now for all.`, 'idle');
+    }
+    const fillAll = async () => {
       let filled = 0, kept = 0, attached = 0;
       const left = [], done = [], failed = [];
+      // live status on the island: one tile per value, each goes blue (typing), then green (done) or amber (needs you)
+      ISL.phase = 'filling'; ISL.cust = { name: c.name, id: c.customer_id }; ISL.steps = [];
+      ISL.tiles = [...customs.map(x => ({ k: x.key, l: shown(x.el), v: String(c.values[x.key] || ''), s: '' })),
+        ...plan.filter(p => p.key && has(c.values[p.key])).map(p => ({ k: p.key, l: shown(p.el), v: String(c.values[p.key]), s: '' })),
+        ...radios.filter(g => has(c.values[g.key])).map(g => ({ k: g.key, l: g.q, v: String(c.values[g.key]), s: '' })),
+        ...(certBox(root) ? [{ k: 'certify', l: 'Equipment certification', v: 'tick', s: '' }] : [])];
+      ISL.open = true; ISL.fresh = true; islandRender();
       // dropdowns first, top to bottom: a later box (District) often waits for the one above it (State)
       const total = customs.length + plan.filter(p => p.key && has(c.values[p.key])).length; let stepNo = 0;
       for (const { el, key } of customs) {
@@ -1002,8 +1119,10 @@
         stepNo += 1; tip(`Filling ${esc(label)} (${stepNo} of ${total})`, 'busy', 0, (stepNo - 1) / total);
         el.scrollIntoView({ block: 'center', behavior: 'auto' }); await sleep(PACE.step / 2);
         if (!isEmpty(el)) { kept += 1; continue; }   // someone already chose; theirs stays
-        if (await pickCustom(el, c.values[key])) { filled += 1; done.push(label); await sleep(PACE.step); }
+        tileSet(key, 'doing');
+        if (await pickCustom(el, c.values[key])) { filled += 1; done.push(label); tileSet(key, 'ok'); await sleep(PACE.step); }
         else {
+          tileSet(key, 'warn', 'choose below');
           const cands = lastCands.slice(), want = norm(c.values[key]);
           const several = cands.filter(o => norm(o).includes(want) || want.includes(norm(o))).length > 1;
           left.push(`${label} (${several ? 'several match; choose below' : 'choose below'})`);
@@ -1023,21 +1142,32 @@
           if ((el.value && el.tagName !== 'SELECT') || el.dataset.solaraHuman) { kept += 1; continue; }
           if (key === 'consumer_no' && !el.value) { tip('The portal needs a moment. The consumer number is next…', 'busy', 0, stepNo / total); await sleep(PACE.settle); }   // let the portal settle after the dropdowns
           if (!total || stepNo < total) { stepNo += 1; tip(`Filling ${esc(label)} (${stepNo} of ${total})`, 'busy', 0, (stepNo - 1) / total); }
+          tileSet(key, 'doing');
           const ok = el.tagName === 'SELECT' ? setVal(el, c.values[key]) : await typeInto(el, c.values[key]);
-          if (ok && (el.tagName === 'SELECT' || el.value === String(c.values[key]))) { filled += 1; done.push(label); p.el = el; if (key === 'consumer_no') caFilled = true; await sleep(PACE.step); }
-          else { left.push(label); failed.push(label); }   // the page refused or changed the value
+          if (ok && (el.tagName === 'SELECT' || el.value === String(c.values[key]) || (/^[\d.,\s]+$/.test(el.value) && el.value.replace(/[,\s]/g, '') === String(c.values[key]).replace(/[,\s]/g, '')))) { filled += 1; done.push(label); tileSet(key, 'ok'); p.el = el; if (key === 'consumer_no') caFilled = true; await sleep(PACE.step); }
+          else { left.push(label); failed.push(label); tileSet(key, 'warn', 'not accepted'); }   // the page refused or changed the value
         }
       };
+      for (const g of radios) {   // Yes / No answers: only what Solara knows from the site visit; the rest is left for the person
+        if (g.rs.some(r => r.checked)) { kept += 1; continue; }
+        if (!has(c.values[g.key])) { left.push(g.q + ' (answer on the page)'); continue; }
+        tileSet(g.key, 'doing');
+        if (pickRadio(g, c.values[g.key])) { filled += 1; done.push(g.q); tileSet(g.key, 'ok'); await sleep(PACE.step); } else { left.push(g.q); tileSet(g.key, 'warn', 'choose on the page'); }
+      }
+      const cb = certBox(root);   // the certification box: ticked only when the owner's switch is on
+      if (cb && !cb.checked) {
+        if ((await store.get({ certify: true })).certify) { tileSet('certify', 'doing'); if (tickCert(cb)) { filled += 1; done.push('Equipment certification'); tileSet('certify', 'ok'); await sleep(PACE.step); } else { left.push('Equipment certification (tick it)'); tileSet('certify', 'warn'); } }
+        else left.push('Equipment certification (tick it yourself)');
+      }
       await fillTexts();
       c._refill = fillTexts;
       const checkNames = plan.filter(p => (c.derived || []).includes(p.key) && done.includes(labelOf(p.el).split(' | ')[0]))
         .map(p => labelOf(p.el).split(' | ')[0]);
       for (const { el, kind } of files) {
-        if (kind === 'agreement' && !agreementReady) { left.push('agreement (not signed yet)'); continue; }
         if (el.files && el.files.length) { kept += 1; continue; }   // a file you chose stays
         attach.err = '';
-        const ok = kind === 'quotation' ? await attach(el, { type: 'draft', cid: c.customer_id, kind: 'quotation' })
-          : kind === 'agreement' ? await attach(el, { type: 'file', cid: c.customer_id, key: 'agreement' })
+        const ok = kind === 'quotation' ? await attach(el, { type: 'draft', cid: c.customer_id, kind: 'quotation', fmt: /doc/i.test(el.accept || '') ? '' : 'pdf' })
+          : kind === 'agreement' ? await attach(el, agreementReady ? { type: 'file', cid: c.customer_id, key: 'agreement' } : { type: 'draft', cid: c.customer_id, kind: 'agreement' })
           : c.docs.includes(kind) && await attach(el, { type: 'doc', cid: c.customer_id, kind });
         if (ok) attached += 1;
         else {
@@ -1065,7 +1195,9 @@
           showFallback(c);
         }
       }
-      showErrors();
+      ISL.phase = 'waiting';
+      if (!showErrors()) tip(left.length ? `Filled ${filled}. ${left.length} left for you.` : `Filled ${filled}${attached ? ' and attached ' + attached : ''}. Check it, then press <b>Next</b>.`, left.length ? 'warn' : 'ok');
+      setTimeout(() => { if (!left.length && !fallbackItems.length && ISL.phase === 'waiting') { ISL.open = false; islandRender(); } }, 3500);
       panel.dataset.filled = String(filled);
       panel.dataset.attached = String(attached);
       fill.outerHTML = `<div id="solaraFilled" style="margin-top:8px"><b>Filled ${filled}${attached ? `, attached ${attached}` : ''}.</b>` +
@@ -1108,12 +1240,13 @@
         if (!r.ok) panel.querySelector('#solaraFilled').insertAdjacentHTML('beforeend',
           `<br><span style="color:#F2A6A0">Solara could not be told what was filled: ${esc(r.error)}</span>`); });
     };
+    fill.onclick = async () => { if (fillBusy) return; fillBusy = true; try { await fillAll(); } finally { fillBusy = false; } };
     // hands-free mode (options page): fill as soon as the page opens, then ask the owner for the
     // OTP / CAPTCHA, which only a person types. Never submits, never types the OTP or CAPTCHA.
     store.get({ auto: false, run: null }).then(({ auto, run }) => {
       const going = run && run.cid === c.customer_id && Date.now() - run.at < 60 * 60 * 1000;
       const onceKey = 'solaraAuto:' + location.pathname + location.hash + ':' + c.customer_id;
-      if ((auto || going || afterNextGo) && !issues.length && !sessionStorage.getItem(onceKey) && (afterNextGo || Date.now() - pbLastRun > 600000)) { sessionStorage.setItem(onceKey, '1'); fill.onclick(); }
+      if (MODE === 'auto' && (afterNextGo || ((auto || going) && !issues.length && !sessionStorage.getItem(onceKey) && Date.now() - pbLastRun > 600000))) { sessionStorage.setItem(onceKey, '1'); fill.onclick(); }
     });
   }
 
@@ -1125,30 +1258,214 @@
     panel.querySelector('#solaraHandoff')?.remove();
     panel.firstElementChild?.insertAdjacentHTML('afterend', banner());
   }); } catch (e) { /* dead page */ }
-  // Next / Save & Continue pressed: the portal moves to the next screen. Wait for it, fetch Solara's data again, fill that screen.
-  let afterNextBusy = false;
+  // ---------- vendor portal: open "Site Feasibility Report" from the application's Action menu ----------
+  // On the vendor's My Applications: the application's row has a chevron that opens an expansion row; its Action button opens a menu
+  // (Upload Agreement, View Application, Site Feasibility Report). Seen on the real portal.
+  async function openVendorAction(c, re) {
+    const app = c.application_no; if (!app) return false;
+    const row = await waitFor(() => [...document.querySelectorAll('tbody tr')].find(r => visible(r) && !panel.contains(r) && (r.innerText || '').includes(app) && r.querySelectorAll('td').length > 3), 6000);
+    if (!row) return false;
+    const actionBtn = () => { const n = row.nextElementSibling; return n && [...n.querySelectorAll('button')].find(b => visible(b) && /^\s*action\s*$/i.test(b.innerText || '')); };
+    if (!actionBtn()) { const chev = row.querySelector('td:last-child button'); if (chev) chev.click(); await waitFor(actionBtn, 4000); }
+    const act = actionBtn(); if (!act) return false;
+    act.click();
+    const item = await waitFor(() => [...document.querySelectorAll('.p-menuitem a,.p-menuitem-link,li[role=menuitem],li a')].find(e => visible(e) && !panel.contains(e) && re.test((e.innerText || '').trim())), 5000);
+    if (!item) return false;
+    item.click(); return true;
+  }
+  const openFeasibility = c => openVendorAction(c, /^\s*site feasibility report\s*$/i);
+  let sfrBusy = false;
+  setInterval(async () => {
+    if (sfrBusy || fillBusy || pbActive || !isOwner() || !/^vendor\./.test(location.host)) return;
+    if (scope() !== document.body || screenOf(document.body)) return;   // a dialog is already open
+    const rec = await recalled(); if (!rec) return;
+    let c = null;
+    try { const x = JSON.parse(sessionStorage.getItem('solaraCache:' + rec.cid) || 'null'); c = x && x.data; } catch (e) { /* skip */ }
+    if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) { c = r.data; try { sessionStorage.setItem('solaraCache:' + rec.cid, JSON.stringify({ t: Date.now(), data: c })); } catch (e) { /* skip */ } } }
+    if (!c || !c.application_no || !(document.body.innerText || '').includes(c.application_no)) return;
+    const key = 'solaraSFR:' + c.application_no;
+    if (Date.now() - (+sessionStorage.getItem(key) || 0) < 600000) return;
+    sfrBusy = true;
+    try {
+      sessionStorage.setItem(key, String(Date.now()));
+      if (MODE === 'manual') {
+        ISL.tiles = [{ k: 'sfr', l: 'Open Site Feasibility Report', v: c.application_no, s: '' }]; ISL.cust = { name: c.name, id: c.customer_id };
+        ISL.actions = { fillOne: async () => { tileSet('sfr', 'doing'); tileSet('sfr', (await openFeasibility(c)) ? 'ok' : 'warn'); }, change: () => pick() };
+        ISL.open = true; ISL.fresh = true; tip('Manual: open the Site Feasibility Report.', 'idle'); return;
+      }
+      tip('Opening the Site Feasibility Report…', 'busy', 0, 0.2);
+      const ok = await openFeasibility(c);
+      if (!ok) tip('I could not open the Site Feasibility Report. Use Action on the application.', 'warn');
+    } catch (err) { if (!/newer copy/.test(err && err.message)) tip('Site Feasibility: ' + esc((err && err.message) || err), 'warn'); } finally { sfrBusy = false; }
+  }, 1800);
+  // ---------- Find A Vendor: search the vendor, pick it from the list, press Select Vendor ----------
+  const OURS_SEL = '#solaraToast,#solaraPanel,#solaraFallback';
+  const textBoxes = () => [...document.querySelectorAll('input,textarea,[contenteditable=true]')].filter(el => visible(el) && !el.readOnly && !el.disabled &&
+    !['hidden', 'checkbox', 'radio', 'submit', 'button', 'file', 'password', 'number', 'date'].includes(el.type) && !el.closest('.p-dropdown,.p-select,.p-multiselect') && !el.closest(OURS_SEL));
+  const vendorBox = () => {
+    const boxes = textBoxes();
+    // 1. under the "Search Vendor" heading, whatever tag it is in: the nearest text box below it
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let h = null;
+    while (w.nextNode()) { const n = w.currentNode; if (/^\s*search vendor\s*$/i.test(n.nodeValue) && n.parentElement && visible(n.parentElement) && !n.parentElement.closest(OURS_SEL)) h = n.parentElement; }
+    if (h) {
+      const hr = h.getBoundingClientRect();
+      const near = boxes.map(el => ({ el, r: el.getBoundingClientRect() })).filter(x => x.r.top >= hr.bottom - 8 && x.r.top - hr.bottom < 220 && x.r.left < hr.left + 400).sort((p, q) => p.r.top - q.r.top)[0];
+      if (near) return near.el;
+    }
+    // 2. a box that says "Search" in the left sidebar, below the page header
+    return boxes.filter(el => { const r = el.getBoundingClientRect(); return /search/i.test([el.placeholder, el.getAttribute('aria-label'), el.name, el.id].join(' ')) && r.left < window.innerWidth * 0.4 && r.top > 120; })
+      .sort((p, q) => p.getBoundingClientRect().top - q.getBoundingClientRect().top)[0] || null;
+  };
+  const vendorTerm = async () => (((await store.get({ vendorSearch: 'SOLARSEA ELECTROTECH SOLUTIONS PVT LTD' })).vendorSearch) || 'SOLARSEA ELECTROTECH SOLUTIONS PVT LTD').trim();
+  // the "Select Vendor" buttons whose own card (the smallest block holding just that one button) names the vendor
+  const vendorCards = term => {
+    const all = [...document.querySelectorAll('button,[role=button]')].filter(b => visible(b) && !panel.contains(b) && /^\s*select\s+vendor\s*$/i.test((b.innerText || '').trim()));
+    return all.filter(b => {
+      let card = b;
+      while (card.parentElement && card.parentElement !== document.body && all.filter(x => card.parentElement.contains(x)).length === 1) card = card.parentElement;
+      return norm(card.innerText).includes(norm(term));
+    });
+  };
+  async function vendorSearchStep(term) {
+    tileSet('vendor', 'doing');
+    const el = vendorBox(); if (!el) { tileSet('vendor', 'warn', 'search box not found'); return false; }
+    if (!norm(el.value).includes(norm(term))) { setVal(el, ''); await typeInto(el, term); }
+    // either a list of suggestions appears (click the line), or the page filters its cards while typing (one card is left)
+    const got = await waitFor(() => [...document.querySelectorAll('li,[role=option],.p-autocomplete-item,.dropdown-item,.autocomplete-item,.suggestion')]
+      .find(o => visible(o) && !panel.contains(o) && norm(o.innerText).includes(norm(term)) && (o.innerText || '').length < 120) || (vendorCards(term).length === 1 ? 'cards' : null), 8000);
+    const hit = got && got !== 'cards' ? got : null;
+    if (hit) { realClick(hit); await sleep(PACE.step * 3); }
+    const ok = !!hit || vendorCards(term).length === 1;
+    tileSet('vendor', ok ? 'ok' : 'warn', ok ? null : 'not in the list');
+    return ok;
+  }
+  async function vendorSelectStep(term) {
+    tileSet('select', 'doing');
+    const b = await waitFor(() => { const c = vendorCards(term); return c.length === 1 ? c[0] : null; }, 8000);
+    if (!b) { tileSet('select', 'warn', 'not exactly one match: press it yourself'); return false; }
+    await sleep(PACE.step); realClick(b); tileSet('select', 'ok', 'pressed'); return true;
+  }
+  // Screen awareness: the island says which screen it recognises while it is idle.
+  const SCREEN_NAMES = [[/#\/signed-in\/find-vendor/i, 'Find A Vendor', 'url'], [/find a vendor/i, 'Find A Vendor'], [/consumer request list/i, 'Consumer Request List'], [/my application/i, 'My Application']];
+  let lastAware = '';
+  setInterval(() => {
+    if (!isOwner() || fillBusy || pbActive || vendorBusy || ISL.kind === 'busy') return;
+    const t = document.body.innerText || '';
+    const name = startModal() ? 'Start a new Application' : (screenOf(document.body) || {}).name || (SCREEN_NAMES.find(([re, , url]) => re.test(url ? location.href : t)) || [])[1] || '';
+    if (name && name !== lastAware && ISL.kind === 'idle') { lastAware = name; tip(`Screen: ${esc(name)}`, 'idle'); }
+    else if (!name) lastAware = '';
+  }, 2000);
+  let vendorBusy = false;
+  setInterval(async () => {
+    if (vendorBusy || !isOwner()) return;
+    const onFind = /#\/signed-in\/find-vendor/i.test(location.href) || /find a vendor/i.test(document.body.innerText);
+    if (!onFind) return;
+    if (fillBusy || pbActive) { if (/find-vendor/i.test(location.href)) { fillBusy = false; pbActive = false; } else return; }   // a stale run from the earlier box must not hold this screen
+    if (!vendorBox()) {
+      if (Date.now() - (+sessionStorage.getItem('solaraVendorWarn') || 0) > 30000) { sessionStorage.setItem('solaraVendorWarn', String(Date.now())); ISL.open = true; ISL.fresh = true; tip(`Find A Vendor: I cannot see the Search Vendor box yet (${textBoxes().length} text boxes on the page).`, 'warn'); }
+      return;
+    }
+    const key = 'solaraVendor:' + location.href;
+    if (Date.now() - (+sessionStorage.getItem(key) || 0) < 600000) return;   // done once; a failed try may repeat after 20 s; Retry repeats at once
+    vendorBusy = true;
+    try {
+      sessionStorage.setItem(key, String(Date.now() - 580000));   // counts as done only when Select Vendor was pressed
+      const term = await vendorTerm();
+      ISL.pend = null; ISL.steps = [];
+      ISL.tiles = [{ k: 'vendor', l: 'Search vendor', v: term, s: '' }, { k: 'select', l: 'Select Vendor button', v: 'press it', s: '' }];
+      ISL.actions = { retry: () => { sessionStorage.removeItem(key); }, change: () => pick() };
+      if (MODE === 'manual') {
+        ISL.actions.fillOne = k => k === 'vendor' ? vendorSearchStep(term) : vendorSelectStep(term);
+        ISL.open = true; ISL.fresh = true; tip('Manual: search the vendor, then press Select Vendor.', 'idle'); return;
+      }
+      ISL.open = true; ISL.fresh = true; ISL.phase = 'filling';
+      tip(`Find A Vendor. Searching “${esc(term)}”…`, 'busy', 0, 0.1);
+      const ok = (await vendorSearchStep(term)) && (await vendorSelectStep(term));
+      ISL.phase = 'waiting'; if (ok) sessionStorage.setItem(key, String(Date.now()));
+      tip(ok ? 'Vendor selected. Continue on the next screen.' : 'I could not select the vendor by myself. Do it on the page.', ok ? 'ok' : 'warn');
+    } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
+  }, 600);
+  // The island's button: search the vendor and press Select Vendor now, whatever the earlier tries did.
+  async function runVendorNow() {
+    if (vendorBusy) return;
+    vendorBusy = true;
+    try {
+      const term = await vendorTerm();
+      ISL.pend = null; ISL.steps = [];
+      ISL.tiles = [{ k: 'vendor', l: 'Search vendor', v: term, s: '' }, { k: 'select', l: 'Select Vendor button', v: 'press it', s: '' }];
+      ISL.open = true; ISL.fresh = true; ISL.phase = 'filling';
+      tip(`Searching “${esc(term)}”…`, 'busy', 0, 0.15);
+      const ok = (await vendorSearchStep(term)) && (await vendorSelectStep(term));
+      ISL.phase = 'waiting'; if (ok) sessionStorage.setItem('solaraVendor:' + location.href, String(Date.now()));
+      tip(ok ? 'Vendor selected. Continue on the next screen.' : 'I could not find or select the vendor. Check the search box, or do it on the page.', ok ? 'ok' : 'warn');
+    } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
+  }
+  // ---------- consumer login: the mobile number is filled for the chosen customer; the CAPTCHA and the OTP are the person's ----------
+  const loginBoxes = () => {
+    const ins = [...document.querySelectorAll('input')].filter(el => visible(el) && !el.closest(OURS_SEL) && !['hidden', 'checkbox', 'radio', 'submit', 'button', 'file'].includes(el.type));
+    const mob = ins.find(el => !el.readOnly && !el.disabled && !humanOnly(el) && ruleFor(labelOf(el)) === 'mobile');
+    const human = ins.filter(el => humanOnly(el) && !el.readOnly && !el.disabled);
+    return mob && (human.length || /captcha|otp/i.test(document.body.innerText)) ? { mob, human } : null;
+  };
+  let loginBusy = false, loginAsked = false;
+  setInterval(async () => {
+    if (loginBusy || !isOwner() || !/^consumer\./.test(location.host) || /signed-in/i.test(location.href)) return;
+    const b = loginBoxes(); if (!b) { loginAsked = false; return; }
+    const key = 'solaraLogin:' + location.href;
+    if (Date.now() - (+sessionStorage.getItem(key) || 0) < 120000) return;
+    loginBusy = true;
+    try {
+      const rec = await recalled();
+      if (!rec) { if (!loginAsked) { loginAsked = true; await pick(); } return; }   // who is logging in? asked once
+      let c = null;
+      try { const x = JSON.parse(sessionStorage.getItem('solaraCache:' + rec.cid) || 'null'); c = x && x.data; } catch (e) { /* skip */ }
+      if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) { c = r.data; try { sessionStorage.setItem('solaraCache:' + rec.cid, JSON.stringify({ t: Date.now(), data: c })); } catch (e) { /* skip */ } } }
+      if (!c) return;
+      sessionStorage.setItem(key, String(Date.now()));
+      const mobile = digits(c.values && c.values.mobile).slice(-10);
+      ISL.pend = null; ISL.steps = []; ISL.cust = { name: c.name, id: c.customer_id };
+      ISL.tiles = [{ k: 'mobile', l: 'Mobile number', v: mobile, s: '' }, { k: 'human', l: 'CAPTCHA and OTP', v: 'you type these', s: '' }];
+      ISL.actions = { change: () => pick(), retry: () => sessionStorage.removeItem(key) };
+      ISL.open = true; ISL.fresh = true;
+      if (!/^[6-9]\d{9}$/.test(mobile)) { tileSet('mobile', 'warn', 'not in Solara'); tip('Consumer login: Solara has no mobile number for this customer. Type it yourself.', 'warn'); return; }
+      if (MODE === 'manual') { ISL.actions.fillOne = k => { if (k !== 'mobile') return; const el = loginBoxes()?.mob; if (el) { tileSet('mobile', 'doing'); typeInto(el, mobile).then(ok => { tileSet('mobile', ok ? 'ok' : 'warn'); if (ok) { const h = loginBoxes()?.human[0]; if (h) h.focus(); } }); } };
+        tip('Consumer login: press Fill for the mobile number.', 'idle'); return; }
+      tip('Consumer login: filling the mobile number…', 'busy', 0, 0.3);
+      tileSet('mobile', 'doing');
+      if (digits(b.mob.value) !== mobile) { setVal(b.mob, ''); await typeInto(b.mob, mobile); }
+      const ok = digits(b.mob.value) === mobile;
+      tileSet('mobile', ok ? 'ok' : 'warn', ok ? null : 'not accepted');
+      tileSet('human', 'doing');
+      if (b.human[0]) b.human[0].focus();
+      tip(ok ? 'Mobile number is in. Type the CAPTCHA, press Send OTP, then type the OTP. I wait for you.' : 'The portal did not take the mobile number. Type it yourself, then the CAPTCHA and the OTP.', ok ? 'ok' : 'warn');
+    } catch (err) { /* a newer copy took over */ } finally { loginBusy = false; }
+  }, 1200);
+  // Next pressed: if the portal refuses, say why. A new screen is found by the watcher below.
   document.addEventListener('click', e => {
     const b = e.target && e.target.closest && e.target.closest('button,[role=button],input[type=submit]');
-    if (!b || panel.contains(b) || !isOwner() || afterNextBusy) return;
+    if (!b || panel.contains(b) || !isOwner()) return;
     if (!/^\s*(next|save\s*(&|and)\s*(continue|next)|continue)\s*$/i.test(((b.innerText || b.value || '') + '').trim())) return;
-    afterNextBusy = true;
-    (async () => {
-      try {
-        const before = location.href + '|' + document.body.innerText.length;
-        const t0 = Date.now();
-        await sleep(600);
-        if (showErrors()) return;   // the portal refused Next: say why, do not wait for a new screen
-        // the new screen is there when the address changed, the Start box closed, or the page text changed a lot
-        await waitFor(() => location.href + '|' + document.body.innerText.length !== before && !/please fill required/i.test(document.body.innerText), 12000);
-        const rec = await recalled();   // the customer chosen for this work
-        if (rec) {
-          tip('Next screen found. Filling it in 2 seconds…', 'busy'); await sleep(2000);
-          afterNextGo = true; await scan();
-          setTimeout(() => { afterNextGo = false; }, 8000);
-        }
-      } catch (err) { /* a newer copy took over: stop */ } finally { setTimeout(() => { afterNextBusy = false; }, 3000); }
-    })();
+    setTimeout(() => { if (!showErrors() && !fillBusy) tip('Looking for the next screen…', 'busy'); }, 700);
   }, true);
+  // The screen watcher: each new screen of the application form is filled by itself 2 seconds after it appears,
+  // with the status live on the island. One fill per screen and address; the island's Fill button can repeat it.
+  let watchBusy = false;
+  setInterval(async () => {
+    if (watchBusy || fillBusy || pbActive || !isOwner() || startModal()) return;
+    const sc = screenOf(document.body); if (!sc) return;
+    const sig = sc.name + '|' + location.href; if (screensDone.has(sig)) return;
+    watchBusy = true;
+    try {
+      if (!(await recalled()) && sc.name !== 'Upload Agreement') return;   // the Upload Agreement dialog names its own customer
+      screensDone.add(sig);
+      if (MODE === 'manual') { await scan(); return; }
+      ISL.phase = 'filling'; tip(`Found <b>${esc(sc.name)}</b>. Filling in 2 seconds…`, 'busy', 0, 0.05);
+      await sleep(2000);
+      if (!screenOf(document.body)) { screensDone.delete(sig); return; }
+      afterNextGo = true; await scan();
+      setTimeout(() => { afterNextGo = false; }, 6000);
+    } catch (err) { /* a newer copy took over */ } finally { watchBusy = false; }
+  }, 1200);
   // single-page portals change screens without reloading; read the page again when they do
   let last = location.href;
   setInterval(() => { if (location.href !== last) { last = location.href; setTimeout(scan, 800); } }, 700);

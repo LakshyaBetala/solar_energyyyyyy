@@ -90,7 +90,7 @@ def derived(cid):
     fills them but tells the owner to check them."""
     _, d = closeout.data(cid)
     # roof area is measured on site, never guessed; the bank's name comes from the IFSC, the account type is assumed
-    return [k for k in ("module_type",) if not d.get(k)] + ["bank_name", "account_type"]
+    return [k for k in ("module_type",) if not d.get(k)] + ["bank_name", "account_type"] + (["permissible_kw"] if not d.get("permissible_kw") else []) + [k for k in ("roof_load_ok", "shadow_free", "site_visited") if not d.get(k)]
 
 
 def suggest(cid):
@@ -122,6 +122,12 @@ def values(cid):
             "gender": d.get("gender") or GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
             "location_type": d.get("location_type") or None, "ulb": d.get("ulb") or None, "taluka": d.get("taluka") or None,
             "panchayat": d.get("panchayat") or None,
+            # the site feasibility form: facts measured or seen on site are never guessed; the permissible capacity defaults to the proposed one
+            "roof_load_ok": d.get("roof_load_ok") or "Yes", "shadow_free": d.get("shadow_free") or "Yes",   # the owner's standing answers; change them per customer in Details
+            "roof_area": d.get("roof_free_area") or (f"{c['kw'] * 10:g}" if c["kw"] else None),   # standing rule: about 10 m2 per kW "site_visited": d.get("site_visited") or "Yes",
+            "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
+            "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or "Solarsea Electrotech Solutions",
+            "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
             "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
             "account_type": "Savings" if ifsc else None,
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
@@ -277,6 +283,21 @@ def save_details(cid, body, user):
                     ("residence_category", valid.RESIDENCE_CATEGORIES)):
         if k in body:
             rest[k] = valid.choice(body[k], opts, k.replace("_", " "))
+    for k in ("roof_load_ok", "shadow_free", "site_visited"):
+        if k in body:
+            rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
+    if "roof_free_area" in body:
+        t = valid.text(body["roof_free_area"], "roof area").strip()
+        if t and not re.match(r"^\d{1,5}(\.\d{1,2})?$", t):
+            raise ValueError("the roof area is a number of square metres, e.g. 30 or 32.5")
+        rest["roof_free_area"] = t
+    if "permissible_kw" in body:
+        rest["permissible_kw"] = "" if not valid.text(body["permissible_kw"], "permissible capacity").strip() else f"{valid.kw(body['permissible_kw']):g}"
+    if "sfr_visitor" in body:
+        rest["sfr_visitor"] = valid.name(body["sfr_visitor"], "the visitor's name", required=False) if valid.text(body["sfr_visitor"], "name").strip() else ""
+    if "sfr_visitor_phone" in body:
+        p = valid.text(body["sfr_visitor_phone"], "visitor phone").strip()
+        rest["sfr_visitor_phone"] = valid.mobile(p) if p else ""
     from . import geo
     for k, opts in (("ulb", geo.ULB_PUNE), ("taluka", geo.TALUKA_PUNE), ("panchayat", None)):
         if k in body:

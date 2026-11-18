@@ -1021,9 +1021,20 @@ def portal_jpeg(blob, name, limit):
 
 
 @app.get("/api/copilot/draft/{cid}/{kind}")
-def copilot_draft(cid: str, kind: str, user=Depends(copilot_user)):
-    """The same two documents, for the portal's upload boxes."""
-    return _draft(cid, kind, user)
+def copilot_draft(cid: str, kind: str, fmt: str = "", user=Depends(copilot_user)):
+    """The same two documents, for the portal's upload boxes. fmt=pdf turns the quotation into a PDF (the site
+    feasibility form takes PDF only, 2 MB at most)."""
+    res = _draft(cid, kind, user)
+    if kind == "quotation" and fmt == "pdf":
+        try:
+            blob = drafts.docx_to_pdf(res.body)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        if len(blob) > PORTAL_MAX:
+            raise HTTPException(413, f"the quotation PDF is {len(blob) // 1024} KB; the portal takes 2 MB at most")
+        name = (res.headers.get("content-disposition") or "").replace(".docx", ".pdf")
+        return Response(blob, media_type="application/pdf", headers={"Content-Disposition": name})
+    return res
 
 
 @app.get("/api/copilot/file/{cid}/{key}")

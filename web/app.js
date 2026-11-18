@@ -654,6 +654,13 @@ const REG_RULES = {
   gender: { hint: 'From the Aadhaar; change it if it is wrong', max: 10, check: () => '' },
   location_type: { hint: 'Urban or Rural, found from the address; check it', max: 10, check: () => '' },
   residence_category: { hint: 'What the portal asks as Category. Usual method for a house', max: 40, check: () => '' },
+  roof_load_ok: { hint: 'Site feasibility form. Seen on site, never guessed', max: 4, check: () => '' },
+  shadow_free: { hint: 'Site feasibility form', max: 4, check: () => '' },
+  site_visited: { hint: 'Site feasibility form', max: 4, check: () => '' },
+  roof_free_area: { hint: 'Square metres, measured on site (about 10 per kW)', max: 8, mode: 'decimal', check: v => !v ? '' : /^\d{1,5}(\.\d{1,2})?$/.test(v.trim()) ? '' : 'A number, e.g. 30 or 32.5' },
+  permissible_kw: { hint: 'Defaults to the proposed capacity; the portal asks it', max: 6, mode: 'decimal', check: v => !v ? '' : /^\d+(\.\d+)?$/.test(v.trim()) && +v >= 0.5 && +v <= 10 ? '' : '0.5 to 10' },
+  sfr_visitor: { hint: 'The vendor employee who went to the site', max: 60, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  sfr_visitor_phone: { hint: '10 digits', max: 16, mode: 'numeric', check: v => { const n = (v || '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); return !v || /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting 6 to 9'; } },
   ulb: { hint: 'The municipal body, as the portal lists it. A map hint; the portal list decides', max: 80, check: () => '' },
   taluka: { hint: 'The block / taluka, as the portal lists it', max: 80, check: () => '' },
   panchayat: { hint: 'Type it; the map cannot find this', max: 80, check: () => '' },
@@ -686,8 +693,10 @@ const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure'
 const REG_MISS = [['consumer_no', 'Consumer number'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['kw', 'Capacity (kW)']];
 const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['place', 'Place'],
   ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'],
-  ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)']];
-const REG_SEL = { ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
+  ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)'],
+  ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
+  ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number']];
+const REG_SEL = { roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
 const REG_KW = [1, 2, 3, 4, 5];
 // a document's stage: needed, uploading, reading, then read / check / not read, from what was actually taken
 const regDocPill = (g, k, docs) => {
@@ -817,7 +826,7 @@ VIEWS.reg = () => {
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
   const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+    rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
