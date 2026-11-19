@@ -26,4 +26,9 @@ echo   Leave this window open. Close it to stop Solara.
 echo.
 start "" /b cmd /c "ping -n 4 127.0.0.1 >nul & start http://127.0.0.1:8900"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8900 --reload --reload-dir app
+if errorlevel 1 (
+  echo.
+  echo   Solara stopped with an error. The lines above say why.
+  pause
+)
 endlocal
