@@ -1348,7 +1348,8 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "not_ready": [{"title": s["title"], "note": s["note"]} for s in st
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
-            "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"]}.items() if v},
+            "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"],
+                                         "aadhaar": _aadhaar_full(d)}.items() if v},
             "issues": registration.validate(cid)["issues"], "build_error": build_error,
             "derived": registration.derived(cid),
             "cost_options": [q["amount"] for q in registration.quotes()],
@@ -1361,6 +1362,14 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "done": {k: bool(d.get(v)) for k, v in (("sfr", "sfr_at"), ("loan", "loan_at"), ("installation", "installation_at"),
                                                   ("dcr", "dcr_cert_no"), ("agreement_uploaded", "agreement_uploaded_at"),
                                                   ("customer_approved", "agreement_approved_at"))}}
+
+
+def _aadhaar_full(d):
+    """The customer's Aadhaar number as Solara keeps it (encrypted), for the helper to type on the portal."""
+    try:
+        return vault.unseal(d["aadhaar_enc"]) if d.get("aadhaar_enc") else None
+    except Exception:
+        return None
 
 
 def portal_name(name, ext):

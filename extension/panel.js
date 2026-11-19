@@ -36,7 +36,8 @@
   const SECRET = /otp|captcha|human check|password|security code|verification code|aadha?ar (no|number|card)|\buid\b|virtual id/;
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
-    [/aadha?ar (no|number|card number)|\buid\b|virtual id/, null],    // the customer types their own Aadhaar
+    [/virtual id/, null],
+    [/aadha?ar ?(no|number|card number)|\buid\b/, 'aadhaar'],          // the number Solara keeps, encrypted, from the card
     [/\bpan( card)? (no|number)\b|permanent account/, 'pan'],          // read from the PAN card; the loan forms ask for it
     [/roof has enough load|load bearing|roof ?load/, 'roof_load_ok'],
     [/shadow ?free roof area|roof area/, 'roof_area'],
@@ -125,7 +126,8 @@
   // defence in depth beside RULES: whatever the label says, these are for the person only
   const HUMAN_ONLY = /otp|captcha|one-?time|passw|security ?code|verification/i;
   const isSearch = el => el.type === 'search' || /search|filter|find/i.test([el.id, el.name, el.getAttribute('aria-label'), el.placeholder, el.className].join(' ')) || !!el.closest('[role=search],.p-datatable-header,.dataTables_filter');
-  const humanOnly = el => el.type === 'password' ||
+  const aadBox = el => /aadha?ar/i.test(el.id + ' ' + el.name) && !/otp|virtual|vid/i.test(el.id + ' ' + el.name);
+  const humanOnly = el => (el.type === 'password' && !aadBox(el)) ||
     HUMAN_ONLY.test([el.id, el.name, el.autocomplete, el.getAttribute('aria-label'), el.placeholder].join(' '));
   const CUSTOM = '[role=combobox],[role=listbox],mat-select,.mat-select,.ng-select,.select2-selection,.dropdown-toggle';
 
@@ -227,6 +229,11 @@
     el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.closest('.form-group,.fg,.f')?.querySelector('label')?.innerText ||
     el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^(please\s+)?(enter|select)\s+/i, '').trim().slice(0, 50);
   const has = v => v != null && String(v).trim() !== '';
+  // the 12 digits; where the portal has three boxes of four, each box gets its own four
+  const aadPart = (v, el) => { const d = String(v).replace(/\D/g, ''), t = (el.id + ' ' + el.name).toLowerCase();
+    const all = [...document.querySelectorAll('input')].filter(x => visible(x) && aadBox(x));
+    const i = /first/.test(t) ? 0 : /second/.test(t) ? 1 : /third/.test(t) ? 2 : all.length === 3 ? all.indexOf(el) : -1;
+    return i < 0 ? d : d.slice(i * 4, i * 4 + 4); };
   // 14-03-1981 from the Aadhaar: a date box takes 1981-03-14, a typed box 14/03/1981
   const asDate = (v, el) => { const m = String(v).trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); if (!m) return v;
     const d = m[1].padStart(2, '0'), mo = m[2].padStart(2, '0'); return el.type === 'date' ? `${m[3]}-${mo}-${d}` : `${d}/${mo}/${m[3]}`; };
@@ -1389,7 +1396,7 @@
     const page = norm(root.innerText);
     const mapBox = el => /^(lat|lng)$/.test(ruleFor(labelOf(el), page) || '');
     const els = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) && (mapBox(el) || (!el.readOnly && !el.disabled)) &&
-      !['hidden', 'checkbox', 'radio', 'submit', 'button', 'password', 'file'].includes(el.type) && !humanOnly(el) && !isSearch(el));
+      !['hidden', 'checkbox', 'radio', 'submit', 'button', 'file'].includes(el.type) && !humanOnly(el) && !isSearch(el));
     // custom dropdowns are picked by their visible option text; one that cannot be matched is named for the owner
     const customsAll = [...root.querySelectorAll(CUSTOM)].filter(el => visible(el) && !el.closest('select') &&
       !el.querySelector('input:not([type=hidden]),select')).map(el => {
@@ -1401,7 +1408,7 @@
     const known = screenOf(root);
     if (known) { ISL.screen = known.name + ' (' + known.hit + ' of ' + known.total + ' marks seen)'; }
     else if (els.length <= 6 && [...root.querySelectorAll('input')].some(el => visible(el) && /aadha?ar/i.test(el.id + ' ' + el.name + ' ' + labelOf(el)))) {
-      ISL.screen = ''; tip('This screen asks for the Aadhaar number and its OTP. Type them yourself: Solara does not keep the Aadhaar number.', 'idle'); }
+      ISL.screen = ''; tip('Aadhaar screen: Solara fills the number. Tick the consent yourself; the OTP comes to the customer\'s phone.', 'idle'); }
     else if (els.length > 6) { ISL.screen = ''; tip('I do not know this screen by its headings. I fill only the fields whose names I recognise. Check the page.', 'warn'); }
     const issues = c.issues || [];
     const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
@@ -1623,7 +1630,7 @@
           if (!el.isConnected) el = (key && freshInput(key)) || el;   // the portal re-drew it: use the one on the page now
           const label = shown(el);
           const v0 = key === 'module_serials' && serialEls.length > 1 ? serialList[serialEls.findIndex(q => q === p)] : key && valueOf(key);
-          const v = key === 'dob' && has(v0) ? asDate(v0, el) : v0;
+          const v = key === 'dob' && has(v0) ? asDate(v0, el) : key === 'aadhaar' && has(v0) ? aadPart(v0, el) : v0;
           if (!key || !has(v)) { if (!el.value && key !== 'only_option' && !p.asked) { p.asked = true; left.push(label); } continue; }
           if (p.filled && (el.tagName === 'SELECT' || el.value)) continue;   // filled on an earlier pass and still there
           // never overwrite what a person typed or chose
