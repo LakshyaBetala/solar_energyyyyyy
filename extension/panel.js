@@ -54,7 +54,8 @@
     [/\bbranch\b/, 'only_option'],                                     // filled only when there is one choice
     [/loan amount/, null],                                            // how much to borrow is the customer's choice
     [/date of birth|\bdob\b/, 'dob'], [/^pan$|\bpan\b/, 'pan'],          // from the Aadhaar and the PAN card
-    [/\bbank\b|ifsc/, null, /jan ?samarth|loan/],                     // on the loan form the customer picks the bank
+    [/select (a |the )?bank|lender|preferred bank|choose (a |the )?bank|^bank$/, null, /jan ?samarth|loan/],   // the lending bank is the customer's pick
+    [/account (no|number)/, null],                                    // Solara keeps it masked: the customer types it
     [/mobile|phone/, 'mobile'],
     [/e ?mail/, 'email'],
     [/type of location|location type/, 'location_type'],   // Urban / Rural
@@ -1494,8 +1495,10 @@
         `<select data-teach="${i}" style="width:100%;padding:5px;border-radius:6px;border:1px solid #33495A;background:#0F1A22;color:#E8EEF2"><option value="">leave it to me</option>${teachOpts}</select></div>`).join('') + '</details>' : '') +
       (taughtHere ? `<div style="margin-top:4px"><a href="#" id="solaraForget" style="color:#8FA3B2;font-size:11px">forget what I was taught on this site</a></div>` : '');
     // a page Solara mostly does not know: its layout (labels and options, never what is typed) goes to Solara once, so rules can be added
-    const layoutKey = 'solaraLayout:' + location.host + location.pathname + location.hash;
-    if (els.length >= 4 && plan.filter(p => p.key === undefined).length * 2 > els.length && !sessionStorage.getItem(layoutKey)) {
+    const mainHead = ([...document.querySelectorAll('h1,h2,h3,h4')].find(h => visible(h) && !panel.contains(h) && (h.innerText || '').trim()) || {}).innerText || '';
+    const layoutKey = 'solaraLayout:' + location.host + location.pathname + location.hash + '|' + String(mainHead).trim().slice(0, 60);
+    const mapping = /jansamarth\.in$/.test(location.host) && els.length >= 1;   // shortcut: Jan Samarth only, until its ten steps are mapped
+    if ((mapping || (els.length >= 4 && plan.filter(p => p.key === undefined).length * 2 > els.length)) && !sessionStorage.getItem(layoutKey)) {
       sessionStorage.setItem(layoutKey, '1'); sendLayout({});
     }
     const filedNote = k => note(panel.dataset.marked === k ? '&#10003; Saved in Solara, with the page as the receipt.' : '&#10003; Solara has this step as filed.', '#5FD3A8');
