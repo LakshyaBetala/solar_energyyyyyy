@@ -313,8 +313,8 @@ async def main():
         await pg.reload()
         await pg.wait_for_selector("#solaraFill", timeout=20000)
         txt = await pg.inner_text("#solaraPanel")
-        check("the panel lists what is missing or doubtful before filling",
-              "to check on this page" in txt and "not on file" in txt, txt[:160].replace("\n", " "))
+        check("a note about a box this page does not have (the capacity) is one quiet line, not a warning",
+              "not for this page" in txt and "to check on this page" not in txt, txt[:160].replace("\n", " "))
         check("open issues do not hold the fill back: one plain Fill button", (await pg.inner_text("#solaraFill")).startswith("Fill ")
               and "anyway" not in await pg.inner_text("#solaraFill"))
         await pg.focus("#mb"); await pg.keyboard.type("9000000001")              # the person types a mobile

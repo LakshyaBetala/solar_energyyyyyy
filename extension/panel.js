@@ -1634,7 +1634,7 @@
     };
     const appr = panel.querySelector('#solaraMarkApproved');
     if (appr) appr.onclick = () => markApproved(c.customer_id, c.name, appr);
-    panel.querySelectorAll('[data-teach]').forEach(sel => sel.onchange = async ev => { if (!ev.isTrusted) return;
+    panel.querySelectorAll('[data-teach]').forEach(sel => sel.onchange = async () => {   // (the Aadhaar number is never in this list)
       const p = strangers[+sel.dataset.teach], key = sel.value; if (!key || humanOnly(p.el)) return;
       LEARNED[location.host + '|' + labelOf(p.el)] = key; await store.set({ learned: LEARNED });
       const ok = p.el.tagName === 'SELECT' ? setVal(p.el, c.values[key]) : await typeInto(p.el, c.values[key]);
