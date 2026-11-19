@@ -640,8 +640,9 @@ def closeout_file(cid: str, key: str, user=Depends(current)):
 
 @app.post("/api/signature/vendor")
 def vendor_signature(body: dict = Body(...), user=Depends(need("supervisor"))):
-    try:
-        png = closeout.png_from_data_url(body.get("image"))
+    try:   # drawn on the pad, or a photo cropped in the browser (stored as ink on a see-through background)
+        png = drafts.ink_only(closeout.png_from_upload(body["image"])) if body.get("photo") \
+            else closeout.png_from_data_url(body.get("image"))
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     name = (body.get("name") or "").strip() or user["name"]
@@ -688,9 +689,20 @@ def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
 
 
 @app.get("/api/registration/{cid}/draft/{kind}")
-def registration_draft(cid: str, kind: str, user=Depends(need("operator"))):
-    """The agreement (PDF) or the quotation (Word), filled into the client's templates."""
-    return _draft(cid, kind, user)
+def registration_draft(cid: str, kind: str, fmt: str = "", user=Depends(need("operator"))):
+    """The agreement (PDF) or the quotation (Word, or PDF with fmt=pdf), filled into the client's templates."""
+    res = _draft(cid, kind, user)
+    return _quotation_pdf(res) if kind == "quotation" and fmt == "pdf" else res
+
+
+def _quotation_pdf(res):
+    """The quotation's Word file as a PDF, under the same file name."""
+    try:
+        blob = drafts.docx_to_pdf(res.body)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    name = (res.headers.get("content-disposition") or "").replace(".docx", ".pdf")
+    return Response(blob, media_type="application/pdf", headers={"Content-Disposition": name})
 
 
 def _draft(cid, kind, user):
@@ -702,8 +714,10 @@ def _draft(cid, kind, user):
             if not d.get("rts_cost"):
                 raise HTTPException(400, "pick the installation cost under Details first: the agreement prints it")
             sig = closeout.signature("consumer_upload", c["id"])
+            vsig = closeout.signature("vendor")
             blob = drafts.agreement_pdf(c["name"], c["address"], cost=d["rts_cost"],
-                                        sign=vault.read(Path(sig["path"])) if sig else None)
+                                        sign=vault.read(Path(sig["path"])) if sig else None,
+                                        vendor_sign=vault.read(Path(vsig["path"])) if vsig else None)
             ext, mime = "pdf", "application/pdf"
         elif kind == "quotation":
             q = next((q for q in registration.quotes() if d.get("rts_cost") and float(q["amount"]) == float(d["rts_cost"])), None)
@@ -725,7 +739,7 @@ def registration_signature(cid: str, body: dict = Body(...), user=Depends(need("
     """The customer's signature, from a photo cropped in the browser; it goes on the agreement's Sign line."""
     c, _ = closeout.data(_cid(cid))
     try:
-        png = closeout.png_from_upload(body.get("image"))
+        png = drafts.ink_only(closeout.png_from_upload(body.get("image")))   # stored as it will print: ink only
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     closeout.save_signature("consumer_upload", png, c["name"] or "", cid)
@@ -760,6 +774,7 @@ def registration_get(cid: str, user=Depends(current)):
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
             "customer_sign": (lambda s: closeout._sig_img(s) if s else None)(closeout.signature("consumer_upload", cid)),
+            "vendor_sign": (lambda s: closeout._sig_img(s) if s else None)(closeout.signature("vendor")),
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
             "suggest": registration.suggest(cid), "llm": extract.llm_status(), "quotes": registration.quotes(),
             "doc_status": registration.doc_status(cid),
@@ -1026,14 +1041,9 @@ def copilot_draft(cid: str, kind: str, fmt: str = "", user=Depends(copilot_user)
     feasibility form takes PDF only, 2 MB at most)."""
     res = _draft(cid, kind, user)
     if kind == "quotation" and fmt == "pdf":
-        try:
-            blob = drafts.docx_to_pdf(res.body)
-        except ValueError as ex:
-            raise HTTPException(400, str(ex))
-        if len(blob) > PORTAL_MAX:
-            raise HTTPException(413, f"the quotation PDF is {len(blob) // 1024} KB; the portal takes 2 MB at most")
-        name = (res.headers.get("content-disposition") or "").replace(".docx", ".pdf")
-        return Response(blob, media_type="application/pdf", headers={"Content-Disposition": name})
+        res = _quotation_pdf(res)
+        if len(res.body) > PORTAL_MAX:
+            raise HTTPException(413, f"the quotation PDF is {len(res.body) // 1024} KB; the portal takes 2 MB at most")
     return res
 
 

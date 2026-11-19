@@ -529,9 +529,9 @@ async def llm_read(kind, st, text=None, images=None):
     async with httpx.AsyncClient(timeout=60) as cl:
         if st["provider"] == "gemini":
             parts = [{"text": ask}] + [{"inline_data": {"mime_type": "image/jpeg", "data": b}} for b in b64s]
-            # GEMINI_API_KEY may hold several keys, comma-separated. A rate limit (429) is the key's quota: the next
-            # key is tried. A busy model (5xx) or a timeout is the model's: the next backup model is tried.
-            # shortcut: tried in order every call, no rotation memory.
+            # GEMINI_API_KEY may hold several keys, comma-separated, each from its own Google project with its own
+            # quota and capacity. A rate limit (429), a busy model (5xx) or a timeout on one key is tried on the next
+            # key; when every key fails, the next backup model is tried. shortcut: in order every call, no memory.
             r, err = None, None
             for model in dict.fromkeys([st["model"], *GEMINI_BACKUP]):
                 for key in gemini_keys():
@@ -542,8 +542,8 @@ async def llm_read(kind, st, text=None, images=None):
                                                 "generationConfig": {"responseMimeType": "application/json", "temperature": 0}})
                     except httpx.TransportError as ex:   # timeouts included
                         err, r = ex, None
-                        break
-                    if r.status_code != 429:
+                        continue
+                    if r.status_code != 429 and r.status_code < 500:
                         break
                 if r is not None and r.status_code != 429 and r.status_code < 500:
                     break

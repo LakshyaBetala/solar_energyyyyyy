@@ -711,3 +711,17 @@ a.btn{text-decoration:none}
 @keyframes flashin{0%,40%{box-shadow:0 0 0 6px var(--bad-soft)}100%{box-shadow:0 0 0 0 transparent}}
 
 :root:not([data-theme="dark"]) #mtitle{text-transform:none;letter-spacing:0;font-size:18px;font-weight:650}
+
+/* Details: the form's own buttons, then the two documents as tiles of one size */
+.rgformbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:14px;margin-top:6px;border-top:1px solid var(--line)}
+.rgformbar-l{display:flex;gap:8px;flex-wrap:wrap}
+.rgsavestate{font-size:12.5px;color:var(--fg-dim);min-width:150px;text-align:right}
+.rgdocs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+.rgdoc{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;background:var(--panel)}
+.rgdoc-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.rgdoc-h .sub{text-align:right}
+.rgdoc-why{margin:0;font-size:12.5px;color:var(--warn);min-height:18px}
+.rgdoc-why.ok{color:var(--ok)}
+.rgdoc-b{display:flex;gap:8px;align-items:center;margin-top:auto}
+.rgdoc.off{background:transparent}
+@media (max-width:720px){.rgdocs{grid-template-columns:1fr}.rgsavestate{text-align:left}}

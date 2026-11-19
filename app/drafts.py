@@ -39,17 +39,71 @@ def inr(amount):
 
 
 def ink_only(png):
-    """A signature photo as dark ink on a see-through background: the paper, its tint and shading drop out."""
-    from PIL import Image, ImageOps
-    g = ImageOps.autocontrast(Image.open(io.BytesIO(png)).convert("L"), cutoff=2)
+    """A signature photo as dark ink on a see-through background. Each spot is judged against its own
+    surroundings, so a tinted, shaded or printed background (gradients, halftone dots) drops out, and marks
+    too small to be part of a stroke are removed."""
+    from PIL import Image, ImageFilter, ImageChops
+    im = Image.open(io.BytesIO(png))
+    if im.mode in ("RGBA", "LA", "P"):   # a signature drawn on the pad is see-through: lay it on white first
+        im = im.convert("RGBA")
+        white = Image.new("RGB", im.size, "white")
+        white.paste(im, mask=im.getchannel("A"))
+        im = white
+    im.thumbnail((1200, 500))
+    g = im.convert("L").filter(ImageFilter.MedianFilter(3))          # grain smoothed; thin strokes survive
+    r = max(15, min(g.size) // 6) | 1                                  # wider than a pen stroke
+    paper = g.filter(ImageFilter.MaxFilter(r)).filter(ImageFilter.GaussianBlur(r / 2))   # the local paper shade
+    dark = ImageChops.subtract(paper, g)                               # how much darker than its surroundings
+    hist = dark.histogram()
+    total = sum(hist)
+    pen = next(i for i in range(256) if sum(hist[:i + 1]) >= total * 0.998)   # the darkest 0.2% is always pen
+    cut = max(28, int(pen * 0.4))                                      # relative to how dark the strokes are
+    alpha = dark.point(lambda v: 0 if v < cut else min(255, (v - cut) * 255 // max(8, (pen - cut) // 2)))   # solid from halfway
+    keep = _strokes(alpha.point(lambda v: 255 if v > 40 else 0))
+    alpha = ImageChops.multiply(alpha, keep.filter(ImageFilter.MaxFilter(3)))
     ink = Image.new("RGBA", g.size, (20, 25, 70, 0))
-    ink.putalpha(g.point(lambda v: 0 if v > 170 else min(255, (190 - v) * 2)))
+    ink.putalpha(alpha)
+    box = alpha.getbbox()   # trimmed to the ink: a loose crop still fills the Sign line
+    if box:
+        ink = ink.crop((max(0, box[0] - 6), max(0, box[1] - 6), min(ink.width, box[2] + 6), min(ink.height, box[3] + 6)))
     out = io.BytesIO()
     ink.save(out, "PNG")
     return out.getvalue()
 
 
-def agreement_pdf(name, address, when=None, cost=None, sign=None):
+def _strokes(mask):
+    """The mask with only the marks big enough to be pen strokes: each connected mark must be at least 2% of the
+    largest one (a letter's dot stays, background specks go)."""
+    from PIL import Image
+    w, h = mask.size
+    px = mask.load()
+    seen = bytearray(w * h)
+    marks = []
+    for y in range(h):
+        for x in range(w):
+            if px[x, y] and not seen[y * w + x]:
+                seen[y * w + x] = 1
+                stack, pts = [(x, y)], []
+                while stack:
+                    cx, cy = stack.pop()
+                    pts.append((cx, cy))
+                    for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                        if 0 <= nx < w and 0 <= ny < h and px[nx, ny] and not seen[ny * w + nx]:
+                            seen[ny * w + nx] = 1
+                            stack.append((nx, ny))
+                marks.append(pts)
+    out = Image.new("L", mask.size, 0)
+    if marks:
+        least = max(12, len(max(marks, key=len)) * 0.02)
+        op = out.load()
+        for pts in marks:
+            if len(pts) >= least:
+                for x, y in pts:
+                    op[x, y] = 255
+    return out
+
+
+def agreement_pdf(name, address, when=None, cost=None, sign=None, vendor_sign=None):
     import fitz
     when = when or date.today()
     doc = fitz.open(agreement_template())
@@ -139,13 +193,17 @@ def agreement_pdf(name, address, when=None, cost=None, sign=None):
     base = lab[0][0]["base"]
     for r in rows:
         n = max(1, len(lines[0][r]), len(lines[1][r]))
-        if r == "Sign" and sign:   # the customer's signature (a PNG), two lines high, at the start of the value column
+        # the signatures (PNGs): the customer's on the First Party line, the company's on the Second; two lines high
+        if r == "Sign" and (sign or vendor_sign):
             n = max(n, 2)
-            sign = ink_only(sign)
-            pm = fitz.Pixmap(sign)
-            h = size * 2.4
-            w = min(h * pm.width / pm.height, col_end[0] - col_x[0])
-            p4.insert_image(fitz.Rect(col_x[0], base - size, col_x[0] + w, base - size + w * pm.height / pm.width), stream=sign)
+            for c, img in ((0, sign), (1, vendor_sign)):
+                if not img:
+                    continue
+                if fitz.Pixmap(img).alpha == 0:   # a photo stored before cleaning; cleaned ones are see-through already
+                    img = ink_only(img)
+                pm = fitz.Pixmap(img)
+                w = min(size * 2.4 * pm.width / pm.height, col_end[c] - col_x[c])
+                p4.insert_image(fitz.Rect(col_x[c], base - size, col_x[c] + w, base - size + w * pm.height / pm.width), stream=img)
         for c in (0, 1):
             write(p4, lab[c][0]["x0"], base, r, size)
             for i, t in enumerate(lines[c][r]):

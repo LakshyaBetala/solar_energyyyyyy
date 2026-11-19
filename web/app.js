@@ -697,6 +697,9 @@ const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', '
   ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
   ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number']];
 const REG_SEL = { roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
+// Chrome's autofill fills every phone box on a page at once: picking a number for the visitor also overwrote the
+// customer's mobile, and auto-save kept it. Separate sections tell Chrome they are two people's numbers.
+const REG_AUTOFILL = { mobile: 'section-customer tel-national', email: 'section-customer email', sfr_visitor_phone: 'section-visitor tel-national', sfr_visitor: 'section-visitor name' };
 const REG_KW = [1, 2, 3, 4, 5];
 // a document's stage: needed, uploading, reading, then read / check / not read, from what was actually taken
 const regDocPill = (g, k, docs) => {
@@ -708,12 +711,40 @@ const regDocPill = (g, k, docs) => {
 // Each document opens in a new tab, which downloads it and closes. In the same tab Chrome allows one download
 // per page load once "Automatic downloads" is blocked for the site: the second document then did nothing until
 // a refresh. Shown only once the saved details have what that document needs.
-const regDraftLink = (g, kind, label) => {
-  const c = g.customer, cost = g.data.rts_cost, why = !can('operator') ? 'needs the operator role'
-    : !(c.name && c.address) ? 'needs the name and address: upload the bill'
-    : !(cost && (kind === 'agreement' || g.quotes.some(q => +q.amount === +cost))) ? 'pick the installation cost and save' : '';
-  return why ? `<button class="btn" disabled title="${esc(why)}">${esc(label)}<span class="sub"> · ${esc(why)}</span></button>`
-    : `<a class="btn" data-draft="${kind}" href="/api/registration/${esc(c.id)}/draft/${kind}" target="_blank" rel="noopener">${esc(label)}</a>`;
+// The two documents as two tiles of the same size: the buttons sit in the same place whether or not the document
+// can be made yet; what is missing is said on its own line in the tile, never inside a button.
+const regDraftWhy = (g, kind) => {
+  const c = g.customer, cost = g.data.rts_cost;
+  return !can('operator') ? 'Needs the operator role'
+    : !(c.name && c.address) ? 'Needs the name and address: upload the bill'
+    : !(cost && (kind === 'agreement' || g.quotes.some(q => +q.amount === +cost))) ? 'Pick the installation cost above' : '';
+};
+const regDraftBtn = (g, kind, label, fmt, why, main) => why
+  ? `<button class="btn${main ? '' : ' sm'}" disabled>${esc(label)}</button>`
+  : `<a class="btn${main ? '' : ' sm'}" data-draft="${kind}" href="/api/registration/${esc(g.customer.id)}/draft/${kind}${fmt === 'pdf' ? '?fmt=pdf' : ''}" target="_blank" rel="noopener">${esc(label)}</a>`;
+const regDrafts = g => {
+  const cost = g.data.rts_cost, aw = regDraftWhy(g, 'agreement'), qw = regDraftWhy(g, 'quotation');
+  const signs = [g.customer_sign ? '' : 'customer', g.vendor_sign ? '' : 'company'].filter(Boolean);
+  const tile = (title, line, why, btns, note = '') => `<div class="rgdoc${why ? ' off' : ''}"><div class="rgdoc-h"><b>${title}</b><span class="sub">${esc(line)}</span></div>
+    <p class="rgdoc-why${why ? '' : ' ok'}">${esc(why || (note ? 'Ready · ' + note : 'Ready'))}</p><div class="rgdoc-b">${btns}</div></div>`;
+  return tile('Agreement', 'PDF, both parties', aw,
+      regDraftBtn(g, 'agreement', 'Download PDF', 'pdf', aw, true), signs.length ? `no ${signs.join(' or ')} signature yet` : 'both signatures on')
+    + tile('Quotation', cost ? `Rs ${(+cost).toLocaleString('en-IN')}` : 'No cost chosen', qw,
+      regDraftBtn(g, 'quotation', 'Download PDF', 'pdf', qw, true) + regDraftBtn(g, 'quotation', 'Word', 'docx', qw, false));
+};
+// Each box in Details saves itself when it is left, on Enter, or when a list choice is made: nothing typed is lost
+// when the screen redraws (after a document upload, for one). The screen is not redrawn after the save itself.
+async function regAutosave(el) {
+  if (!el || !S.regCid || el.value === el.dataset.shown || !regFieldCheck(el)) return;
+  const st = $('#regSaveState'), cid = S.regCid;
+  if (st) st.textContent = 'Saving…';
+  try {
+    const g = await api('/registration/' + cid, { method: 'PUT', body: { [el.dataset.r]: el.value } });
+    if (S.regCid !== cid) return;
+    S.regData = g; el.dataset.shown = el.value;
+    const d = $('#regDrafts'); if (d) d.innerHTML = regDrafts(g);
+    if (st) st.textContent = 'Saved ✓';
+  } catch (err) { if (st) st.textContent = 'Not saved'; toast(err.message, true); }
 };
 const regDocRead = (g, k) => {
   const st = (g.doc_status || {})[k];
@@ -829,19 +860,23 @@ VIEWS.reg = () => {
     rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
-    `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
+    `<div class="field" style="margin-bottom:14px"><label>Company signature <span class="sub">(Second Party: uploaded once, on every customer's agreement)</span></label>
+      <div class="row" style="gap:12px;align-items:center">${g.vendor_sign ? `<img src="${g.vendor_sign}" alt="The company signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet</span>'}
+      ${can('supervisor') ? `<label class="btn sm">${g.vendor_sign ? 'Replace for all customers' : 'Upload a photo of the company signature'}<input type="file" id="vendorSignFile" accept="image/*" hidden></label>` : '<span class="fhint">A supervisor uploads it</span>'}</div></div>
+    <div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
       ${k === 'rts_cost' ? `<select id="r_rts_cost" data-r="rts_cost" aria-describedby="h_rts_cost"${op}><option value="">Pick the installation cost</option>${costOpts().map(x => `<option value="${x}"${+val === x ? ' selected' : ''}>Rs ${x.toLocaleString('en-IN')}</option>`).join('')}</select>`
       : REG_SEL[k] ? `<select id="r_${k}" data-r="${k}" aria-describedby="h_${k}"${op}><option value="">Not set</option>${(val && !REG_SEL[k].includes(val) ? [val, ...REG_SEL[k]] : REG_SEL[k]).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
       : k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
         ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
-      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
+      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="${REG_AUTOFILL[k] || 'off'}" aria-describedby="h_${k}"${op}>`}
       ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
     <div class="field" style="grid-column:1/-1"><label>Customer's signature <span class="sub">(goes on the agreement's Sign line)</span></label>
       <div class="row" style="gap:12px;align-items:center">${g.customer_sign ? `<img src="${g.customer_sign}" alt="The customer's signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet: upload a photo of it</span>'}
       <label class="btn sm">${g.customer_sign ? 'Replace' : 'Upload a photo of the signature'}<input type="file" id="signFile" accept="image/*" hidden${op}></label></div></div>
-    <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button>
-      <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude from the address</button>
-      ${regDraftLink(g, 'agreement', 'Make the agreement (PDF)')}${regDraftLink(g, 'quotation', 'Make the quotation (Word)')}</div>`, !stepDone('details') || ['check', 'details'].includes(act));
+    <div class="rgformbar"><div class="rgformbar-l"><button class="btn" id="regSave"${op}>Save details</button>
+      <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude</button></div>
+      <span id="regSaveState" class="rgsavestate" aria-live="polite">Changes save themselves</span></div>
+    <div id="regDrafts" class="rgdocs">${regDrafts(g)}</div>`, !stepDone('details') || ['check', 'details'].includes(act));
   const portalSec = regFold('regPortal', 'On PM Surya Ghar', c.application_no ? esc(c.application_no) : 'not registered yet',
     `<dl class="rgfiled">${[['Name filed', v.name], ['Consumer number', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
       ['State', v.state], ['District', v.district], ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><dt>${k}</dt><dd>${esc(x || 'not yet')}</dd></div>`).join('')}</dl>
@@ -1316,7 +1351,7 @@ document.addEventListener('click', e => {
   if (f && f.dataset.fold) (S.regOpen ||= {})[f.dataset.fold] = !f.open;
   // a document is made from the saved details: changes still in the boxes are saved first
   if (e.target.closest('a[data-draft]') && $$('[data-r]').some(i => i.dataset.shown !== undefined && i.value !== i.dataset.shown)) {
-    e.preventDefault(); toast('Save the details first, so the document has what you typed.', true);
+    e.preventDefault(); $$('[data-r]').forEach(regAutosave); toast('Saving what you typed; click again in a moment.');
   }
 });
 document.addEventListener('click', async e => {
@@ -1361,7 +1396,7 @@ document.addEventListener('click', async e => {
     if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
     return;
   }
-  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); }
+  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); regAutosave(i); }
     $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
   if (t.id === 'regAskDocs') { regAskDocs(); return; }
   if (t.dataset.today) { todayAct(t); return; }
@@ -1385,7 +1420,15 @@ document.addEventListener('click', async e => {
     catch (err) { toast(err.message, true); }
     return;
   }
-  if (t.id === 'scUse') { regSaveSign(S.crop.crop()); return; }
+  if (t.id === 'scUse') {
+    if (S.signFor !== 'vendor') { regSaveSign(S.crop.crop()); return; }
+    try {
+      await api('/signature/vendor', { method: 'POST', body: { image: S.crop.crop(), photo: true } });
+      S.regData = await api('/registration/' + S.regCid); (S.regOpen ||= {}).regDetails = true; closeModal(); render();
+      toast("Company signature saved. It goes on every customer's agreement, Second Party Sign line.");
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   if (t.dataset.reread) {
     const cid = S.regCid, kind = t.dataset.reread, busy = ((S.docBusy ||= {})[cid] ||= {});
     busy[kind] = 'reading'; render();
@@ -1581,16 +1624,19 @@ document.addEventListener('input', e => {
   if (t.dataset && (t.dataset.r || t.dataset.rule)) { regFieldCheck(t); regSyncButtons(); }
   if (t.id === 'scZoom' && S.crop) S.crop.zoom(+t.value);
 });
+document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.r) regAutosave(e.target); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.r && e.target.tagName === 'INPUT') { e.preventDefault(); regAutosave(e.target); } });
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
   if (e.target.id === 'runcid') pickRunCustomer(e.target.value);
   if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
-  if (e.target.id === 'signFile' && e.target.files[0]) {
+  if ((e.target.id === 'signFile' || e.target.id === 'vendorSignFile') && e.target.files[0]) {
     const img = new Image(), url = URL.createObjectURL(e.target.files[0]);
+    S.signFor = e.target.id === 'vendorSignFile' ? 'vendor' : 'customer';
     img.onload = () => {
-      modal("Customer's signature", 'Drag the corner dots to box the signature; drag inside the box to move it. Zoom in for a closer look.',
+      modal(S.signFor === 'vendor' ? 'Company signature' : "Customer's signature", 'Drag the corner dots to box the signature; drag inside the box to move it. Zoom in for a closer look.',
         `<div style="overflow:auto;max-height:58vh;border:1px solid var(--line);border-radius:var(--r);background:#f4f4f4"><canvas id="scCanvas" style="display:block;touch-action:none;cursor:crosshair"></canvas></div>
          <div class="row" style="gap:10px;align-items:center;margin-top:10px"><label for="scZoom">Zoom</label><input type="range" id="scZoom" min="1" max="4" step="0.1" value="1" style="flex:1"></div>
 `,
