@@ -24,7 +24,7 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("aadhar no first", LOAN, False, "aadhaar"), ("aadhar no second", LOAN, False, "aadhaar"), ("aadhar no third", LOAN, False, "aadhaar"),
     ("aadhaar number", PLAIN, False, "aadhaar"), ("aadhaar no", PLAIN, False, "aadhaar"), ("aadhaar card number", PLAIN, False, "aadhaar"),
     ("aadhaar card no", PLAIN, False, "aadhaar"), ("enter aadhaar number or virtual id", PLAIN, False, "aadhaar"),
-    ("aadhaar virtual id mat radio group 0", LOAN, False, NEVER), ("vid no first", LOAN, False, NEVER), ("uid", PLAIN, False, NEVER),
+    ("aadhaar virtual id mat radio group 0", LOAN, False, NEVER), ("vid no first", LOAN, False, NEVER), ("virtual no first", LOAN, False, NEVER), ("uid", PLAIN, False, NEVER),
     ("aadhaar otp", PLAIN, False, NEVER), ("mobile number linked with aadhaar number", PLAIN, False, "mobile"),
     ("email linked with aadhaar no", PLAIN, False, "email"), ("name as per aadhaar", PLAIN, False, "aadhaar_name"),
     ("name as per aadhaar number", PLAIN, False, "aadhaar_name"), ("aadhaar nominee", PLAIN, False, UNKNOWN), ("aadhaar notified area", PLAIN, False, UNKNOWN),

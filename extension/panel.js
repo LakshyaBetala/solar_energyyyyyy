@@ -47,7 +47,7 @@
     // often a user id, so it is never filled.
     [/\blast ?(4|four)\b.*aadha?ar|aadha?ar.*\blast ?(4|four)\b/, null],
     [/^(?!.*\b(mobile|phone|e ?mail|name|address|last|digits?|co ?applicant|co ?borrower|joint|guarantor|spouse|husband|wife|father|mother|guardian|nominee|witness)\b).*\baadha?ar ?(no|number|card number|card no)\b/, 'aadhaar'],
-    [/virtual id|\bvid\b|\buid\b/, null],                              // the 16-digit stand-in is the customer's to give
+    [/virtual (id|no)|\bvid\b|\buid\b/, null],                              // the 16-digit stand-in is the customer's to give
     // Somebody else's details, a second contact, a further address line: Solara holds the customer's own, once. These are
     // left for the person (undefined: not known, so the box can still be taught), before the rules below would see only
     // "name", "mobile", "address", "PAN" or "date of birth" in the label.
