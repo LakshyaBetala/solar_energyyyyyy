@@ -1844,10 +1844,20 @@ This cannot be undone.`)) return;
     if (!can('operator')) { toast('Connecting the extension needs the operator role.', true); return; }
     try {
       const k = await api('/copilot/key', { method: 'POST' });
+      // the helper in this browser takes the address and the key by itself; no copying. No answer: the steps by hand.
+      const took = new Promise(res => { const h = e => { if (e.source === window && e.data && e.data.solara === 'connected') { removeEventListener('message', h); res(true); } };
+        addEventListener('message', h); setTimeout(() => { removeEventListener('message', h); res(false); }, 1500); });
+      window.postMessage({ solara: 'connect', key: k.key }, location.origin);
+      if (await took) {
+        modal('Chrome helper connected', 'The helper in this browser now works with this Solara.',
+          '<p class="hint" id="helperOk" style="margin:0">Open a portal. The Solara panel asks which customer you are filling for.</p>',
+          '<button class="btn go" data-close>Done</button>');
+        return;
+      }
       const row = (label, id, val, secret) => `<div class="field"><label for="${id}">${label}</label>
         <div class="row" style="flex-wrap:nowrap;gap:8px"><input type="${secret ? 'password' : 'text'}" readonly id="${id}" value="${esc(val)}" style="flex:1;min-width:0;font-family:var(--font-mono)">
         ${secret ? `<button class="btn sm" type="button" data-reveal="${id}">Show</button>` : ''}<button class="btn sm pri" type="button" data-copyfield="${id}">Copy</button></div></div>`;
-      modal('Connect the extension', 'Do this once on the computer you use for the portals.',
+      modal('Connect the Chrome helper', 'No helper answered in this browser. Load it in Chrome, open Solara in that Chrome and press this button again; or paste these two by hand.',
         `${row('Solara address', 'exUrl', location.origin, false)}${row('Co-pilot key', 'exKey', k.key, true)}
          <p class="hint" style="margin:2px 0 12px">This key is shown only now. If you lose it, press Connect extension again to create a new one.</p>
          <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:5px">

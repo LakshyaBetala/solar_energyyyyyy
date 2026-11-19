@@ -224,6 +224,23 @@ async def panel(can):
             there = False
         check("the Solara button in the toolbar loads the panel on that page", there)
         await other.close()
+        # one click connects the helper: Solara's own page hands it the address and a fresh key
+        dash = await ctx.new_page()
+        await dash.goto(BASE + "/")
+        await dash.evaluate("""() => fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 's.kale', password: 'demo' }) })""")
+        await dash.reload()
+        await dash.wait_for_selector("#coKey", timeout=30000)
+        await dash.click("#coKey")
+        try:
+            await dash.wait_for_selector("#helperOk", timeout=10000)
+        except Exception:
+            pass
+        got = await sw.evaluate("chrome.storage.local.get(['url', 'key'])")
+        check("'Connect the Chrome helper' in Solara connects it in one click: no address or key is copied by hand",
+              got.get("url") == BASE and str(got.get("key", "")).startswith("sk_") and got["key"] != KEY["X-Solara-Key"]
+              and httpx.get(f"{BASE}/api/copilot/pending", headers={"X-Solara-Key": got["key"]}, timeout=30).status_code == 200, str(got)[:80])
+        await dash.close()
         check("no script errors on the portal pages", not errors, "; ".join(errors[:3]))
         await ctx.close()
 

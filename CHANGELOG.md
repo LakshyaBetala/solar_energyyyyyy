@@ -28,6 +28,8 @@ templates, the island, the automatic application flow on the live consumer login
   asks whether to remember the site. Sites and taught boxes are listed in the helper's options.
 - **Unknown pages report themselves.** A page the panel mostly does not know sends its field names (never
   what is typed) to Solara once, so rules can be added.
+- **One-click connect.** "Connect the Chrome helper" in Solara hands the helper its address and a fresh key;
+  nothing is copied by hand.
 - **Desktop app** (`desktop/`, Electron): Solara in its own window, the data in one folder that updates
   leave alone, portal links opened in the browser with the helper.
 - `docs/ROADMAP.md`: what comes next, and the risks to settle.

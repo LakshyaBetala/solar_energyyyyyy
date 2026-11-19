@@ -35,9 +35,10 @@ password manager and keep it away from the backups.
    `SOLARA_MODE=live` gives the real portal links and no sample customers.
 3. Double-click Solara.exe. The first time, the sign-in page asks for the supervisor's name,
    username and password (on this computer only, only once). Add everyone else in Reports → People.
-4. In Chrome: `chrome://extensions` → Developer mode → **Load unpacked** →
-   `C:\Solara\_internal\extension`. In Solara: Today → **Connect the Chrome helper**, paste the
-   address and key into the helper's Options.
+4. In Chrome: `chrome://extensions` → Developer mode → **Load unpacked** → the helper's folder
+   (`C:\Solara\_internal\extension`; in the desktop app, Solara menu → Show the Chrome helper folder).
+5. Open Solara **in that Chrome** (<http://127.0.0.1:8900>) → Today → **Connect the Chrome helper**. It connects
+   by itself. Only a Solara on another address still needs the address and key pasted into the helper's options.
 
 Documents (agreement, MSEDCL papers, reports) are made into PDF by a browser. Solara uses its own
 copy when it has one and otherwise the computer's Chrome or Edge, so nothing else is installed.
