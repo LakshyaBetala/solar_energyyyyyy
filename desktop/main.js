@@ -2,7 +2,7 @@
 // window, and stops it when the window is closed. The data lives in one folder that an update or an
 // uninstall never touches. Portal and WhatsApp links open in the computer's browser, where the Chrome
 // helper is.
-const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, clipboard } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
@@ -21,7 +21,7 @@ const answers = () => new Promise(done => {
 
 function startBackend() {
   fs.mkdirSync(DATA, { recursive: true });
-  const env = { ...process.env, SOLARA_DATA: DATA, SOLARA_PORT: String(PORT), SOLARA_NO_BROWSER: '1' };
+  const env = { ...process.env, SOLARA_DATA: DATA, SOLARA_PORT: String(PORT), SOLARA_NO_BROWSER: '1', SOLARA_DESKTOP: '1' };
   const exe = path.join(process.resourcesPath, 'backend', 'Solara.exe');
   // installed: the bundled program. From source (npm start): python -m app.launcher in the project folder.
   backend = app.isPackaged ? spawn(exe, [], { env, cwd: path.dirname(exe), windowsHide: true })
@@ -65,7 +65,11 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Open the data folder', click: () => shell.openPath(DATA) },
     { label: 'Open the backups', click: () => shell.openPath(path.join(DATA, 'backups')) },
     { label: 'Open the logs', click: () => shell.openPath(path.join(DATA, 'logs')) },
-    { label: 'Show the Chrome helper folder', click: () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'backend', '_internal', 'extension') : path.join(__dirname, '..', 'extension')) },
+    { label: 'Show the Chrome helper folder (its path is copied too)', click: () => {
+      const dir = app.isPackaged ? path.join(process.resourcesPath, 'backend', '_internal', 'extension') : path.join(__dirname, '..', 'extension');
+      clipboard.writeText(dir); shell.openPath(dir);
+      dialog.showMessageBox({ message: 'The Chrome helper folder', detail: dir + '\n\nThis path is copied. In Chrome: chrome://extensions, Developer mode on, Load unpacked, paste the path in the folder box, Select Folder.' });
+    } },
     { type: 'separator' },
     { label: 'Open Solara in the browser', click: () => shell.openExternal(URL_) },
     { type: 'separator' }, { role: 'quit' }] },

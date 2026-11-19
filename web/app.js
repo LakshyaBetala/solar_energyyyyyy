@@ -113,6 +113,7 @@ async function boot() {
   [S.today, S.board] = await Promise.all([api('/today').catch(() => null), api('/board').catch(() => null)]);
   $('#whoName').textContent = S.me.name;
   $('#whoRole').textContent = S.me.role;
+  if (S.single) { $('#whoChip').hidden = true; $('#signout').hidden = true; }   // one owner on their own computer: nobody to sign in or out
   $('#llmChip').innerHTML = S.llm.enabled
     ? `<span class="dot on"></span>Model <b>${esc(S.llm.provider)}</b>`
     : `<span class="dot"></span>Model <b>off</b>`;
@@ -1074,6 +1075,7 @@ VIEWS.closeout = () => {
       <div class="card raise"><div class="ch"><div><h3>${esc(c.aadhaar_name || c.name)}</h3>
         <div class="sub mono">${c.id} · consumer ${esc(c.consumer_no || '—')} · ${g.capacity || '—'} kWp · MSEDCL ${esc(d.msedcl_app_id || '—')}</div></div>
         <span class="spacer"></span>
+        ${can('supervisor') ? `<button class="btn sm danger" data-delcust="${esc(c.id)}" data-delname="${esc(c.name)}">Delete this customer</button>` : ''}
         <button class="btn ${next[0] ? 'go' : ''}" id="coNext" data-act="${next[0]}"${next[0] && (next[0] === 'vsig' || can('operator')) ? '' : ' disabled'}>${esc(next[1])}</button></div>
         <div class="cb"><div class="costeps">${steps.map(([n, ok], i) => `<div class="${ok ? 'done' : ''}">${ok ? '&#10003;' : i + 1}. ${n}</div>`).join('')}</div>
         ${g.checks.length ? `<div style="display:grid;gap:5px;margin-top:10px">${g.checks.map(x =>
@@ -1316,6 +1318,7 @@ VIEWS.inst = () => {
           ${g.paused ? `<button class="btn sm" id="instResume"${op}>Resume</button>` : `<button class="btn sm" id="instPause"${op}>Pause</button>`}
           <button class="btn sm" id="instReview">Review what will be filed</button>
           <button class="btn sm" id="instRetry"${op}>Retry a step</button>
+          ${can('supervisor') ? `<button class="btn sm danger" data-delcust="${esc(c.id)}" data-delname="${esc(c.name)}">Delete this customer</button>` : ''}
           <a class="btn sm" href="#" data-goto="closeout" data-cid="${esc(c.id)}">Close-out documents</a></div>
         ${g.post_install_seconds != null ? `<div class="hint">Post-installation (first field photo to all six on MSEDCL): <b class="mono">${mins(g.post_install_seconds)}</b></div>` : t.field_at ? `<div class="hint">Post-installation clock started ${when('field_at')}</div>` : ''}
         ${g.checks.length ? g.checks.map(x => `<div class="fu ${x.sev === 'bad' ? 'bad' : 'warn'}"><span class="pill ${x.sev === 'bad' ? 'bad' : 'warn'}">${x.sev === 'bad' ? 'fix' : 'check'}</span><div>${esc(x.text)}</div></div>`).join('') : ''}
@@ -1557,7 +1560,7 @@ VIEWS.reports = () => {
         <button class="btn" id="everything"${sup}>Export everything (.zip)</button></div>
       <div class="hint">Solara backs itself up once a day. The restore drill opens the newest backup on the side and proves it would restore.
         Export everything gives all customers, documents and the audit trail as plain files.</div></div></div>`;
-  const people = !S.users ? '' : `<div class="card" id="people"><div class="ch"><h3>People who can sign in</h3></div>
+  const people = !S.users || S.single ? '' : `<div class="card" id="people"><div class="ch"><h3>People who can sign in</h3></div>
     <div class="cb" style="display:grid;gap:6px">${S.users.map(u => `<div class="row" style="gap:10px">
       <b style="min-width:120px">${esc(u.username)}</b><span class="sub" style="flex:1">${esc(u.name)}</span>
       <select data-urole="${esc(u.username)}">${['viewer', 'operator', 'supervisor'].map(r => `<option${r === u.role ? ' selected' : ''}>${r}</option>`).join('')}</select>
@@ -1798,11 +1801,16 @@ document.addEventListener('click', async e => {
     try { await api(`/extract/${cid}?kind=${kind}`, { method: 'POST' }); } catch (err) { toast(err.message, true); }
     delete busy[kind]; await loadReg(cid); return;
   }
-  if (t.id === 'regDelete') {
-    const c = S.regData.customer;
+  if (t.id === 'regDelete' || t.dataset.delcust) {
+    const c = t.dataset.delcust ? { id: t.dataset.delcust, name: t.dataset.delname } : S.regData.customer;
     if (!confirm(`Delete ${c.name} (${c.id}) and everything kept for them: documents, what was read, details, links?
 This cannot be undone.`)) return;
-    try { await api('/customers/' + c.id, { method: 'DELETE' }); S.regCid = null; await loadReg(); toast(`${c.name} deleted`); }
+    try {
+      await api('/customers/' + c.id, { method: 'DELETE' });
+      S.regCid = null; S.instCid = null; S.coCid = null;
+      await Promise.all([loadReg(), loadInst(), loadCo(), loadToday()]);   // gone from every screen and from the counts
+      render(); toast(`${c.name} deleted`);
+    }
     catch (err) { toast(err.message, true); }
     return;
   }
@@ -1854,16 +1862,27 @@ This cannot be undone.`)) return;
           '<button class="btn go" data-close>Done</button>');
         return;
       }
+      const hp = await api('/helper').catch(() => ({ folder: '', here: false }));
+      const inApp = /Electron/i.test(navigator.userAgent);
+      const copyRow = (id, val) => `<div class="row" style="flex-wrap:nowrap;gap:8px;margin:4px 0 2px"><input type="text" readonly id="${id}" value="${esc(val)}" style="flex:1;min-width:0;font-family:var(--font-mono)"><button class="btn sm pri" type="button" data-copyfield="${id}">Copy</button></div>`;
+      const guide = `<ol class="hint" id="helperSteps" style="margin:0 0 14px;padding-left:18px;display:grid;gap:10px">
+          <li><b>The helper's folder</b> on this computer:${copyRow('exFolder', hp.folder)}
+            ${hp.here ? '<button class="btn sm" type="button" data-helperopen="folder">Open this folder</button>' : ''}</li>
+          <li>In <b>Chrome</b>, open this address:${copyRow('exChrome', 'chrome://extensions')}Switch on <b>Developer mode</b> (top right), press <b>Load unpacked</b>,
+            paste the folder path into the box at the bottom of the window, press <b>Select Folder</b>. "Solara co-pilot" appears in the list.</li>
+          <li>${inApp ? `Open Solara <b>in that Chrome</b> and press Connect there: ${hp.here ? '<button class="btn sm" type="button" data-helperopen="solara">Open Solara in my browser</button>' : ''}${copyRow('exHere', location.origin)}`
+            : 'Reload this page (F5) and press <b>Connect the Chrome helper</b> again. It connects by itself.'}</li></ol>
+        <details><summary class="hint" style="cursor:pointer">Or connect by hand (a Solara on another computer)</summary><div style="margin-top:8px">`;
       const row = (label, id, val, secret) => `<div class="field"><label for="${id}">${label}</label>
         <div class="row" style="flex-wrap:nowrap;gap:8px"><input type="${secret ? 'password' : 'text'}" readonly id="${id}" value="${esc(val)}" style="flex:1;min-width:0;font-family:var(--font-mono)">
         ${secret ? `<button class="btn sm" type="button" data-reveal="${id}">Show</button>` : ''}<button class="btn sm pri" type="button" data-copyfield="${id}">Copy</button></div></div>`;
       modal('Connect the Chrome helper', 'No helper answered in this browser. Load it in Chrome, open Solara in that Chrome and press this button again; or paste these two by hand.',
-        `${row('Solara address', 'exUrl', location.origin, false)}${row('Co-pilot key', 'exKey', k.key, true)}
+        `${guide}${row('Solara address', 'exUrl', location.origin, false)}${row('Co-pilot key', 'exKey', k.key, true)}
          <p class="hint" style="margin:2px 0 12px">This key is shown only now. If you lose it, press Connect extension again to create a new one.</p>
          <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:5px">
            <li>Open <span class="mono">chrome://extensions</span>, switch on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the <span class="mono">extension</span> folder.</li>
            <li>Open <b>Solara co-pilot</b> &rarr; Details &rarr; Extension options. Paste the address and the key, press <b>Save and test</b>.</li>
-           <li>Open a portal. In the Solara panel pick the customer, then press <b>Start</b>.</li></ol>`,
+           <li>Open a portal. In the Solara panel pick the customer, then press <b>Start</b>.</li></ol></div></details>`,
         '<button class="btn" data-close>Done</button>');
     } catch (err) { toast(err.message, true); }
     return;
@@ -1985,6 +2004,11 @@ This cannot be undone.`)) return;
   }
   if (t.id === 'quoteOwnRemove') {
     try { S.regData = await api('/registration/' + S.regCid + '/quotation', { method: 'DELETE' }); (S.regOpen ||= {}).regDetails = true; render(); toast('The quotation template for the chosen price is used again.'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.helperopen) {
+    try { await api('/helper/open', { method: 'POST', body: { what: t.dataset.helperopen } }); toast(t.dataset.helperopen === 'folder' ? 'The folder is open in Explorer.' : 'Solara is opening in your browser.'); }
     catch (err) { toast(err.message, true); }
     return;
   }
@@ -2190,6 +2214,7 @@ function liveMode() {
   syncTheme();
   api('/me').then(async r => {
     if (r && r.live) liveMode();
+    S.single = !!(r && r.single);
     if (r && r.setup) { $('#setupForm').hidden = false; $('#loginForm').hidden = true; }
     if (!r || !r.user) return showGate();
     S.me = r.user; $('#gate').hidden = true; $('#shell').hidden = false; await boot();

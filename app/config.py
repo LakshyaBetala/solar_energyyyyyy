@@ -47,6 +47,33 @@ def clean():
     return os.environ.get("SOLARA_CLEAN", "").lower() in ("1", "true", "yes")
 
 
+def single_owner():
+    """SOLARA_SINGLE_OWNER=1: one person uses Solara, on their own computer, so there is no sign-in. Their
+    Windows account is the lock. Only for a Solara that is opened on the computer it runs on."""
+    import os
+    return os.environ.get("SOLARA_SINGLE_OWNER", "").lower() in ("1", "true", "yes")
+
+
+HELPER_DIR = ROOT / "extension"   # the Chrome helper's folder, for "Load unpacked"
+_DRAFT_VENDOR = {}
+
+
+def vendor_on_draft():
+    """The installer's name as their own agreement draft prints it (the Second Party), so nothing has to be typed
+    into a settings file. '' when there is no draft or it cannot be read."""
+    try:
+        import fitz
+        from . import drafts
+        p = drafts.agreement_template()
+        key = (str(p), p.stat().st_mtime)
+        if key not in _DRAFT_VENDOR:
+            _DRAFT_VENDOR.clear()
+            _DRAFT_VENDOR[key] = drafts.vendor_from_draft(fitz.open(p)[0].get_text())[0]
+        return _DRAFT_VENDOR[key]
+    except Exception:
+        return ""
+
+
 def live():
     """SOLARA_MODE=live: no demo data, and the links open the real portals."""
     import os
@@ -76,7 +103,7 @@ def vendor():
     """The installer named on generated documents, from .env (read late: .env loads after
     this module). The public repo never carries a client's identity."""
     import os
-    return {"name": os.environ.get("SOLARA_VENDOR_NAME", "Demo Solar Solutions Pvt Ltd"),
+    return {"name": os.environ.get("SOLARA_VENDOR_NAME") or (live() and vendor_on_draft()) or "Demo Solar Solutions Pvt Ltd",
             "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory"),
             # the demo shows a placeholder so the customer page's help line is visible; live uses the real one or none
             "phone": os.environ.get("SOLARA_VENDOR_PHONE") or ("" if live() else "+91 90000 00000")}

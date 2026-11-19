@@ -10,7 +10,7 @@ from . import (db, drafts, extract, exports, docs_gen, portal, discom, vault, ba
                msedcl, pmsg, registration, intake, filing, field, tracker, dcr, jansamarth, upkeep, kpi,
                reset as resetmod)
 from .agent import runner
-from .config import clean, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import clean, single_owner, HELPER_DIR, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
 from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
@@ -73,8 +73,30 @@ def session_user(request: Request):
     # the cookie's own expiry is the browser's word; the server keeps its own
     if row and row["created_at"] < (datetime.now() - timedelta(hours=SESSION_HOURS)).isoformat(timespec="seconds"):
         db.ex("DELETE FROM sessions WHERE token=?", (tok,))
+        row = None
+    return row["username"] if row else owner_here(request)
+
+
+OWNER = "owner"
+
+
+def owner_here(request: Request):
+    """A single-owner install: a request made on this computer, by Solara's own page, is the owner's, with no
+    sign-in. A page of another site open in the same browser cannot use this (its Origin is not Solara's, and
+    the browser marks its requests cross-site), nor can a web address pointed at this computer (the Host)."""
+    if not single_owner() or not from_this_computer(request):
         return None
-    return row["username"] if row else None
+    host = request.headers.get("host", "")
+    if host.split(":")[0] not in ("127.0.0.1", "localhost"):
+        return None
+    origin = request.headers.get("origin")
+    if (origin and origin != f"http://{host}") or request.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
+        return None
+    if not db.one("SELECT 1 FROM users WHERE username=?", (OWNER,)):
+        # a password nobody knows: this account is only ever reached this way
+        db.ex("INSERT INTO users(username,name,role,pw) VALUES(?,?,?,?)",
+              (OWNER, os.environ.get("SOLARA_OWNER_NAME", "Owner"), "supervisor", db.pwhash(secrets.token_urlsafe(24))))
+    return OWNER
 
 
 def from_this_computer(request: Request):
@@ -151,7 +173,30 @@ def me(request: Request):
     """Session probe. Not being signed in is an answer, not an error, so this stays 200."""
     u = session_user(request)
     return {"user": db.one("SELECT username,name,role FROM users WHERE username=?", (u,)) if u else None,
-            "live": live(), "setup": not db.q("SELECT 1 FROM users") and from_this_computer(request)}
+            "live": live(), "single": single_owner(),
+            "setup": not single_owner() and not db.q("SELECT 1 FROM users") and from_this_computer(request)}
+
+
+@app.get("/api/helper")
+def helper_get(request: Request, user=Depends(current)):
+    """Where the Chrome helper's folder is on this computer, for Chrome's "Load unpacked"."""
+    return {"folder": str(HELPER_DIR), "here": from_this_computer(request)}
+
+
+@app.post("/api/helper/open")
+def helper_open(request: Request, body: dict = Body(...), user=Depends(need("operator"))):
+    """Open the helper's folder in Explorer, or Solara in the computer's browser. Only on the computer Solara runs on."""
+    if not from_this_computer(request):
+        raise HTTPException(403, "this works on the computer Solara runs on")
+    what = body.get("what")
+    if what == "folder":
+        os.startfile(str(HELPER_DIR)) if hasattr(os, "startfile") else None
+    elif what == "solara":
+        import webbrowser
+        webbrowser.open(f"http://{request.headers.get('host', '127.0.0.1:8900')}/")
+    else:
+        raise HTTPException(400, "unknown")
+    return {"ok": True}
 
 
 def new_user(body):

@@ -268,7 +268,7 @@ async def main_ui():
         check("every document shows its size, every one under 300 KB",
               len(sizes) == len(closeout.DOCS_SPEC) and all(int(s.split()[0]) <= 300 for s in sizes), ", ".join(sizes))
         await pg.click("#coKey")
-        await pg.wait_for_selector("#mbody input[value^='sk_']")
+        await pg.wait_for_selector("#mbody input[value^='sk_']", state="attached")
         check("connect co-pilot shows a key once", True)
         await pg.keyboard.press("Escape")
         check("no JavaScript errors on the close-out screen", not errors, "; ".join(errors[:2]))

@@ -30,6 +30,11 @@ templates, the island, the automatic application flow on the live consumer login
   what is typed) to Solara once, so rules can be added.
 - **One-click connect.** "Connect the Chrome helper" in Solara hands the helper its address and a fresh key;
   nothing is copied by hand.
+- **One owner, no sign-in** (the desktop app): Solara opens as the owner on its own computer; another site in the
+  browser, or an address pointed at the computer, is refused. It starts empty, with the real portal links, and takes
+  the company's name from its own agreement draft. `tests/owner.py`, 14 checks.
+- **Delete this customer** on Installation and Close-out too; everything kept for them goes, in every table.
+- **Connect dialog** shows the helper's folder with Copy and Open, and what to press in Chrome.
 - **Desktop app** (`desktop/`, Electron): Solara in its own window, the data in one folder that updates
   leave alone, portal links opened in the browser with the helper.
 - `docs/ROADMAP.md`: what comes next, and the risks to settle.

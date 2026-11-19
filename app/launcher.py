@@ -36,7 +36,12 @@ def running(port):
 
 def main():
     here = home()
+    if os.environ.get("SOLARA_DATA"):   # the desktop app: settings kept with the data, where an update leaves them alone
+        read_env(Path(os.environ["SOLARA_DATA"]) / "solara.env")
     read_env(here / "solara.env")
+    if os.environ.get("SOLARA_DESKTOP"):   # the desktop app: the owner's own computer, real work. solara.env can say otherwise
+        os.environ.setdefault("SOLARA_MODE", "live")
+        os.environ.setdefault("SOLARA_SINGLE_OWNER", "1")
     port = int(os.environ.get("SOLARA_PORT") or PORT)
     url = f"http://127.0.0.1:{port}/"
     show = not os.environ.get("SOLARA_NO_BROWSER")

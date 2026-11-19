@@ -416,9 +416,10 @@ def delete_customer(cid, user):
     runs = [r["id"] for r in db.q("SELECT id FROM runs WHERE customer_id=?", (cid,))]
     for t in ("run_steps", "run_events", "holds", "screenshots") if runs else ():
         db.ex(f"DELETE FROM {t} WHERE run_id IN ({','.join('?' * len(runs))})", runs)
-    for t in ("runs", "documents", "extractions", "calls", "closeout", "sign_requests", "doc_requests",
-              "signatures", "approvals"):
-        db.ex(f"DELETE FROM {t} WHERE customer_id=?", (cid,))
+    # every table that keeps something for a customer (the filings, field photos, serials and portal status too)
+    for t in [r["name"] for r in db.q("SELECT name FROM sqlite_master WHERE type='table'")]:
+        if t not in ("customers", "numbers") and any(c["name"] == "customer_id" for c in db.q(f"PRAGMA table_info({t})")):
+            db.ex(f"DELETE FROM {t} WHERE customer_id=?", (cid,))
     db.ex("UPDATE numbers SET customer_id=NULL WHERE customer_id=?", (cid,))   # the number goes back to the pool
     db.ex("DELETE FROM customers WHERE id=?", (cid,))
     shutil.rmtree(DOCS / cid, ignore_errors=True)

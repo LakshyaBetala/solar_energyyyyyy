@@ -63,6 +63,11 @@ Reports → **Restore drill** opens the newest backup on the side and proves it 
 portal and WhatsApp links in the computer's browser, where the Chrome helper is. The Solara menu opens
 the data folder, the backups, the logs and the helper's folder.
 
+The desktop app is for **one owner on their own computer**: it opens with no sign-in (the Windows account is the
+lock), starts with no sample customers, and its links go to the real portals. Settings go in a file `solara.env`
+in the data folder (Solara menu → Open the data folder), for example `GEMINI_API_KEY=...`, or
+`SOLARA_SINGLE_OWNER=0` to bring the sign-in back when a second person starts using it.
+
 ```
 pyinstaller --noconfirm solara.spec        the program itself, into dist\Solara
 cd desktop
