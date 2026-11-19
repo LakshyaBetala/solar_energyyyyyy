@@ -76,6 +76,22 @@ def price_list(sup, view, op):
     check("a wrong amount, a file that is not Word, or a template Solara cannot fill is refused with the reason",
           all(r.status_code == 400 and r.json().get("detail") for r in got), str([(r.status_code, r.text[:50]) for r in got]))
     check("...and nothing was saved by the refusals", sup.get("/api/quotes").json() == before)
+    files = [q for q in before["quotes"] if q.get("file") and not q["own"]]
+    check("the quotations that came with Solara are all there, each with its file", len(files) == len(before["quotes"]) >= 1,
+          f"{len(files)} of {len(before['quotes'])}")
+    if files:
+        r = post(sup, files[0]["amount"], TEMPLATE)
+        check("the add form is for a new price only: a price that already has its quotation is refused, and that quotation is untouched",
+              r.status_code == 400 and "already has its quotation" in r.text and sup.get("/api/quotes").json() == before, r.text[:120])
+        made = sup.get(f"/api/registration/SS-2048/draft/quotation")   # SS-2048 is at one of the prices that came with Solara
+        check("a customer at one of those prices gets that quotation, with their name", made.status_code == 200 and "Sheetal" in text_of(made.content), str(made.status_code))
+    filled = []
+    for q0 in files:   # every one of them, for the same customer: price picked, quotation made
+        ok = sup.put("/api/registration/SS-2048", json={"rts_cost": q0["amount"]}).status_code == 200
+        d0 = sup.get("/api/registration/SS-2048/draft/quotation")
+        filled.append(ok and d0.status_code == 200 and "Sheetal" in text_of(d0.content) and f"{date.today():%d.%m.%Y}" in text_of(d0.content))
+    if files:
+        check(f"each of the {len(files)} prices can be picked and makes its quotation with the customer's name and today's date", all(filled), str(filled))
     r = post(sup, "Rs 2,75,000", TEMPLATE)
     q = next((q for q in r.json().get("quotes", []) if q["amount"] == NEW), None)
     check("the supervisor adds the Rs 2,75,000 quotation (Rs and commas allowed)", r.status_code == 200 and q and q["own"], r.text[:150])

@@ -50,8 +50,8 @@ phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
 
 ## Quotations
 
-- **Your price list is your quotations.** Reports → Quotations → the price and its Word file → **Add this
-  quotation**. Solara puts each customer's name, place and today's date into it and sends it to the portal
+- **Your price list is your quotations.** The ones you already use are in Solara. For a **new price** only:
+  Reports → Quotations → the price and its Word file → **Add a quotation for a new price**. Solara puts each customer's name, place and today's date into it and sends it to the portal
   as a PDF.
 - **One customer with a quotation of their own:** on their page, Quotation → **Upload this customer's own**
   (PDF or Word). That file goes to the portal for them; **Use the template again** takes it back.

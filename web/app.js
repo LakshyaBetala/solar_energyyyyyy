@@ -1569,12 +1569,12 @@ VIEWS.reports = () => {
   const quotesCard = `<div class="card" id="quotesCard"><div class="ch"><h3>Quotations</h3><span class="spacer"></span>
       <span class="sub">${ql.quotes.filter(q => q.file).length} on file</span></div><div class="cb" style="display:grid;gap:6px">
     ${ql.quotes.map(q => `<div class="row" style="gap:10px" data-quote="${esc(q.amount)}"><b style="min-width:110px">${rupees(q.amount)}</b>
-      <span class="sub" style="flex:1">${!q.file ? 'no template yet: Solara\u2019s own layout is used' : q.own ? 'added in Solara' : 'from the quotation folder'}</span>
+      <span class="sub" style="flex:1">${!q.file ? 'no template yet: Solara\u2019s own layout is used' : q.own ? 'added in Solara' : 'came with Solara'}</span>
       ${boss && q.own ? `<button class="btn sm danger" data-qremove="${esc(q.amount)}">Remove</button>` : ''}</div>`).join('')}
     ${boss ? `<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px"><input type="text" id="qAmt" placeholder="Price in Rs, e.g. 275000" inputmode="numeric" style="width:190px" aria-label="Price in rupees">
       <label class="btn">Choose the Word file<input type="file" id="qFile" accept=".docx" hidden></label><span class="sub" id="qFileName">no file chosen</span>
-      <button class="btn pri" id="qAdd">Add this quotation</button></div>` : ''}
-    <div class="hint">One Word file per price, on your letterhead. Solara puts each customer\u2019s name, place and the date into it and sends it to the portal as a PDF.
+      <button class="btn pri" id="qAdd">Add a quotation for a new price</button></div>` : ''}
+    <div class="hint">The quotations above are ready to use. Add one here only for a <b>new price</b>: one Word file, on your letterhead. Solara puts each customer\u2019s name, place and the date into it and sends it to the portal as a PDF.
       It needs a line \u201cDate : dd.mm.yyyy\u201d and a line \u201cTo,\u201d with the name and the place under it. The new price is offered at once, here and in the Chrome panel.</div>
     <div class="row" style="gap:10px;margin-top:8px;border-top:1px solid var(--line);padding-top:10px" id="agrRow"><b style="min-width:110px">Agreement</b>
       <span class="sub" style="flex:1">${ql.agreement === 'own' ? 'your draft, uploaded in Solara' : ql.agreement === 'folder' ? 'the draft in the agreement folder' : 'no draft yet: the agreement cannot be made'}</span>

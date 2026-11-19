@@ -73,10 +73,11 @@ npm run dist                               the installer, in desktop\out
 
 ## Templates and prices
 
-Reports → **Quotations**: upload the agreement draft (PDF) once, and one Word quotation per price. A new
-price is offered everywhere as soon as its quotation is added. Turning a Word quotation into a PDF needs
-Microsoft Word or LibreOffice on this computer; without either, upload each customer's quotation as a PDF
-on their page.
+The quotations (one Word file per price) and the agreement draft that are beside the code when Solara is built
+travel inside the program and are ready to use. Reports → **Quotations** lists them. Add one there only for a
+**new price**; a price that already has its quotation is left as it is. The agreement draft can be replaced there.
+Turning a Word quotation into a PDF needs Microsoft Word or LibreOffice on this computer; without either, upload
+each customer's quotation as a PDF on their page.
 
 ## Build Solara.exe (Almmatix)
 

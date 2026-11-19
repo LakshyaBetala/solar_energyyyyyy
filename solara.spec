@@ -3,7 +3,13 @@
 # The data folder, solara.env and logs live beside Solara.exe and are never inside the build.
 from PyInstaller.utils.hooks import collect_all
 
+import os
 datas = [("web", "web"), ("extension", "extension"), ("docs/RUNNING.md", "docs")]
+# the installer's own templates, when they are beside the code at build time: the quotations (one Word file per
+# price) and the agreement draft. They travel inside the program; the owner adds further prices in Reports.
+for folder in ("Quoatation (all range)", "agreement draft"):
+    if os.path.isdir(folder):
+        datas.append((folder, folder))
 binaries, hidden = [], ["app.main", "uvicorn.logging", "uvicorn.loops.auto", "uvicorn.protocols.http.auto",
                         "uvicorn.protocols.websockets.auto", "uvicorn.lifespan.on"]
 for pkg in ("playwright", "zxingcpp", "fitz", "pymupdf", "qrcode", "openpyxl", "pypdf"):

@@ -908,7 +908,10 @@ async def quotes_add(amount: str = Form(""), file: UploadFile = File(...), user=
         raise HTTPException(400, "that file could not be opened as a Word document; save it as .docx and send it again")
     except ValueError as ex:
         raise HTTPException(400, str(ex))
-    replaced = any(q["amount"] == amt and q["own"] for q in registration.quotes())
+    have = next((q for q in registration.quotes() if q["amount"] == amt and q["file"]), None)
+    if have and not have["own"]:   # the quotations that came with Solara stay as they are: this is for a new price
+        raise HTTPException(400, f"Rs {drafts.inr(amt)} already has its quotation. Add a quotation here only for a price that is not in the list")
+    replaced = bool(have)
     (registration.OWN_QUOTES() / f"{amt}.docx").write_bytes(blob)
     db.audit(user["username"], user["role"], "Quotation template " + ("replaced" if replaced else "added"), None, f"Rs {drafts.inr(amt)}")
     return quote_list()
