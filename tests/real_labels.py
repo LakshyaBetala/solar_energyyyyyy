@@ -298,7 +298,7 @@ async def main():
         await pg.evaluate(PRIMENG)
         await pg.click("#solaraRescan")
         await pg.wait_for_selector("#solaraPanel #solaraFill", timeout=30000)
-        await pg.click("#solaraFill")   # this customer has a name warning open: the panel waits for the owner's "Fill anyway"
+        await pg.click("#solaraFill")
         await pg.wait_for_function("document.querySelector('#district .p-dropdown-label') && /Nashik/i.test(document.querySelector('#district .p-dropdown-label').innerText)", timeout=30000)
         check("no district in Solara: the one named in the customer's address is chosen from the portal's list", True)
         await sw.evaluate("chrome.storage.local.remove('run')")

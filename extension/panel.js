@@ -20,6 +20,10 @@
     try { return (await chrome.runtime.sendMessage(msg)) || { ok: false, error: 'No answer from Solara.' }; }
     catch (e) { return { ok: false, error: 'The co-pilot was updated or restarted. Reload this page (F5).' }; }
   };
+  // The helper's own copy of a customer, kept for 20 seconds so one screen does not ask Solara ten times. After that it
+  // asks again, so a number or a name saved in Solara a moment ago is what gets filled. The refresh button drops every copy.
+  const fresh = cid => { try { const x = JSON.parse(sessionStorage.getItem('solaraCache:' + cid) || 'null'); return x && Date.now() - x.t < 20000 ? x.data : null; } catch (e) { return null; } };
+  const forgetCopies = () => { try { Object.keys(sessionStorage).filter(k => k.startsWith('solaraCache:')).forEach(k => sessionStorage.removeItem(k)); } catch (e) { /* skip */ } };
   const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const NP = /\bNP-[A-Z0-9]+-\d{6,}\b/g;
@@ -48,7 +52,8 @@
     [/certificate (no|number)|dcr cert/, 'dcr_cert_no'],
     [/consumer (account )?(no|number)|ca number|consumer id/, 'consumer_no'],
     [/\bbranch\b/, 'only_option'],                                     // filled only when there is one choice
-    [/loan amount|date of birth|\bdob\b|\bpan\b/, null],              // the customer's own choices
+    [/loan amount/, null],                                            // how much to borrow is the customer's choice
+    [/date of birth|\bdob\b/, 'dob'], [/^pan$|\bpan\b/, 'pan'],          // from the Aadhaar and the PAN card
     [/\bbank\b|ifsc/, null, /jan ?samarth|loan/],                     // on the loan form the customer picks the bank
     [/mobile|phone/, 'mobile'],
     [/e ?mail/, 'email'],
@@ -194,6 +199,9 @@
     el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.closest('.form-group,.fg,.f')?.querySelector('label')?.innerText ||
     el.name || labelOf(el)).replace(/[:*\s]+$/, '').replace(/^(please\s+)?(enter|select)\s+/i, '').trim().slice(0, 50);
   const has = v => v != null && String(v).trim() !== '';
+  // 14-03-1981 from the Aadhaar: a date box takes 1981-03-14, a typed box 14/03/1981
+  const asDate = (v, el) => { const m = String(v).trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); if (!m) return v;
+    const d = m[1].padStart(2, '0'), mo = m[2].padStart(2, '0'); return el.type === 'date' ? `${m[3]}-${mo}-${d}` : `${d}/${mo}/${m[3]}`; };
   // a rule may be tied to the page it is on (its third part): "Contact Number" means the visiting employee only
   // inside the site feasibility form. The page's words are read once per half second, not once per field.
   let pageMemo = { at: 0, t: '' };
@@ -523,7 +531,7 @@
   // problem messages); on the customer login the island leads, unless the owner asks for the panel in the options
   store.get({ classic: false }).then(v => { panel.style.display = v.classic || !/^consumer\./.test(location.host) ? '' : 'none'; });
   let minimised = false;
-  panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') { pbDone = false; pbAsked = false; sessionStorage.removeItem('solaraPress:fetch'); if (startModal()) { startModalFlow(true); } else safeScan(); } if (e.target.id === 'solaraMin') { minimised = !minimised; dodge(); }
+  panel.addEventListener('click', e => { if (e.target.id === 'solaraRescan') { forgetCopies(); pbDone = false; pbAsked = false; sessionStorage.removeItem('solaraPress:fetch'); if (startModal()) { startModalFlow(true); } else safeScan(); } if (e.target.id === 'solaraMin') { minimised = !minimised; dodge(); }
     if (e.target.id === 'solaraLayout') { e.preventDefault(); sendLayout(e.target); } });
   // the portal's own buttons stay reachable: the panel moves to the other corner, or folds to its
   // title bar, when it would cover a Submit, Save & Next, Upload or Approve button
@@ -649,16 +657,19 @@
       toastEl = document.createElement('div'); toastEl.id = 'solaraToast'; toastEl.setAttribute('role', 'status');
       toastEl.style.cssText = 'position:fixed;z-index:2147483647;display:flex;flex-direction:column;overflow:hidden;' +
         'transition:transform .8s cubic-bezier(.22,1,.36,1),opacity .45s ease,padding .6s cubic-bezier(.22,1,.36,1),border-radius .6s cubic-bezier(.22,1,.36,1),width .7s cubic-bezier(.22,1,.36,1)';
+      toastEl.oninput = e => { if (!e.target.matches('.si-find')) return; const q = norm(e.target.value);
+        toastEl.querySelectorAll('[data-pickcust]').forEach(b => { b.style.display = !q || b.dataset.find.includes(q) ? '' : 'none'; }); };
       toastEl.onclick = e => {
         if (e.target.closest('[data-isl="vendorgo"]')) { e.stopPropagation(); runVendorNow(); return; }
         if (e.target.closest('[data-isl="vendorlogin"]')) { e.stopPropagation(); window.open('https://vendor.pmsuryaghar.gov.in/', '_blank', 'noopener'); return; }
+        if (e.target.closest('[data-isl="choose"],[data-isl="change"]')) { e.stopPropagation(); pick(undefined, true); return; }   // always there: who is this for
         const b = e.target.closest('[data-isl]');
         if (b) { e.stopPropagation(); const f = ISL.actions[b.dataset.isl]; if (f && !b.disabled) f(); return; }
         const f1 = e.target.closest('[data-fill1]');
         if (f1) { e.stopPropagation(); if (ISL.actions.fillOne) ISL.actions.fillOne(f1.dataset.fill1); return; }
         const pc = e.target.closest('[data-pickcust]');
         if (pc) { e.stopPropagation(); islandPick(pc.dataset.pickcust); return; }
-        if (e.target.closest('.si-grid')) return;
+        if (e.target.closest('.si-grid,.si-find')) return;
         ISL.open = !ISL.open; ISL.fresh = ISL.open; islandRender();
       };
       document.body.appendChild(toastEl); islandPlace(true);
@@ -681,13 +692,15 @@
       let i = 0; const T = (cls, inner) => `<div class="si-tile ${cls}" style="--i:${i++}">${inner}</div>`;
       html += `<div class="si-grid${ISL.fresh ? ' fresh' : ''}">`; ISL.fresh = false;
       if (ISL.pend && !ISL.cust) {
-        html += T('si-2', '<div class="si-k">Who are you filling for?</div>' + (ISL.pend.length ? ISL.pend.map(x => `<button class="si-pick" data-pickcust="${esc(x.id)}"><span class="si-av" style="width:32px;height:32px;font-size:13px">${esc((x.name || '?')[0])}</span><span><b>${esc(x.name)}</b><br><span style="opacity:.6;font-size:11.5px">${esc(x.id)} &middot; ${esc(x.consumer_no || '')}</span></span></button>`).join('') : '<div style="opacity:.6;margin-top:6px">No customer in Solara is waiting.</div>'));
+        html += T('si-2', '<div class="si-k">Who are you filling for?</div>' + (ISL.pend.length > 6 ? '<input class="si-find" placeholder="Type a name or a number" style="width:100%;box-sizing:border-box;margin-top:8px;padding:8px 10px;border-radius:10px;border:0;background:rgba(255,255,255,.12);color:#F5F5F7;font:inherit">' : '') +
+        (ISL.pend.length ? '<div style="max-height:42vh;overflow:auto">' + ISL.pend.map(x => `<button class="si-pick" data-pickcust="${esc(x.id)}" data-find="${esc(norm(x.name + ' ' + x.id + ' ' + (x.consumer_no || '')))}"><span class="si-av" style="width:32px;height:32px;font-size:13px">${esc((x.name || '?')[0])}</span><span><b>${esc(x.name)}</b><br><span style="opacity:.6;font-size:11.5px">${esc(x.id)}${x.consumer_no ? ' &middot; ' + esc(x.consumer_no) : ''}${x.here ? ' &middot; next for this page' : ''}</span></span></button>`).join('') + '</div>' : '<div style="opacity:.6;margin-top:6px">There is no customer in Solara yet.</div>'));
       } else {
         if (ISL.cust) html += T('si-2', `<div class="si-cust"><div class="si-av">${esc((ISL.cust.name || '?')[0])}</div><div style="flex:1;min-width:0"><div class="si-k">Filling for</div><div class="si-v">${esc(ISL.cust.name)}</div><div style="opacity:.55;font-size:12px">${esc(ISL.cust.id)}</div></div><button class="si-link" data-isl="change">Change</button></div>`);
         if (ISL.steps.length) html += T('si-2', '<div class="si-steps">' + ISL.steps.map(x => `<span class="si-step ${x.s}"><span class="si-dot"></span>${esc(x.l)}</span>`).join('') + '</div>');
         ISL.tiles.forEach(t => { const b1 = ISL.actions.fillOne && t.v && t.s !== 'ok' && t.s !== 'doing' ? `<button class="si-btn pri" data-fill1="${esc(t.k)}" style="padding:6px 12px;font-size:12px">Fill</button>` : '';
           html += T((t.s || '') + (t.fx ? ' pop' : ''), `<div style="display:flex;align-items:center;gap:8px"><div style="min-width:0;flex:1"><div class="si-k">${esc(t.l)}</div><div class="si-v" title="${esc(t.v || '')}">${esc(t.v || '—')}</div></div>${b1}</div>`); t.fx = false; });
         const A = ISL.actions, btns = [];
+        if (!ISL.cust) btns.push('<button class="si-btn pri" data-isl="choose">Choose the customer</button>');
         if (/#\/signed-in\/find-vendor/i.test(location.href) || /find a vendor/i.test(document.body.innerText)) btns.push('<button class="si-btn pri" data-isl="vendorgo">Find and select vendor</button>');
         if (A.fill) btns.push('<button class="si-btn pri" data-isl="fill">Fill now</button>');
         if (A.retry) btns.push('<button class="si-btn" data-isl="retry">Retry</button>');
@@ -1089,7 +1102,7 @@
     if (pbActive || (pbDone && !force)) return;
     if (!rec) { pbAsked = true; await pick(); return; }   // ask once for this opening of the box
     const key = 'solaraCache:' + rec.cid;
-    const cached = (() => { try { const x = JSON.parse(sessionStorage.getItem(key) || 'null'); return x && Date.now() - x.t < 120000 ? x.data : null; } catch (e) { return null; } })();
+    const cached = fresh(rec.cid);
     const r = cached ? { ok: true, data: cached } : await ask({ type: 'lookup', cid: rec.cid });
     if (!r.ok) { pbDone = true; ISL.actions = { retry: () => { pbDone = false; pbAsked = false; startModalFlow(true); } }; tip(`Could not reach Solara: ${esc(r.error)}. Press Retry when it is back.`, 'warn'); return; }
     if (!cached) try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), data: r.data })); } catch (e) { /* skip */ }
@@ -1166,7 +1179,7 @@
       }
     }
     const ck = cid ? 'solaraCache:' + cid : '';
-    const cached = ck && (() => { try { const x = JSON.parse(sessionStorage.getItem(ck) || 'null'); return x && Date.now() - x.t < 120000 ? x.data : null; } catch (e) { return null; } })();
+    const cached = cid && fresh(cid);
     if (!cached) say('Looking up this customer…');
     const r = cached ? { ok: true, data: cached } : await ask({ type: 'lookup', consumer_no: consumer, app_no: app, cid });
     if (r.ok && ck && !cached) try { sessionStorage.setItem(ck, JSON.stringify({ t: Date.now(), data: r.data })); } catch (e) { /* too big: skip */ }
@@ -1236,25 +1249,29 @@
 
   function wireChange() { const a = panel.querySelector('#solaraChange'); if (a) a.onclick = e => { e.preventDefault(); pick(stepOf(scope())); }; }
 
-  async function pick(step) {
+  async function pick(step, asked) {
     if (step === undefined) step = stepOf(scope());   // a filing page lists the customers at that step
     const r = await ask({ type: 'pending', step });
-    if (r && r.ok) { ISL.pend = r.data; ISL.cust = null; ISL.steps = []; ISL.tiles = []; ISL.actions = { more: () => { panel.style.display = panel.style.display === 'none' ? '' : 'none'; } }; ISL.open = true; tip('Choose the customer you are filling for', 'idle'); }
+    if (r && r.ok) { ISL.pend = r.data; ISL.cust = null; ISL.steps = []; ISL.tiles = []; ISL.actions = { more: () => { panel.style.display = panel.style.display === 'none' ? '' : 'none'; } }; ISL.open = true; tip('Choose the customer you are filling for', 'idle');
+      // offered by itself, the list folds to its title when it would sit on the portal's own button; a press opens it again
+      if (!asked) setTimeout(() => { if (ISL.pend && ISL.open && islandCovers()) { ISL.open = false; islandRender(); } }, 700); }
     if (!r || !r.ok) { say(`<span style="color:#F2A6A0">${esc((r && r.error) || 'No answer from Solara.')}</span>`); return; }
-    if (!r.data.length) { say(step ? 'No customer in Solara is at this step.' : 'No customer in Solara is waiting to be registered.'); return; }
-    say('<div style="margin-top:4px">Fill this page for:</div>' + r.data.map(x =>
-      `<button data-pick="${esc(x.id)}" style="display:block;width:100%;text-align:left;margin-top:6px;padding:7px 9px;border:0;border-radius:7px;background:#24343F;color:#E8EEF2;cursor:pointer">` +
-      `<b>${esc(x.name)}</b><br><span style="color:#8FA3B2;font-size:11px">${esc(x.id)} &middot; consumer ${esc(x.consumer_no)}</span></button>`).join(''));
+    if (!r.data.length) { say('There is no customer in Solara yet. Add one in Solara first.'); return; }
+    // every customer, the ones this page is next for at the top; a box to find one by name or number when there are many
+    say('<div style="margin-top:4px">Fill this page for:</div>' +
+      (r.data.length > 6 ? '<input id="solaraFind" placeholder="Type a name or a number" style="width:100%;box-sizing:border-box;margin-top:6px;padding:6px 8px;border-radius:6px;border:1px solid #33495A;background:#0F1A22;color:#E8EEF2">' : '') +
+      r.data.map(x =>
+      `<button data-pick="${esc(x.id)}" data-find="${esc(norm(x.name + ' ' + x.id + ' ' + x.consumer_no))}" style="display:block;width:100%;text-align:left;margin-top:6px;padding:7px 9px;border:0;border-radius:7px;background:${x.here ? '#24403A' : '#24343F'};color:#E8EEF2;cursor:pointer">` +
+      `<b>${esc(x.name)}</b><br><span style="color:#8FA3B2;font-size:11px">${esc(x.id)}${x.consumer_no ? ' &middot; consumer ' + esc(x.consumer_no) : ''}${x.here ? ' &middot; next for this page' : ''}</span></button>`).join(''));
+    const find = panel.querySelector('#solaraFind');
+    if (find) find.oninput = () => { const q = norm(find.value); panel.querySelectorAll('[data-pick]').forEach(b => { b.style.display = !q || b.dataset.find.includes(q) ? 'block' : 'none'; }); };
     panel.querySelectorAll('[data-pick]').forEach(b => b.onclick = async () => {
       await store.set({ current: { cid: b.dataset.pick, at: Date.now(), picked: true }, clicked: null });
       const x = r.data.find(y => y.id === b.dataset.pick);
       ask({ type: 'lookup', cid: x.id }).then(pre => { if (pre.ok) try { sessionStorage.setItem('solaraCache:' + x.id, JSON.stringify({ t: Date.now(), data: pre.data })); } catch (e) { /* skip */ } });
-      if (step) { safeScan(); return; }   // a filing page (feasibility, installation, loan...): fill it for this customer
-      say(`<div style="margin-top:4px"><b>${esc(x.name)}</b> &middot; ${esc(x.id)}</div>` +
-        '<div style="margin-top:6px;color:#8FA3B2">Start fills the phone number. You type the OTP and CAPTCHA. Then Solara opens "Apply for Solar Rooftop" and fills the forms.</div>' +
-        btn('solaraStart', 'Start', true));
-      panel.querySelector('#solaraStart').onclick = async () => {
-        await store.set({ run: { cid: x.id, at: Date.now() } }); scan(); };
+      await store.set({ run: { cid: x.id, at: Date.now() } });   // choosing who it is for is the go-ahead: the page is filled now
+      sessionStorage.removeItem('solaraRun:' + x.id); pbDone = false; pbAsked = false;
+      if (startModal()) startModalFlow(true); else safeScan();
     });
   }
 
@@ -1353,7 +1370,7 @@
     else if (els.length > 6) { ISL.screen = ''; tip('I do not know this screen by its headings. I fill only the fields whose names I recognise. Check the page.', 'warn'); }
     const issues = c.issues || [];
     const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
-      `<b>${issues.length} to sort out in Solara first</b>` + issues.map(i => `<div style="margin-top:3px"><b>${esc(i.kind)}</b>: ${esc(i.field)} &mdash; ${esc(i.message)}</div>`).join('') + '</div>' : '') +
+      `<b>${issues.length} to check (the page is filled all the same)</b>` + issues.map(i => `<div style="margin-top:3px"><b>${esc(i.kind)}</b>: ${esc(i.field)} &mdash; ${esc(i.message)}</div>`).join('') + '</div>' : '') +
       (c.build_error ? `<div style="margin-top:6px;color:#F2A6A0">${esc(c.build_error)}</div>` : '');
     c._customs = customs;
     const seen = new Map(); // a repeating table (one row per make): fill its first row only
@@ -1453,8 +1470,8 @@
     say(head + saved + apNote + issueHtml + lackHtml +
       (dcrFetch ? note('After Fill, press <b>Search</b> beside the DCR number yourself: the portal fills the panel rows and serial numbers from the certificate.', '#BFE9D9') : '') +
       (filedAlready ? note(`<b>Solara already has this filed.</b> Check My Application before filling it again; fill again only if the portal sent it back.`, '#F2C879') : '') +
-      (n || files.length || closedSerial.length || radios.length ? btn('solaraFill', (filedAlready ? 'Fill again anyway: ' : issues.length ? 'Fill anyway: ' : 'Fill ') + `${n} field(s)${first ? ' for ' + first : ''}` +
-      (files.length ? ` and attach ${files.length} file(s)` : ''), !issues.length && !filedAlready) : note('No field here that Solara knows.')) +
+      (n || files.length || closedSerial.length || radios.length ? btn('solaraFill', (filedAlready ? 'Fill again anyway: ' : 'Fill ') + `${n} field(s)${first ? ' for ' + first : ''}` +
+      (files.length ? ` and attach ${files.length} file(s)` : ''), !filedAlready) : note('No field here that Solara knows.')) +
       (agreementBox && (c.done || {}).customer_approved ? note('The customer already approved this agreement. A new upload sends it back to them to approve again.', '#F2A6A0') : '') +
       (agreementBox && c.agreement_draft ? note('This agreement is a DRAFT format; the client has not approved the wording yet.', '#F2C879') : '') +
       (markable && !(c.done || {})[step] ? btn(step === 'agreement_uploaded' ? 'solaraMarkUploaded' : 'solaraMark', MARK[step]) : '') +
@@ -1568,7 +1585,8 @@
           if (p.extra || key === null) continue; // a table's further rows; OTP, CAPTCHA: the person types these
           if (!el.isConnected) el = (key && freshInput(key)) || el;   // the portal re-drew it: use the one on the page now
           const label = shown(el);
-          const v = key === 'module_serials' && serialEls.length > 1 ? serialList[serialEls.findIndex(q => q === p)] : key && valueOf(key);
+          const v0 = key === 'module_serials' && serialEls.length > 1 ? serialList[serialEls.findIndex(q => q === p)] : key && valueOf(key);
+          const v = key === 'dob' && has(v0) ? asDate(v0, el) : v0;
           if (!key || !has(v)) { if (!el.value && key !== 'only_option' && !p.asked) { p.asked = true; left.push(label); } continue; }
           if (p.filled && (el.tagName === 'SELECT' || el.value)) continue;   // filled on an earlier pass and still there
           // never overwrite what a person typed or chose
@@ -1578,7 +1596,7 @@
           if (key === 'consumer_no' && !el.value) { tip('The portal needs a moment. The consumer number is next…', 'busy', 0, stepNo / total); await sleep(PACE.settle); }   // let the portal settle after the dropdowns
           if (!total || stepNo < total) { stepNo += 1; tip(`Filling ${esc(label)} (${stepNo} of ${total})`, 'busy', 0, (stepNo - 1) / total); }
           tileSet(key, 'doing');
-          const ok = el.tagName === 'SELECT' ? setVal(el, v) : await typeInto(el, v);
+          const ok = el.tagName === 'SELECT' || el.type === 'date' ? setVal(el, v) : await typeInto(el, v);
           if (ok && (el.tagName === 'SELECT' || el.value === String(v) || (/^[\d.,\s]+$/.test(el.value) && el.value.replace(/[,\s]/g, '') === String(v).replace(/[,\s]/g, '')))) { filled += 1; done.push(label); tileSet(key, 'ok'); p.el = el; p.filled = true; if (key === 'consumer_no') caFilled = true; await sleep(PACE.step); }
           else if (key !== 'only_option') { left.push(label); failed.push(label); tileSet(key, 'warn', 'not accepted'); }   // the page refused or changed the value
         }
@@ -1701,7 +1719,7 @@
       const going = run && run.cid === c.customer_id && Date.now() - run.at < 60 * 60 * 1000;
       const onceKey = 'solaraAuto:' + location.pathname + location.hash + ':' + c.customer_id;
       // by itself only on a page that is safe to fill: nothing to sort out first, not filed already, not just submitted
-      const safe = !issues.length && !filedAlready && !/submitted successfully|updated successfully|generated successfully/i.test(root.innerText);
+      const safe = !filedAlready && !/submitted successfully|updated successfully|generated successfully/i.test(root.innerText);
       const now = afterNextGo; afterNextGo = false;   // one new screen, one fill: a later re-read of the page does not fill again
       if (MODE === 'auto' && safe && (now || ((auto || going) && !sessionStorage.getItem(onceKey) && Date.now() - pbLastRun > 600000))) { sessionStorage.setItem(onceKey, '1'); fill.onclick(); }
     });
@@ -1737,7 +1755,7 @@
     if (scope() !== document.body || screenOf(document.body)) return;   // a dialog is already open
     const rec = await recalled(); if (!rec) return;
     let c = null;
-    try { const x = JSON.parse(sessionStorage.getItem('solaraCache:' + rec.cid) || 'null'); c = x && x.data; } catch (e) { /* skip */ }
+    c = fresh(rec.cid);
     if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) { c = r.data; try { sessionStorage.setItem('solaraCache:' + rec.cid, JSON.stringify({ t: Date.now(), data: c })); } catch (e) { /* skip */ } } }
     if (!c || !c.application_no || !(document.body.innerText || '').includes(c.application_no)) return;
     const key = 'solaraSFR:' + c.application_no;
@@ -1776,7 +1794,7 @@
   const vendorTerm = async () => {
     const typed = ((await store.get({ vendorSearch: '' })).vendorSearch || '').trim(); if (typed) return typed;
     const rec = await recalled();   // the company name Solara prints on the documents (SOLARA_VENDOR_NAME)
-    try { const x = rec && JSON.parse(sessionStorage.getItem('solaraCache:' + rec.cid) || 'null'); if (x && x.data.values.vendor) return String(x.data.values.vendor).trim(); } catch (e) { /* skip */ }
+    const kept = rec && fresh(rec.cid); if (kept && kept.values.vendor) return String(kept.values.vendor).trim();
     const r = rec && await ask({ type: 'lookup', cid: rec.cid });
     return ((r && r.ok && r.data.values.vendor) || '').trim();
   };
@@ -1816,11 +1834,15 @@
   // Screen awareness: the island says which screen it recognises while it is idle.
   const SCREEN_NAMES = [[/#\/signed-in\/find-vendor/i, 'Find A Vendor', 'url'], [/find a vendor/i, 'Find A Vendor'], [/consumer request list/i, 'Consumer Request List'], [/my application/i, 'My Application']];
   let lastAware = '';
+  // the customer chosen earlier is shown on every screen, with Change beside the name
+  const showWho = async () => { if (ISL.cust) return; const rec = await recalled(); if (!rec) return;
+    let c = fresh(rec.cid); if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) c = r.data; }
+    if (c && !ISL.cust) { ISL.cust = { name: c.name, id: c.customer_id }; islandRender(); } };
   setInterval(() => {
     if (!isOwner() || fillBusy || pbActive || vendorBusy || ISL.kind === 'busy') return;
     const t = document.body.innerText || '';
     const name = startModal() ? 'Start a new Application' : (screenOf(document.body) || {}).name || (SCREEN_NAMES.find(([re, , url]) => re.test(url ? location.href : t)) || [])[1] || '';
-    if (name && name !== lastAware && ISL.kind === 'idle') { lastAware = name; tip(`Screen: ${esc(name)}`, 'idle'); }
+    if (name && name !== lastAware && ISL.kind === 'idle') { lastAware = name; tip(`Screen: ${esc(name)}`, 'idle'); showWho(); }
     else if (!name) lastAware = '';
   }, 2000);
   let vendorBusy = false;
@@ -1887,7 +1909,7 @@
       const rec = await recalled();
       if (!rec) { if (!loginAsked) { loginAsked = true; await pick(); } return; }   // who is logging in? asked once
       let c = null;
-      try { const x = JSON.parse(sessionStorage.getItem('solaraCache:' + rec.cid) || 'null'); c = x && x.data; } catch (e) { /* skip */ }
+      c = fresh(rec.cid);
       if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) { c = r.data; try { sessionStorage.setItem('solaraCache:' + rec.cid, JSON.stringify({ t: Date.now(), data: c })); } catch (e) { /* skip */ } } }
       if (!c) return;
       sessionStorage.setItem(key, String(Date.now()));

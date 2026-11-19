@@ -261,9 +261,8 @@ async def main():
         check("basic details filled: name as on Aadhaar, mobile, email, consumer no., capacity, cost",
               got == {"name": fx.AADHAAR_NAME, "mob": fx.NEW["msisdn"], "mail": "priya.k@example.com", "cons": fx.NEW["consumer_no"],
                       "cap": "3.3", "cost": "200000"}, str(got))
-        check("date of birth and loan amount are the customer's to give", await js.input_value("#dob") == "" and
-              await js.input_value("#la") == "" and "Date Of Birth" not in left)
-        await js.fill("#dob", "1981-03-14")
+        check("date of birth filled from the Aadhaar, in the form the date box takes; the loan amount is the customer's to give",
+              await js.input_value("#dob") == "1981-03-14" and await js.input_value("#la") == "", await js.input_value("#dob"))
         await js.fill("#la", "150000")
         await js.click("#btnNext")
         await js.wait_for_selector("text=Address Details")

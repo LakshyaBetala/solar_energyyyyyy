@@ -1289,20 +1289,23 @@ PICK = {"sfr": ("sfr",), "loan": ("loan",), "dcr": ("dcr", "dealer"), "installat
 
 @app.get("/api/copilot/pending")
 def copilot_pending(step: str = "", user=Depends(copilot_user)):
-    """Customers the co-pilot offers on a form that does not say whose it is: for a registration
-    form, those ready to register; for a milestone 2 form, those whose next step it is."""
-    out = []
+    """Who the helper offers under "who are you filling for": every customer, on every portal. The owner fills
+    the customer's own login and loan forms on their behalf, so anyone may be picked at any time. The ones this
+    page is the next step for come first ("here")."""
+    first = []
     if step in PICK:
         for r in filing.listing():
             if r["next"]["act"] in PICK[step] and not r["paused"]:
-                c = db.one("SELECT consumer_no FROM customers WHERE id=?", (r["id"],))
-                out.append({"id": r["id"], "name": r["name"], "consumer_no": c["consumer_no"], "next": r["next"]["label"]})
-        return out
-    for r in _pre_install():
-        c = db.one("SELECT id, name, consumer_no, application_no FROM customers WHERE id=?", (r["id"],))
-        if c["consumer_no"] and not c["application_no"]:
-            out.append({"id": c["id"], "name": c["name"], "consumer_no": c["consumer_no"]})
-    return out
+                first.append(r["id"])
+    else:
+        for r in _pre_install():
+            c = db.one("SELECT consumer_no, application_no FROM customers WHERE id=?", (r["id"],))
+            if c["consumer_no"] and not c["application_no"]:
+                first.append(r["id"])
+    rows = {r["id"]: r for r in db.q("SELECT id, name, consumer_no FROM customers")}
+    rest = sorted((i for i in rows if i not in first), reverse=True)   # the newest first
+    return [{"id": i, "name": rows[i]["name"], "consumer_no": rows[i]["consumer_no"] or "", "here": i in first}
+            for i in [x for x in first if x in rows] + rest]
 
 
 @app.get("/api/copilot/lookup")

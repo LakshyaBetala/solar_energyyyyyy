@@ -210,6 +210,11 @@ def agreement_pdf(name, address, when=None, cost=None, sign=None, vendor_sign=No
                 if fitz.Pixmap(img).alpha == 0:   # a photo stored before cleaning; cleaned ones are see-through already
                     img = ink_only(img)
                 pm = fitz.Pixmap(img)
+                if c == 1:   # the company's stamp and signature: large, laid over its own name and address as on paper
+                    h = min(size * 9, (col_end[c] - col_x[c]) * pm.height / pm.width)   # (see-through, so the words stay readable)
+                    w, bottom = h * pm.width / pm.height, base + size * 1.4
+                    p4.insert_image(fitz.Rect(col_x[c], bottom - h, col_x[c] + w, bottom), stream=img)
+                    continue
                 w = min(size * 2.4 * pm.width / pm.height, col_end[c] - col_x[c])
                 p4.insert_image(fitz.Rect(col_x[c], base - size, col_x[c] + w, base - size + w * pm.height / pm.width), stream=img)
         for c in (0, 1):

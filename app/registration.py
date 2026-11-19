@@ -136,6 +136,7 @@ def values(cid):
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
             "aadhaar_name": c["aadhaar_name"], "pan": d.get("pan") or None,
+            "dob": read(extract.PRETTY["aadhaar_dob"]),   # as the Aadhaar gives it; the helper writes it the way each form wants
             # milestone 2 forms: site feasibility, installation, DCR, loan
             **{k: d[k] for k in FILED if d.get(k)},  # only what was recorded: roof area is measured on site, never guessed
             "inverter_qty": d.get("inverter_qty") or ("1" if d.get("inverter_make") else None),
@@ -160,18 +161,6 @@ def missing(cid):
 MISMATCH = {"bill_name", "pin", "aadhaar_pin", "bill_mobile", "consumer_no", "owner_name"}
 
 
-def name_vs_aadhaar(c):
-    """The Aadhaar name when the customer name on file does not match it, else None. First and last names must
-    be the Aadhaar's; a middle name may be left out or given as an initial, nothing else may differ."""
-    an = c["aadhaar_name"]
-    t, a = extract.norm_name(c["name"]).split(), extract.norm_name(an).split()
-    if not (t and a):
-        return None
-    ok = (t[0] == a[0] and t[-1] == a[-1] and len(t) <= len(a)
-          and all(x in a[1:-1] or (len(x) == 1 and any(m.startswith(x) for m in a[1:-1])) for x in t[1:-1]))
-    return None if ok else an
-
-
 def validate(cid):
     """Everything wrong or doubtful with the record, before the portal form is filled.
     kinds: missing, invalid, uncertain (could not be read or is unsure), mismatch (two sources
@@ -187,10 +176,8 @@ def validate(cid):
         bad("mobile", "the mobile number must be 10 digits starting with 6-9")
     if c["pin"] and not PIN.match(c["pin"]):
         bad("PIN code", "the PIN code must be 6 digits")
-    if an := name_vs_aadhaar(c):
-        issues.append({"kind": "mismatch", "field": "name",
-                       "message": f"The customer name “{c['name']}” does not match the Aadhaar, which reads “{an}”. "
-                                  "Type the name as on the Aadhaar under Details"})
+    # the name on the electricity bill is the name that is filed: the portal checks it against the distribution
+    # company's records. A different spelling on the Aadhaar is not a problem to sort out, so nothing is raised.
     if c["consumer_no"]:
         try:
             valid.consumer_no(c["consumer_no"])
@@ -219,7 +206,7 @@ def status(cid):
                                AND expires_at>? AND docs LIKE '%agreement%'""", (cid, db.now())))
     steps = [
         ("documents", "Documents read", {"bill", "aadhaar"} <= kinds and bool(rows) and not flagged),
-        ("details", "Details complete", not miss and not name_vs_aadhaar(c)),
+        ("details", "Details complete", not miss),
         ("registered", "Registered on PM Surya Ghar", bool(c["application_no"])),
         ("accepted", "Accepted in vendor login", bool(d.get("accepted_at"))),
         ("signed", "Agreement e-signed", signed),
@@ -231,8 +218,6 @@ def status(cid):
         nxt = ("docs", "Upload the bill and Aadhaar")
     elif flagged:
         nxt = ("check", f"Check {len(flagged)} highlighted detail{'s' if len(flagged) > 1 else ''}")
-    elif name_vs_aadhaar(c):
-        nxt = ("details", "Fix the customer name to match the Aadhaar")
     elif miss:
         nxt = ("details", "Add: " + ", ".join(miss))
     elif "registered" not in done:

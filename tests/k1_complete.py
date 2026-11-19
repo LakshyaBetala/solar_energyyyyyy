@@ -260,6 +260,12 @@ async def main():
     lk = pil.get("/api/copilot/lookup", params={"cid": zid}).json()
     check("lookup tells the co-pilot what is missing or doubtful", lk["issues"] and lk["agreement_draft"] is True)
     check("a wrong co-pilot key is refused", httpx.get(f"{BASE}/api/copilot/pending", headers={"X-Solara-Key": "nope"}).status_code == 401)
+    everyone = {c["id"] for c in sup.get("/api/customers").json()}
+    for step in ("", "loan", "installation"):
+        offered = pil.get("/api/copilot/pending", params={"step": step}).json()
+        check(f"every customer can be picked on any page ({step or 'registration'}), the ones it is next for first",
+              {x["id"] for x in offered} == everyone and [x["here"] for x in offered] == sorted((x["here"] for x in offered), reverse=True),
+              f"{len(offered)} of {len(everyone)}")
     check("an unknown customer gets a clear answer", pil.get("/api/copilot/lookup", params={"consumer_no": "000000000000"}).status_code == 404)
     check("an application number that clashes is refused by the report route",
           pil.post("/api/copilot/report", json={"customer_id": clash, "event": "app_no", "app_no": app_no}).status_code == 400)
@@ -308,8 +314,9 @@ async def main():
         await pg.wait_for_selector("#solaraFill", timeout=20000)
         txt = await pg.inner_text("#solaraPanel")
         check("the panel lists what is missing or doubtful before filling",
-              "to sort out in Solara first" in txt and "missing" in txt, txt[:160].replace("\n", " "))
-        check("with open issues the fill button says so", "Fill anyway" in await pg.inner_text("#solaraFill"))
+              "to check" in txt and "missing" in txt, txt[:160].replace("\n", " "))
+        check("open issues do not hold the fill back: one plain Fill button", (await pg.inner_text("#solaraFill")).startswith("Fill ")
+              and "anyway" not in await pg.inner_text("#solaraFill"))
         await pg.focus("#mb"); await pg.keyboard.type("9000000001")              # the person types a mobile
         await pg.focus("#st"); await pg.keyboard.press("ArrowDown"); await pg.keyboard.press("ArrowDown")  # chooses Gujarat
         chosen = await pg.input_value("#st")
@@ -421,6 +428,8 @@ async def main():
           and "certify: false" in (EXT / "options.js").read_text(encoding="utf-8") and "autoSubmit: false" in (EXT / "options.js").read_text(encoding="utf-8"))
     check("nothing about a client is written into the extension (the vendor's name comes from the options or from Solara)",
           not re.search(r"(?i)pvt\.? ltd|private limited", code + (EXT / "options.js").read_text(encoding="utf-8") + (EXT / "options.html").read_text(encoding="utf-8")))
+    check("the helper re-reads a customer from Solara: its own copy lasts 20 seconds, is read in one place, and the refresh button drops it",
+          len(re.findall(r"JSON\.parse\(sessionStorage\.getItem\('solaraCache", code)) == 1 and "x.t < 20000" in code and "forgetCopies();" in code)
     check("OTP, CAPTCHA and password fields are excluded by rule and by guard",
           "otp|captcha" in code and "humanOnly" in code and "'password'" in code)
     man = json.loads((EXT / "manifest.json").read_text())

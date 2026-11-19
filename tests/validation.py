@@ -158,11 +158,13 @@ for k in ("pin", "aadhaar_pin"):
 check("the PIN the owner picked is the one on file", sup.get(f"/api/registration/{cid}").json()["customer"]["pin"] == "410503")
 check("a PIN that is not 6 digits is refused", sup.post(f"/api/registration/{cid}/confirm", json={"key": "pin", "value": "41"}).status_code == 400)
 
-# ---- the customer name must be the Aadhaar's: a middle name may be left out, nothing else may differ
-A = "Priya Sanjay Kulkarni"
-same = [n for n in ("Priya Kulkarni", "PRIYA SANJAY KULKARNI", "Priya S Kulkarni") if registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
-differ = [n for n in ("Priya Kulkarny", "Priya Ramesh Kulkarni", "Kulkarni Priya", "Priya", "Someone Else") if not registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
-check("a customer name that differs from the Aadhaar is caught; a left-out middle name is not", not same and not differ, f"{same} {differ}")
+# ---- the name on the electricity bill is the final name: a different spelling on the Aadhaar holds nothing back
+before = db.one("SELECT name, aadhaar_name FROM customers WHERE id=?", (cid,))
+db.ex("UPDATE customers SET name=?, aadhaar_name=? WHERE id=?", ("SHRI KUMAR DEEPAK", "Deepak Kumar", cid))
+g = sup.get(f"/api/registration/{cid}").json()
+check("a bill name that differs from the Aadhaar is not an issue and does not block the details step",
+      not any(i["field"] == "name" for i in registration.validate(cid)["issues"]) and "match the Aadhaar" not in g["next"]["label"], g["next"]["label"])
+db.ex("UPDATE customers SET name=?, aadhaar_name=? WHERE id=?", (before["name"], before["aadhaar_name"], cid))
 
 # ---- a value typed in the co-pilot box because Solara had none
 r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
