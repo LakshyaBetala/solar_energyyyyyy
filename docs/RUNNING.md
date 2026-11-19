@@ -99,3 +99,15 @@ pip install -r requirements.txt
 python -m playwright install chromium
 python -m app.launcher
 ```
+
+### The web version on the desktop app's data
+
+To confirm a change without building the installer, close the desktop app and double-click `run_web.bat`.
+It is the same Solara in the browser, run from this folder's code on the desktop app's own data: the same
+customers, files and settings, and nothing to move when you go back to the desktop app.
+
+- One Solara at a time: it refuses to start while the desktop app is open.
+- A change to the code is live after a refresh of the page.
+- It copies the Chrome helper to the folder Chrome loaded it from (`tools/helper_sync.py`). After a change to
+  the helper, run that again, then press the helper's reload arrow on `chrome://extensions` and reload the
+  portal tab. The time of the copy shows beside the helper's version there.
