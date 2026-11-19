@@ -193,7 +193,7 @@ def main_http():
           s4["docs"] == ["agreement"], str(s4["docs"]))
 
     print("\n  -- lockout")
-    sup.put(f"/api/closeout/{CID}", json={"rts_cost": "286000"})
+    sup.put(f"/api/closeout/{CID}", json={"rts_cost": "250000"})
     s5 = op.post(f"/api/closeout/{CID}/sign", json={}).json()
     with httpx.Client(timeout=60, follow_redirects=True) as pub:
         for _ in range(5):
@@ -279,7 +279,7 @@ async def main_browser(key):
     print("\n  -- signing page on a phone")
     op = client("s.kale")
     sup = client("r.deshmukh")
-    sup.put(f"/api/closeout/{CID}", json={"rts_cost": "287500"})
+    sup.put(f"/api/closeout/{CID}", json={"rts_cost": "220000"})
     db.ex("DELETE FROM signatures WHERE role='consumer' AND customer_id=?", (CID,))
     s = op.post(f"/api/closeout/{CID}/sign", json={}).json()
     async with async_playwright() as p:

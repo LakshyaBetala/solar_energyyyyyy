@@ -1,15 +1,16 @@
-import asyncio, hashlib, json, os, secrets, random
+import asyncio, hashlib, io, json, os, secrets, random
 from datetime import datetime, timedelta
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, Depends, Body, UploadFile, File, Form
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse, HTMLResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
-from . import (db, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
+from . import (db, drafts, extract, exports, docs_gen, portal, discom, vault, backup, closeout, esign, valid,
                msedcl, pmsg, registration, intake, filing, field, tracker, dcr, jansamarth, upkeep, kpi,
                reset as resetmod)
 from .agent import runner
-from .config import WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import clean, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
 from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
@@ -45,16 +46,17 @@ async def startup():
         if not db.q("SELECT 1 FROM users"):
             print('  no users yet: python -m app.users add <username> "<Full Name>" supervisor\n')
         return
-    if fresh or not db.q("SELECT 1 FROM documents LIMIT 1"):
+    if not clean() and (fresh or not db.q("SELECT 1 FROM documents LIMIT 1")):
         await docs_gen.generate([c[0] for c in db.CUSTOMERS])  # sample files are for the demo's own customers only
         for c in db.q("SELECT id FROM customers"):
             try:
                 await extract.run(c["id"], use_llm=False)
             except Exception:
                 pass
-    if not db.q("SELECT 1 FROM closeout LIMIT 1"):
-        db.seed_closeout()
-    closeout.demo_assets()
+    if not clean():
+        if not db.q("SELECT 1 FROM closeout LIMIT 1"):
+            db.seed_closeout()
+        closeout.demo_assets()
     dcr.seed_stock()
     print(f"\n  Solara ready -> http://127.0.0.1:8900   (portal sandbox at {PORTAL_URL})")
     print("  sign in: r.deshmukh / s.kale / a.more   password: demo\n")
@@ -117,8 +119,8 @@ def login(request: Request, body: dict = Body(...)):
         raise HTTPException(400, str(ex))
     since = (datetime.now() - timedelta(minutes=LOCK_MIN)).isoformat(timespec="seconds")
     host = request.client.host if request.client else ""
-    last_ok = db.one("SELECT MAX(ts) t FROM audit WHERE action='Signed in' AND actor=?", (user[:40],))["t"] or ""
-    fails = db.one("""SELECT COUNT(*) k FROM audit WHERE action='Failed sign-in' AND target=? AND detail=? AND ts>? AND ts>=?""",
+    last_ok = db.one("SELECT MAX(id) i FROM audit WHERE action='Signed in' AND actor=?", (user[:40],))["i"] or 0
+    fails = db.one("""SELECT COUNT(*) k FROM audit WHERE action='Failed sign-in' AND target=? AND detail=? AND ts>? AND id>?""",
                    (user[:40], host, since, last_ok))["k"]
     if fails >= FAILS:
         raise HTTPException(429, f"too many wrong passwords for {user}; try again in {LOCK_MIN} minutes")
@@ -328,9 +330,9 @@ def extract_get(customer_id: str, user=Depends(current)):
 
 
 @app.post("/api/extract/{customer_id}")
-async def extract_post(customer_id: str, use_llm: bool = True, user=Depends(need("operator"))):
-    try:
-        return await extract.run(customer_id, use_llm=use_llm)
+async def extract_post(customer_id: str, use_llm: bool = True, kind: str = "", user=Depends(need("operator"))):
+    try:   # kind: read that document again as if just uploaded, so what it gives refreshes the details
+        return await extract.run(customer_id, use_llm=use_llm, fresh=kind if kind in ("bill", "aadhaar") else None)
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -348,7 +350,10 @@ async def upload_doc(customer_id: str, kind: str = "bill", file: UploadFile = Fi
     out = DOCS / customer_id
     out.mkdir(parents=True, exist_ok=True)
     # phones name every photo image.jpg; keep the bill and the Aadhaar from overwriting each other
-    name = f"{kind}_{Path(file.filename or 'upload.pdf').name}"
+    # plain letters and digits: the name goes into a download header, which takes no Hindi or quote marks
+    raw = Path(file.filename or "upload.pdf").name
+    ext = (Path(raw).suffix.lstrip(".").lower() or "pdf")
+    name = f"{kind}_{portal_name(raw, ext if ext.isalnum() and ext.isascii() else 'bin')}"
     p = out / name
     blob = await file.read()
     if not blob:
@@ -746,8 +751,9 @@ def closeout_file(cid: str, key: str, user=Depends(current)):
 
 @app.post("/api/signature/vendor")
 def vendor_signature(body: dict = Body(...), user=Depends(need("supervisor"))):
-    try:
-        png = closeout.png_from_data_url(body.get("image"))
+    try:   # drawn on the pad, or a photo cropped in the browser (stored as ink on a see-through background)
+        png = drafts.ink_only(closeout.png_from_upload(body["image"])) if body.get("photo") \
+            else closeout.png_from_data_url(body.get("image"))
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     name = (body.get("name") or "").strip() or user["name"]
@@ -793,9 +799,204 @@ def customer_create(body: dict = Body(...), user=Depends(need("operator"))):
     return registration_get(cid, user)
 
 
+@app.get("/api/registration/{cid}/draft/{kind}")
+def registration_draft(cid: str, kind: str, fmt: str = "", user=Depends(need("operator"))):
+    """The agreement (PDF) or the quotation (Word, or PDF with fmt=pdf), filled into the client's templates."""
+    res = _draft(cid, kind, user)
+    return _quotation_pdf(res) if kind == "quotation" and fmt == "pdf" else res
+
+
+def _quotation_pdf(res):
+    """The quotation's Word file as a PDF, under the same file name."""
+    if res.media_type == "application/pdf":   # this customer's own quotation: a PDF already
+        return res
+    try:
+        blob = drafts.docx_to_pdf(res.body)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    name = (res.headers.get("content-disposition") or "").replace(".docx", ".pdf")
+    return Response(blob, media_type="application/pdf", headers={"Content-Disposition": name})
+
+
+def _draft(cid, kind, user):
+    c, d = closeout.data(_cid(cid))
+    if not (c["name"] and c["address"]):
+        raise HTTPException(400, "the customer's name and address are needed first: upload the bill")
+    try:
+        if kind == "agreement":
+            if not d.get("rts_cost"):
+                raise HTTPException(400, "pick the installation cost under Details first: the agreement prints it")
+            sig = closeout.signature("consumer_upload", c["id"])
+            vsig = closeout.signature("vendor")
+            blob = drafts.agreement_pdf(c["name"], c["address"], cost=d["rts_cost"],
+                                        sign=vault.read(Path(sig["path"])) if sig else None,
+                                        vendor_sign=vault.read(Path(vsig["path"])) if vsig else None)
+            ext, mime = "pdf", "application/pdf"
+        elif kind == "quotation" and (own := own_quotation(cid)):
+            blob, ext, mime = vault.read(Path(own["path"])), "pdf", "application/pdf"   # the one uploaded for this customer
+        elif kind == "quotation":
+            q = next((q for q in registration.quotes() if d.get("rts_cost") and float(q["amount"]) == float(d["rts_cost"])), None)
+            if not q or not q["file"]:
+                raise HTTPException(400, "pick the installation cost (one of the quotations) under Details first" if not q else
+                                    f"there is no quotation template for Rs {drafts.inr(q['amount'])}: add one in Reports, "
+                                    "or upload this customer's own quotation")
+            blob = drafts.quotation_docx(registration.quote_file(q), c["name"], c["place"] or d.get("district") or "")
+            ext, mime = "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            raise HTTPException(404, "unknown document")
+    except (FileNotFoundError, ValueError) as ex:
+        raise HTTPException(400, str(ex))
+    db.audit(user["username"], user["role"], f"Made the {kind}", cid, "")
+    name = f"{kind}_{cid}_{(c['name'] or '').replace(' ', '_')}.{ext}"
+    return Response(blob, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ------------------------------- quotations -------------------------------
+# The price list is the quotation templates on file. The owner adds one for a new price (a Word file with the
+# "Date :" and "To," lines Solara fills) and it is offered everywhere at once. One customer's own quotation,
+# uploaded as a PDF or a Word file, goes to the portal as it is instead. The portal always gets a PDF.
+MAX_TEMPLATE = 5 * 1024 * 1024
+
+
+def own_quotation(cid):
+    return db.one("SELECT * FROM documents WHERE customer_id=? AND kind='quotation_own'", (cid,))
+
+
+def quote_list():
+    try:
+        agreement = "own" if drafts.own_agreement().exists() else "folder" if drafts.agreement_template() else ""
+    except FileNotFoundError:
+        agreement = ""
+    return {"quotes": registration.quotes(), "can_pdf": drafts.can_pdf(), "agreement": agreement}
+
+
+@app.post("/api/templates/agreement")
+async def agreement_template_upload(file: UploadFile = File(...), user=Depends(need("supervisor"))):
+    """The vendor-consumer agreement draft (the MNRE format, a PDF with its blanks) that Solara fills for each customer."""
+    blob = await file.read()
+    if not blob.startswith(b"%PDF") or len(blob) > MAX_TEMPLATE:
+        raise HTTPException(400, "the agreement draft is a PDF of at most 5 MB")
+    try:   # filled once with a made-up customer: a draft Solara cannot fill is refused here, with the reason
+        drafts.agreement_pdf("Sample Customer", "1 Sample Road, Pune 411001", cost="200000", template=blob)
+    except Exception as ex:
+        raise HTTPException(400, "Solara could not fill this PDF. It needs the standard draft's blanks: the date after \"executed on\", "
+                                 f"the First and Second Party lines, and the Name / Address / Sign / Date table ({type(ex).__name__})")
+    p = drafts.own_agreement()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(blob)
+    db.audit(user["username"], user["role"], "Agreement draft uploaded", None, f"{len(blob) // 1024} KB")
+    return quote_list()
+
+
+@app.get("/api/quotes")
+def quotes_get(user=Depends(current)):
+    return quote_list()
+
+
+@app.post("/api/quotes")
+async def quotes_add(amount: str = Form(""), file: UploadFile = File(...), user=Depends(need("supervisor"))):
+    import zipfile
+    blob = await file.read()
+    try:
+        amt = valid.amount(amount)
+        if not blob.startswith(b"PK"):
+            raise ValueError("the template is a Word file (.docx): Solara puts each customer's name, place and the date into it")
+        if len(blob) > MAX_TEMPLATE:
+            raise ValueError("that file is over 5 MB; save the letterhead picture smaller in Word and send it again")
+        drafts.quotation_docx(io.BytesIO(blob), "Sample Customer", "Pune")   # refused here, not on a customer's day
+    except (zipfile.BadZipFile, KeyError):
+        raise HTTPException(400, "that file could not be opened as a Word document; save it as .docx and send it again")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    replaced = any(q["amount"] == amt and q["own"] for q in registration.quotes())
+    (registration.OWN_QUOTES() / f"{amt}.docx").write_bytes(blob)
+    db.audit(user["username"], user["role"], "Quotation template " + ("replaced" if replaced else "added"), None, f"Rs {drafts.inr(amt)}")
+    return quote_list()
+
+
+@app.delete("/api/quotes/{amount}")
+def quotes_remove(amount: str, user=Depends(need("supervisor"))):
+    q = next((q for q in registration.quotes() if q["amount"] == amount and q["own"]), None)
+    if not q:
+        raise HTTPException(404, "that quotation was not added in Solara, so it is not removed here")
+    using = [r["customer_id"] for r in db.q("SELECT customer_id, data FROM closeout")
+             if json.loads(r["data"]).get("rts_cost") == amount and not json.loads(r["data"]).get("sfr_at")]
+    registration.quote_file(q).unlink()
+    db.audit(user["username"], user["role"], "Quotation template removed", None, f"Rs {drafts.inr(amount)}")
+    return {**quote_list(), "using": using}   # customers still at this price: they need another price or their own file
+
+
+@app.post("/api/registration/{cid}/quotation")
+async def registration_quotation(cid: str, file: UploadFile = File(...), user=Depends(need("operator"))):
+    """This customer's own quotation, a PDF or a Word file; kept as the PDF that goes to the portal."""
+    cid = _cid(cid)
+    blob = await file.read()
+    if blob.startswith(b"PK"):
+        if len(blob) > MAX_TEMPLATE:
+            raise HTTPException(400, "that Word file is over 5 MB")
+        try:
+            blob = drafts.docx_to_pdf(blob)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex) + "; or save the quotation as a PDF and upload that")
+    if not blob.startswith(b"%PDF"):
+        raise HTTPException(400, "send the quotation as a PDF or a Word file (.docx)")
+    if len(blob) > PORTAL_MAX:
+        try:
+            blob = closeout.fit(blob, limit_kb=PORTAL_MAX // 1024)
+        except ValueError:
+            raise HTTPException(400, f"the quotation is {len(blob) // 1024} KB as a PDF; the portal takes 2 MB at most")
+    p = DOCS / cid / "quotation_own.pdf"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    size = vault.write(p, blob)
+    db.ex("DELETE FROM documents WHERE customer_id=? AND kind='quotation_own'", (cid,))
+    db.ex("INSERT INTO documents(customer_id,kind,filename,path,bytes,uploaded_at) VALUES(?,?,?,?,?,?)",
+          (cid, "quotation_own", p.name, str(p), size, db.now()))
+    db.audit(user["username"], user["role"], "Uploaded the customer's own quotation", cid, f"{size // 1024} KB PDF")
+    return registration_get(cid, user)
+
+
+@app.delete("/api/registration/{cid}/quotation")
+def registration_quotation_remove(cid: str, user=Depends(need("operator"))):
+    d = own_quotation(_cid(cid))
+    if not d:
+        raise HTTPException(404, "this customer has no quotation of their own")
+    Path(d["path"]).unlink(missing_ok=True)
+    db.ex("DELETE FROM documents WHERE customer_id=? AND kind='quotation_own'", (cid,))
+    db.audit(user["username"], user["role"], "Removed the customer's own quotation", cid, "")
+    return registration_get(cid, user)
+
+
+@app.post("/api/registration/{cid}/signature")
+def registration_signature(cid: str, body: dict = Body(...), user=Depends(need("operator"))):
+    """The customer's signature, from a photo cropped in the browser; it goes on the agreement's Sign line."""
+    c, _ = closeout.data(_cid(cid))
+    try:
+        png = drafts.ink_only(closeout.png_from_upload(body.get("image")))   # stored as it will print: ink only
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    closeout.save_signature("consumer_upload", png, c["name"] or "", cid)
+    db.audit(user["username"], user["role"], "Added the customer's signature", cid, "photo, cropped")
+    return registration_get(cid, user)
+
+
+@app.delete("/api/customers/{cid}")
+def customer_delete(cid: str, user=Depends(need("supervisor"))):
+    try:
+        registration.delete_customer(_cid(cid), user)
+    except KeyError:
+        raise HTTPException(404, "unknown customer")
+    return {"ok": True}
+
+
 @app.get("/api/registration/{cid}")
 def registration_get(cid: str, user=Depends(current)):
     c, d = closeout.data(_cid(cid))
+    sealed = d.pop("aadhaar_enc", None)
+    if sealed and ROLES[user["role"]] >= ROLES["operator"]:   # the full Aadhaar number, for the people who file it
+        try:
+            d["aadhaar_full"] = vault.unseal(sealed)
+        except Exception:
+            pass
     reqs = db.q("""SELECT status,created_at,signed_at,signer_name FROM sign_requests WHERE customer_id=?
                    AND docs LIKE '%agreement%' ORDER BY created_at DESC LIMIT 3""", (cid,))
     return {"customer": c, "data": d, **registration.status(cid),
@@ -804,8 +1005,12 @@ def registration_get(cid: str, user=Depends(current)):
                                  customer_id=? AND kind NOT LIKE 'co_%'""", (cid,)),
             "doc_kinds": DOC_KINDS, "values": registration.values(cid), "portals": portals(),
             "vendor_signature": bool(closeout.signature("vendor")), "requests": reqs,
+            "customer_sign": (lambda s: closeout._sig_img(s) if s else None)(closeout.signature("consumer_upload", cid)),
+            "vendor_sign": (lambda s: closeout._sig_img(s) if s else None)(closeout.signature("vendor")),
             "agreement": {"draft": closeout.TEMPLATE_DRAFT, "check": closeout.verify_agreement(cid)},
-            "suggest": registration.suggest(cid), "llm": extract.llm_status(),
+            "suggest": registration.suggest(cid), "llm": extract.llm_status(), "quotes": registration.quotes(),
+            "quotation_own": bool(own_quotation(cid)), "can_pdf": drafts.can_pdf(),
+            "doc_status": registration.doc_status(cid),
             "otp": registration.heads_up(cid, "approve" if registration.status(cid)["next"]["act"] == "approve" else "register"),
             "districts": valid.MH_DISTRICTS if region()["state"] == "Maharashtra" else []}
 
@@ -826,10 +1031,28 @@ async def take_document(cid, kind, file, user):
     return None
 
 
+def front_and_back(blobs):
+    """The two photos of an Aadhaar (front and back) as one two-page PDF, so the QR and the address on the
+    back are read with the name and number on the front."""
+    from PIL import Image
+    try:
+        pages = [Image.open(io.BytesIO(b)).convert("RGB") for b in blobs]
+    except Exception:
+        raise HTTPException(400, "send the front and the back as photos (JPG or PNG), or one PDF")
+    out = io.BytesIO()
+    pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], resolution=200)
+    return out.getvalue()
+
+
 @app.post("/api/registration/{cid}/document")
-async def registration_document(cid: str, kind: str, file: UploadFile = File(...),
+async def registration_document(cid: str, kind: str, file: list[UploadFile] = File(...),
                                 user=Depends(need("operator"))):
-    problem = await take_document(_cid(cid), kind, file, user)
+    if len(file) > 2 or (len(file) == 2 and kind != "aadhaar"):
+        raise HTTPException(400, "one file per document; the Aadhaar takes two photos (front and back)")
+    if len(file) == 2:
+        pdf = front_and_back([await f.read() for f in file])
+        file = [StarletteUploadFile(io.BytesIO(pdf), filename="front_back.pdf", size=len(pdf))]
+    problem = await take_document(_cid(cid), kind, file[0], user)
     out = registration_get(cid, user)
     out["extract_error"] = problem
     return out
@@ -849,6 +1072,16 @@ def registration_put(cid: str, body: dict = Body(...), user=Depends(need("operat
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     return registration_get(cid, user)
+
+
+@app.post("/api/registration/{cid}/locate")
+def registration_locate(cid: str, force: bool = False, user=Depends(need("operator"))):
+    """Latitude, longitude and urban/rural from the address, through OpenStreetMap."""
+    hit = registration.locate(_cid(cid), user, force)
+    if not hit:
+        raise HTTPException(404, "the map service found no place for this address; type the latitude and longitude")
+    db.audit(user["username"], user["role"], "Found the premises on the map", cid, hit["accuracy"])
+    return {**hit, "registration": registration_get(cid, user)}
 
 
 @app.post("/api/registration/{cid}/confirm")
@@ -988,6 +1221,11 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
         except Exception as ex:  # report it; the fields still fill and the person is told
             build_error = f"Could not generate the signed documents ({type(ex).__name__}). Try again."
             db.audit(user["username"], user["role"], "Document generation failed", cid, type(ex).__name__)
+    if not closeout.data(cid)[1].get("lat"):   # the portal asks for the position: find it once, keep it
+        try:
+            registration.locate(cid, {"username": user["username"]})
+        except Exception:
+            pass   # no map answer: the co-pilot asks the operator instead
     cust, d = closeout.data(cid)
     made = closeout.built(cid)
     fields = [("Consumer name", cust["aadhaar_name"] or cust["name"]), ("Consumer number", cust["consumer_no"]),
@@ -1000,9 +1238,10 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "not_ready": [{"title": s["title"], "note": s["note"]} for s in st
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
-            "values": {k: v for k, v in registration.values(cid).items() if v},
+            "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"]}.items() if v},
             "issues": registration.validate(cid)["issues"], "build_error": build_error,
             "derived": registration.derived(cid),
+            "cost_options": [q["amount"] for q in registration.quotes()],
             "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
                                              "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]
@@ -1079,6 +1318,34 @@ def copilot_doc(cid: str, kind: str, user=Depends(copilot_user), to: str = "", m
 PORTAL_MAX = 2 * 1024 * 1024  # the portal's limit on the bill, passbook and agreement boxes (seen 7 Nov 2026)
 
 
+def portal_jpeg(blob, name, limit):
+    """A photo as the portal accepts it: JPEG (it refuses PNG on some boxes), within the size limit."""
+    import io
+    from PIL import Image
+    if blob.startswith(b"\xff\xd8") and len(blob) <= limit:
+        return blob, name, "image/jpeg"
+    im = Image.open(io.BytesIO(blob)).convert("RGB")
+    for side, q in ((3000, 85), (2400, 80), (1800, 75), (1400, 70), (1000, 65)):
+        im.thumbnail((side, side))
+        out = io.BytesIO(); im.save(out, "JPEG", quality=q, optimize=True)
+        if out.tell() <= limit:
+            break
+    stem = name.rsplit(".", 1)[0]
+    return out.getvalue(), stem + ".jpg", "image/jpeg"
+
+
+@app.get("/api/copilot/draft/{cid}/{kind}")
+def copilot_draft(cid: str, kind: str, fmt: str = "", user=Depends(copilot_user)):
+    """The same two documents, for the portal's upload boxes. fmt=pdf turns the quotation into a PDF (the site
+    feasibility form takes PDF only, 2 MB at most)."""
+    res = _draft(cid, kind, user)
+    if kind == "quotation" and fmt == "pdf":
+        res = _quotation_pdf(res)
+        if len(res.body) > PORTAL_MAX:
+            raise HTTPException(413, f"the quotation PDF is {len(res.body) // 1024} KB; the portal takes 2 MB at most")
+    return res
+
+
 @app.get("/api/copilot/file/{cid}/{key}")
 def copilot_file(cid: str, key: str, user=Depends(copilot_user), max_kb: int = 0):
     if key not in closeout.SPEC or key not in closeout.built(_cid(cid)):
@@ -1143,6 +1410,16 @@ async def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     cid = _cid(body.get("customer_id", ""))
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
+    if body.get("event") == "detail":   # a value the owner typed in the co-pilot because Solara had none
+        col = {"capacity": "kw", "rts_cost": "rts_cost", "mobile": "mobile", "email": "email",
+               "consumer_no": "consumer_no", "district": "district", "name": "name"}.get(valid.text(body.get("key"), "key"))
+        if not col:
+            return {"ok": True, "saved": False}   # filled on the page only (a state, a PIN... the record keeps its own)
+        try:
+            registration.save_details(cid, {col: body.get("value")}, user)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        return {"ok": True, "saved": True}
     ev = body.get("event")
     if ev in ("app_no", "agreement_uploaded", "customer_approved"):
         c = db.one("SELECT application_no FROM customers WHERE id=?", (cid,))

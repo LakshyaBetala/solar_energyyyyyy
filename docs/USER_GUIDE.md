@@ -48,6 +48,21 @@ phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
 
 **Pause** a customer who is away; **Retry** a step the portal sent back (say what it said).
 
+## Quotations
+
+- **Your price list is your quotations.** Reports → Quotations → the price and its Word file → **Add this
+  quotation**. Solara puts each customer's name, place and today's date into it and sends it to the portal
+  as a PDF.
+- **One customer with a quotation of their own:** on their page, Quotation → **Upload this customer's own**
+  (PDF or Word). That file goes to the portal for them; **Use the template again** takes it back.
+
+## The panel on a page it does not know
+
+- It fills the boxes it recognises and lists the rest under **boxes Solara does not know: teach it once**.
+  Pick which of the customer's values goes in a box; it is filled, and remembered for that site.
+- On a site that is not one of the portals, click the **Solara button** in the browser toolbar first.
+- It never asks to be taught an OTP, CAPTCHA, password or Aadhaar number box.
+
 ## When something goes wrong
 
 The panel says it in plain words and Solara records it. Nothing is filed twice.

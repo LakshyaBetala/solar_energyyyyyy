@@ -1,10 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Solara co-pilot",
-  "version": "1.2.0",
-  "description": "Fills government portal forms from Solara and reads their status lists, inside your own browser. You type every OTP and press every Submit.",
+  "version": "1.3.0",
+  "description": "Fills portal forms from Solara and reads their status lists, inside your own browser. Click the Solara button to use it on any other site. You type every OTP and CAPTCHA.",
   "permissions": [
-    "storage"
+    "storage",
+    "scripting",
+    "activeTab"
   ],
   "host_permissions": [
     "http://127.0.0.1:8900/*",
@@ -38,5 +40,8 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "action": {
+    "default_title": "Use Solara on this page"
+  }
 }

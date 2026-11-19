@@ -83,7 +83,7 @@ async def milestone1(sup, tmp):
         sup.post(f"/api/registration/{cid}/document", params={"kind": kind},
                  files={"file": (f, (tmp / f).read_bytes())}).raise_for_status()
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]}).raise_for_status()
-    sup.put(f"/api/registration/{cid}", json={"kw": "3.3", "rts_cost": "198000", "email": "priya.k@example.com",
+    sup.put(f"/api/registration/{cid}", json={"kw": "3.3", "rts_cost": "200000", "email": "priya.k@example.com",
                                               "district": "Pune"}).raise_for_status()
     db.ex("INSERT INTO portal_applications(application_no,consumer_no,applicant_name,capacity,submitted_at,payload) VALUES(?,?,?,?,?,?)",
           (APP_NO, fx.NEW["consumer_no"], fx.NEW["billed_name"], 3.3, db.now(), "{}"))
@@ -94,7 +94,7 @@ async def milestone1(sup, tmp):
     customer_signs(url, ["agreement"])
     await closeout.build(cid, {"username": "test", "role": "supervisor"})
     pdf = closeout.vault.read(closeout.path_for(cid, "agreement"))
-    sup.post(f"/pmsg/vendor/agreement?app={APP_NO}", data={"cost": "198000"},
+    sup.post(f"/pmsg/vendor/agreement?app={APP_NO}", data={"cost": "200000"},
              files={"agreement": ("agreement.pdf", pdf, "application/pdf")})
     sup.post(f"/api/registration/{cid}/mark", json={"step": "agreement_uploaded"}).raise_for_status()
     return cid
@@ -221,7 +221,7 @@ async def main():
         check("on My Application the co-pilot reads every row's status into Solara",
               db.one("SELECT status FROM portal_status WHERE customer_id=? AND portal='pmsg'", (cid,))["status"] == "Installation (Pending)")
         await pm.click(f'tr:has-text("{APP_NO}") >> text=Site Feasibility Report')
-        await panel_says(pm, "Priya Kulkarni")
+        await panel_says(pm, fx.NEW["billed_name"])
         check("the dialog does not say whose it is; the co-pilot knows from the row that was clicked",
               cid in await pm.inner_text("#solaraPanel"))
         check("the co-pilot shows the owner's approval of these values", "approved by" in (await pm.inner_text("#solaraPanel")).lower())
@@ -229,13 +229,15 @@ async def main():
         vals = {k: await pm.input_value(s) for k, s in (("area", "#roofArea"), ("cap", "#permCap"), ("amt", "#qAmt"), ("emp", "#emp"), ("no", "#empNo"))}
         radios = {n: await pm.evaluate(f"(document.querySelector('input[name={n}]:checked') || {{}}).value || ''") for n in ("roofLoad", "shadowFree", "visited")}
         check("roof area, permissible kW, quotation amount, visitor and number filled",
-              vals == {"area": "42", "cap": "3.3", "amt": "198000", "emp": "Amol Kadam", "no": "9890012345"}, str(vals))
+              vals == {"area": "42", "cap": "3.3", "amt": "200000", "emp": "Amol Kadam", "no": "9890012345"}, str(vals))
         check("the three Yes/No questions answered from the record", radios == {"roofLoad": "Y", "shadowFree": "Y", "visited": "Y"}, str(radios))
         files = await pm.evaluate("[...document.querySelectorAll('input[type=file]')].map(i => i.files.length ? i.files[0].name + ':' + i.files[0].size : '')")
-        check("the quotation PDF and the pre-installation photo are attached, both under 300 KB",
-              all(f and int(f.split(":")[1]) <= 300 * 1024 for f in files), str(files))
+        check("the quotation (a PDF under the portal's 2 MB) and the pre-installation photo (a JPG under 300 KB) are attached",
+              len(files) == 2 and all(files) and ".pdf:" in files[0] and int(files[0].split(":")[1]) <= 2 * 1024 * 1024
+              and int(files[1].split(":")[1]) <= 300 * 1024, str(files))
         check("the certification checkbox is left for the owner", not await pm.is_checked('input[name="certify"]'))
-        check("nothing left for the owner to type", "Left for you" not in left, left)
+        check("nothing left for the owner to type: only the certification, which is theirs to tick",
+              "Left for you: Equipment certification (tick it yourself)" in left and "did not accept" not in left, left)
         await pm.check('input[name="certify"]')
         await pm.click("#btnSubmitSfr")
         await pm.wait_for_selector("text=Site Feasibility Report submitted successfully")
@@ -253,12 +255,12 @@ async def main():
         print("\n  -- 2. loan application (Jan Samarth)")
         js = await ctx.new_page()
         await js.goto(f"{BASE}/jansamarth/")
-        await panel_says(js, "Priya Kulkarni")
+        await panel_says(js, fx.NEW["billed_name"])
         left = await fill(js)
         got = {k: await js.input_value(s) for k, s in (("name", "#an"), ("mob", "#mob"), ("mail", "#em"), ("cons", "#cno"), ("cap", "#cap"), ("cost", "#pc"))}
         check("basic details filled: name as on Aadhaar, mobile, email, consumer no., capacity, cost",
               got == {"name": fx.AADHAAR_NAME, "mob": fx.NEW["msisdn"], "mail": "priya.k@example.com", "cons": fx.NEW["consumer_no"],
-                      "cap": "3.3", "cost": "198000"}, str(got))
+                      "cap": "3.3", "cost": "200000"}, str(got))
         check("date of birth and loan amount are the customer's to give", await js.input_value("#dob") == "" and
               await js.input_value("#la") == "" and "Date Of Birth" not in left)
         await js.fill("#dob", "1981-03-14")
@@ -271,7 +273,7 @@ async def main():
               await js.input_value("#ad"), str(got))
         await js.click("#btnNext")
         await js.wait_for_selector("text=Aadhaar Verification")
-        await panel_says(js, "Priya")
+        await panel_says(js, fx.NEW["billed_name"])
         await js.wait_for_timeout(1500)
         check("the co-pilot never types the Aadhaar number or the OTP",
               await js.input_value("#aad") == "" and await js.input_value("#otp") == "")
@@ -320,7 +322,7 @@ async def main():
         check("the field page fits a phone (no sideways scroll)", await phone.evaluate("document.documentElement.scrollWidth <= 392"))
         body = await phone.inner_text("body")
         check("a forwarded field link shows only the first name and the last 4 of the consumer no., not the address",
-              "Priya" in body and "Kulkarni" not in body and fx.NEW["consumer_no"][-4:] in body and "SAI SHRADDHA" not in body.upper())
+              "PRIYA" in body.upper() and "KULKARNI" not in body.upper() and fx.NEW["consumer_no"][-4:] in body and "SAI SHRADDHA" not in body.upper())
         (tmp / "site.jpg").write_bytes(fx.site_photo_without_gps())
         await phone.set_input_files('input[data-kind="site"]', str(tmp / "site.jpg"))
         await phone.wait_for_selector("#siteState.ok", timeout=30000)
@@ -406,7 +408,7 @@ async def main():
         dcr = await ctx.new_page()
         await dcr.goto(f"{BASE}/dcr/b2c")
         await dcr.wait_for_selector("#can")
-        await panel_says(dcr, "Priya Kulkarni")
+        await panel_says(dcr, fx.NEW["billed_name"])
         left = await fill(dcr)
         got = {k: await dcr.input_value(s) for k, s in (("app", "#can"), ("name", "#cn"), ("mob", "#cm"), ("st", "#cs"), ("pin", "#cp"),
                                                         ("mail", "#ce"), ("inv", "#inv"), ("qty", "#qty"), ("br", "#br"), ("it", "#it"), ("ss", "#ss"))}
@@ -427,7 +429,7 @@ async def main():
         db.ex("INSERT OR IGNORE INTO dcr_stock(serial,credited_at) VALUES(?,?)", (SERIALS[-1], db.now()))  # the dealer transfers it
         await dcr.goto(f"{BASE}/dcr/b2c")
         await dcr.wait_for_selector("#can")
-        await panel_says(dcr, "Priya Kulkarni")
+        await panel_says(dcr, fx.NEW["billed_name"])
         await fill(dcr)
         await dcr.fill("#dt", "2026-11-03")
         await dcr.click("#btnDcr")
@@ -444,7 +446,7 @@ async def main():
         print("\n  -- 5. submit installation (5 steps)")
         ins = await ctx.new_page()
         await ins.goto(f"{BASE}/pmsg/vendor/install?app={APP_NO}")
-        await panel_says(ins, "Priya Kulkarni")
+        await panel_says(ins, fx.NEW["billed_name"])
         await fill(ins)
         got = {k: await ins.input_value(s) for k, s in (("v", "#vName"), ("lat", "#lat"), ("lng", "#lng"), ("loc", "#locType"))}
         check("step 1: vendor, latitude and longitude (replacing the portal's 0.00) and location type",

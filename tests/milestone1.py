@@ -150,8 +150,8 @@ async def main():
         check("new customer added from one name; next step is the documents", True, cid)
         for kind, f in (("bill", "bill.pdf"), ("aadhaar", "image.jpg"), ("passbook", "passbook.jpg"), ("roof", "roof.jpg")):
             await dash.set_input_files(f'input[data-doc="{kind}"]', str(tmp / f))
-            await dash.wait_for_function(f"""document.querySelector('input[data-doc="{kind}"]')
-                .closest('.docrow').innerText.includes('on file')""", timeout=60000)
+            await dash.wait_for_function(f"""(r => r.innerText.includes(' KB') && !r.querySelector('.pill.live'))(
+                document.querySelector('input[data-doc="{kind}"]').closest('.docrow'))""", timeout=60000)
         g = sup.get(f"/api/registration/{cid}").json()
         f = {x["key"]: x for x in g["fields"]}
         check("consumer number read from the bill", f["consumer_no"]["value"] == fx.NEW["consumer_no"])
@@ -171,7 +171,7 @@ async def main():
         await dash.click('[data-confirm="bill_name"]')                       # owner confirms the bill spelling
         await dash.wait_for_function("!document.querySelector('[data-confirm]')")
         await dash.fill('[data-r="kw"]', "3")                                # from the customer's order
-        await dash.fill('[data-r="rts_cost"]', "210000")
+        await dash.select_option('[data-r="rts_cost"]', "200000")
         await dash.fill('[data-r="email"]', "priya.k@example.com")                # the portal verifies it by OTP
         await dash.click("#regSave")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Register')")
@@ -184,10 +184,12 @@ async def main():
         await reg.goto(BASE + "/portal/verify")
         await reg.wait_for_selector("#solaraPanel [data-pick]", timeout=20000)
         check("on a blank form the co-pilot offers the customers waiting to register",
-              "Priya Kulkarni" in await reg.inner_text("#solaraPanel"))
+              fx.NEW["billed_name"] in await reg.inner_text("#solaraPanel"))
         await reg.click(f'#solaraPanel [data-pick="{cid}"]')
-        await reg.click("#solaraFill")
+        await reg.click("#solaraStart")   # picking names the customer; Start begins the run and fills by itself
         await reg.wait_for_selector("#solaraFilled")
+        check("after Start the phone page filled by itself (no Fill click)", True)
+        await sw.evaluate("chrome.storage.local.remove('run')")   # the rest of this test drives Fill by hand
         await shot(reg, "2-portal-filled")
         check("verify page: state, company, consumer number, mobile filled",
               await reg.input_value("#consumerNo") == fx.NEW["consumer_no"] and
@@ -202,7 +204,7 @@ async def main():
         await reg.click("#btnVerify")
         await reg.wait_for_url("**/portal/form")
         await reg.wait_for_selector("#solaraFill", timeout=20000)
-        check("the co-pilot remembers the customer on the next page", "Priya Kulkarni" in await panel_text(reg))
+        check("the co-pilot remembers the customer on the next page", fx.NEW["billed_name"] in await panel_text(reg))
         await reg.fill("#roofArea", "40")                                    # owner had typed this already
         await reg.click("#solaraFill")
         await reg.wait_for_selector("#solaraFilled")
@@ -267,18 +269,18 @@ async def main():
         await ven.goto(BASE + f"/pmsg/vendor/agreement?app={app_no}")
         await ven.wait_for_selector("#solaraFill", timeout=30000)
         check("in the Upload Agreement dialog the co-pilot finds the right customer behind the list",
-              "Priya Kulkarni" in await ven.inner_text("#solaraPanel"))
+              fx.NEW["billed_name"] in await ven.inner_text("#solaraPanel"))
         await ven.click("#solaraFill")
         await ven.wait_for_selector("#solaraFilled")
         await shot(ven, "3-agreement-attached")
         check("cost filled and the signed agreement attached",
-              await ven.input_value("#cost") == "210000" and
+              await ven.input_value("#cost") == "200000" and
               await ven.evaluate("document.querySelector('#agreementCopy').files.length") == 1)
         await ven.click("#btnSubmitAgreement")                               # owner
         await ven.wait_for_selector("text=Agreement updated successfully")
         up = db.one("SELECT * FROM pmsg_vendor WHERE application_no=?", (app_no,))
         check("the portal received the agreement as a PDF under 2 MB with the cost",
-              up["cost"] == "210000" and up["agreement_file"].endswith(".pdf") and up["agreement_bytes"] < 2 * 1024 * 1024,
+              up["cost"] == "200000" and up["agreement_file"].endswith(".pdf") and up["agreement_bytes"] < 2 * 1024 * 1024,
               f"{up['agreement_file']} {up['agreement_bytes'] // 1024} KB")
         await ven.wait_for_selector("#solaraMarkUploaded", timeout=20000)
         await ven.click("#solaraMarkUploaded")

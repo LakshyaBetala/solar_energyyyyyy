@@ -31,3 +31,8 @@ solara-ops.html
 build/
 dist/
 solara.env
+# Real customer documents dropped in the root for testing. The repo is public: never commit them.
+/*.pdf
+/*.jpeg
+/*.jpg
+/*.png

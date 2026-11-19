@@ -80,7 +80,7 @@ async def main():
         check("the menu badge counts the lines to do", tag == str(lines - await pg.locator(".tdrow.muted").count()), f"{tag} vs {lines}")
 
         await call.locator("[data-today]").click()
-        await pg.wait_for_function("document.querySelector('#rgName') && document.querySelector('#rgName').innerText.includes('Vaishali')")
+        await pg.wait_for_function("document.querySelector('#rgName') && document.querySelector('#rgName').innerText.toUpperCase().includes('VAISHALI')")
         nb = pg.locator(".rgnext")
         check("Register now opens that customer at the Register step, with the number to call",
               "Register on PM Surya Ghar" in await pg.locator("#regNext").inner_text()
@@ -152,7 +152,7 @@ async def main():
         await pg.locator('[data-theme-set="light"]').click()
         await pg.wait_for_timeout(250)
         bg = await pg.evaluate("getComputedStyle(document.body).backgroundColor")
-        check("light theme applies", bg == "rgb(238, 241, 244)", bg)
+        check("light theme applies", bg == "rgb(247, 248, 250)", bg)
         await pg.locator('[data-theme-set="dark"]').click()
         await pg.wait_for_timeout(250)
         check("dark theme applies", await pg.evaluate("getComputedStyle(document.body).backgroundColor") == "rgb(12, 14, 17)")

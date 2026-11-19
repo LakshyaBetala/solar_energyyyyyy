@@ -20,7 +20,7 @@ def reset(wipe_files=True):
               "pmsg_install"):
         db.ex(f"DELETE FROM {t}")
     # the company signature is one-time setup and survives a reset; customers' do not
-    db.ex("DELETE FROM signatures WHERE role='consumer'")
+    db.ex("DELETE FROM signatures WHERE role<>'vendor'")
     db.ex("DELETE FROM documents WHERE kind LIKE 'co_%' OR kind LIKE 'rc_%' OR kind='loan_approval'")
     db.seed_closeout()
     # photos and receipts made during a rehearsal go; demo_assets puts the seeded site photo back

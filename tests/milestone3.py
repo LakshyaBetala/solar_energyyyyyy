@@ -297,6 +297,7 @@ async def main():
         check("resumed: back on Today where it stopped", any(x["cid"] == A for g in ("calls", "todo", "portal", "waiting") for x in t[g]))
         closeout.mark(D, "test", install_accepted_at=db.now())   # D had been accepted before the portal returned it
         await dash.click(f'[data-inst="{D}"]')
+        await dash.wait_for_function(f"S.instData && S.instData.customer && S.instData.customer.id === '{D}'")   # the screen has switched
         await dash.wait_for_selector("#instRetry")
         await dash.click("#instRetry")                                                       # Retry
         await dash.select_option("#retryStep", "installation")

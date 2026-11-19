@@ -23,10 +23,10 @@ async function handle(msg) {
     const q = new URLSearchParams({ consumer_no: msg.consumer_no || '', app_no: msg.app_no || '', cid: msg.cid || '', step: msg.step || '' });
     return json(await call(`${url}/api/copilot/${msg.type}?${q}`, { headers }));
   }
-  if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'xlsx') {
-    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : msg.type === 'doc' ? `doc/${msg.cid}/${msg.kind}` : `xlsx/${msg.cid}`;
+  if (msg.type === 'file' || msg.type === 'doc' || msg.type === 'xlsx' || msg.type === 'draft') {
+    const path = msg.type === 'file' ? `file/${msg.cid}/${msg.key}` : msg.type === 'xlsx' ? `xlsx/${msg.cid}` : `${msg.type}/${msg.cid}/${msg.kind}`;
     // what the portal's box takes: PDF only, and its own size limit, when the page says so
-    const box = new URLSearchParams({ to: msg.to || '', max_kb: String(msg.max_kb || 0) });
+    const box = new URLSearchParams({ to: msg.to || '', max_kb: String(msg.max_kb || 0), fmt: msg.fmt || '' });
     const r = await call(`${url}/api/copilot/${path}?${box}`, { headers });
     if (!r.ok) { const e = await r.json().catch(() => ({})); return { ok: false, error: `could not fetch ${msg.key || msg.kind || 'the Excel'}: ${e.detail || r.statusText}` }; }
     const name = (r.headers.get('content-disposition') || '').match(/filename="([^"]+)"/);
@@ -41,6 +41,22 @@ async function handle(msg) {
   }
   return { ok: false, error: 'unknown request' };
 }
+
+// "Use Solara on this page": the owner clicks the Solara button on any site. The panel loads there now and, if the
+// browser's own permission question is answered yes, by itself on later visits. Nothing is filled until the owner
+// picks the customer, and a box Solara does not know is taught in the panel, once.
+const siteId = host => 'site-' + host.replace(/[^a-z0-9]/gi, '_');
+chrome.action.onClicked.addListener(async tab => {
+  if (!tab || !/^https?:/.test(tab.url || '')) return;
+  const u = new URL(tab.url), origin = u.origin + '/*';
+  let kept = false;
+  try { kept = await chrome.permissions.request({ origins: [origin] }); } catch (e) { /* not from a click: this visit only */ }
+  if (kept) {
+    try { await chrome.scripting.registerContentScripts([{ id: siteId(u.host), matches: [origin], js: ['panel.js'], runAt: 'document_idle', persistAcrossSessions: true }]); }
+    catch (e) { /* this site is registered already */ }
+  }
+  try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['panel.js'] }); } catch (e) { /* a page the browser protects */ }
+});
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   handle(msg).then(reply, async e => {

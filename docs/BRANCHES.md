@@ -1,4 +1,8 @@
-# Branches, and what's next (13 Nov 2026)
+# Branches, and what's next (19 Nov 2026)
+
+> **19 Nov:** `smart-panel` is field-ready merged with the interns' `gemini-integrated`, with the quotation presets, the
+> teach-once panel, the desktop app and the safety changes in [CHANGELOG.md](../CHANGELOG.md). It is the branch to test.
+> It is local until the owner of the repository pushes it. What comes after: [ROADMAP.md](ROADMAP.md).
 
 **field-ready** is now the one branch with everything: k1-owner (KPI 1) and k2-k3-filing-dashboard
 (KPI 2 and 3) merged, and KPI 4, 5 and 6 built on top. Work from field-ready from now on; it goes

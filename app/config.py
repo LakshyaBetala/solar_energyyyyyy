@@ -41,6 +41,10 @@ async def pdf_browser(p):
             except Exception:
                 pass
         raise
+def clean():
+    """SOLARA_CLEAN=1: sandbox portals as usual, but no sample customers, documents or calls; only the three sign-in users."""
+    import os
+    return os.environ.get("SOLARA_CLEAN", "").lower() in ("1", "true", "yes")
 
 
 def live():

@@ -93,12 +93,12 @@ async def main():
          r.status_code == 200 and db.one("SELECT consumer_no FROM customers WHERE id=?", (cid,))["consumer_no"] == "170055509871", r.status_code)
 
     # ---------------- D03: installation cost, on both screens ----------------
-    for raw, want in (("250000.50", "250000.50"), ("2,50,000.75", "250000.75"), ("₹2,10,000", "210000"), ("Rs 285000", "285000")):
+    for raw, want in (("2,50,000", "250000"), ("143000", "143000"), ("₹2,00,000", "200000"), ("Rs 300000", "300000")):
         for route in ("registration", "closeout"):
             r = sup.put(f"/api/{route}/{cid}", json={"rts_cost": raw})
             got = closeout.data(cid)[1].get("rts_cost")
             case("D03", f"{route} page: cost", repr(raw), f"saved as {want}", r.status_code == 200 and got == want, (r.status_code, got))
-    for raw in ("Rs 1.5 lakh", "-250000", "0", "999999999999", "abc"):
+    for raw in ("Rs 1.5 lakh", "-250000", "0", "999999999999", "abc", "250000.50", "210000"):
         for route in ("registration", "closeout"):
             r = sup.put(f"/api/{route}/{cid}", json={"rts_cost": raw})
             case("D03", f"{route} page: cost", repr(raw), "400, nothing saved", r.status_code == 400, (r.status_code, detail(r)))
@@ -153,7 +153,7 @@ async def main():
     sup.post(f"/api/registration/{ready}/document", params={"kind": "bill"}, files={"file": ("bill.pdf", bill, "application/pdf")})
     sup.post(f"/api/registration/{ready}/document", params={"kind": "aadhaar"}, files={"file": ("a.jpg", fx.aadhaar_photo(), "image/jpeg")})
     sup.post(f"/api/registration/{ready}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]})
-    sup.put(f"/api/registration/{ready}", json={"kw": "3", "rts_cost": "210000", "email": "priya.k@example.com"})
+    sup.put(f"/api/registration/{ready}", json={"name": fx.AADHAAR_NAME, "kw": "3", "rts_cost": "200000", "email": "priya.k@example.com"})
     r = sup.post(f"/api/registration/{ready}/mark", json={"step": "registered", "app_no": "NP-MHSED26-3522641"})
     case("M2", "application no.", "a Maharashtra number one digit short", "400", r.status_code == 400, (r.status_code, detail(r)))
     r = sup.post(f"/api/registration/{ready}/mark", json={"step": "registered", "app_no": "NP-MHSED26-35226411"})
@@ -352,9 +352,9 @@ async def main():
         now = await pg.evaluate("document.querySelector('#r_kw').closest('.field').classList.contains('miss')")
         case("M4", "details form", "type 3 into the highlighted capacity box", "the 'missing' highlight goes as soon as it has a value",
              was and not now, (was, now))
-        await pg.fill("#r_rts_cost", "210000")
+        await pg.select_option("#r_rts_cost", "200000")
         shown = await pg.inner_text("#h_rts_cost")
-        case("M5", "details form", "type 210000 as the cost", "read back as Rs 2,10,000 (a missed zero shows)", shown == "Rs 2,10,000", shown)
+        case("M5", "details form", "type 200000 as the cost", "read back as Rs 2,00,000 (a missed zero shows)", shown == "Rs 2,00,000", shown)
         look = await pg.evaluate("""() => { const s = [...document.querySelectorAll('.rgpane > .rgsec')];
             const lab = getComputedStyle(document.querySelector('label[for=r_email]'));
             return { first: s[0] && s[0].id, open: s[0] && s[0].open, portal: document.querySelector('#regPortal').open,

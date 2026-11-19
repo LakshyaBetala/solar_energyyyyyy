@@ -59,6 +59,20 @@ function toast(msg, bad) {
   $('#toast').classList.toggle('bad', !!bad);
   clearTimeout(toastT); toastT = setTimeout(() => { $('#toast').hidden = true; }, 4200);
 }
+/* A slim bar at the top while Gemini (or the rules) read a document, so nobody wonders if it hung. */
+const busyBar = (() => {
+  let el, t0, tick, depth = 0;
+  const make = () => { el = document.createElement('div'); el.id = 'busyBar'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.innerHTML = '<div class="bsweep"></div><div class="bpill"><span class="bspin"></span><span class="btext"></span><span class="bsec"></span></div>'; document.body.appendChild(el); };
+  return {
+    on(text) { depth += 1; if (!el) make(); el.querySelector('.btext').textContent = text; t0 = Date.now(); el.classList.add('show');
+      clearInterval(tick); el.querySelector('.bsec').textContent = '0s';
+      tick = setInterval(() => { el.querySelector('.bsec').textContent = Math.round((Date.now() - t0) / 1000) + 's'; }, 500); },
+    off() { depth = Math.max(0, depth - 1); if (depth) return; clearInterval(tick); if (el) el.classList.remove('show'); }
+  };
+})();
+const readerName = () => { const l = S.regData && S.regData.llm; return l && l.enabled ? (l.provider === 'gemini' ? 'Gemini' : 'the AI model') : 'Solara'; };
+
 function modal(title, sub, body, foot) {
   $('#mtitle').textContent = title; $('#msub').textContent = sub;
   $('#mbody').innerHTML = body; $('#mfoot').innerHTML = foot;
@@ -92,6 +106,7 @@ async function boot() {
   S.audit = b.audit; S.llm = b.llm; S.runs = b.runs; S.activeRun = b.active_run;
   S.workflows = b.workflows || [];
   S.followups = await api('/followups').catch(() => []);
+  loadQuotes();
   S.co = await api('/closeout').catch(() => []);
   S.reg = await api('/registration').catch(() => []);
   S.inst = await api('/filing').catch(() => []);
@@ -159,6 +174,8 @@ function render() {
     ov.innerHTML = VIEWS[S.view]();
     $$('#otherview [data-i],#otherview [data-r],#otherview [data-f]').forEach(el => { const v = drafts.get(draftKey(el)); if (v !== undefined) el.value = v; });
     if (S.view === 'calls') playTranscript(false);
+    // what each Details box showed when drawn (the saved values): a box that differs from this is unsaved
+    $$('[data-r]').forEach(i => { i.dataset.shown = i.value; });
   }
   counters();
 }
@@ -561,6 +578,7 @@ async function loadReports() {
   const [k, h, r, u] = await Promise.all([api('/kpi').catch(() => null), api('/health').catch(() => null),
     S.live ? null : api('/reports').catch(() => null), sup ? api('/users').catch(() => null) : null]);
   S.kpi = k; S.health = h; S.reports = r; S.users = u;
+  await loadQuotes();
   if (S.view === 'reports') render();
 }
 async function loadToday() {
@@ -671,17 +689,37 @@ const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).pad
 const VD = ['0123456789', '1234067895', '2340178956', '3401289567', '4012395678', '5987604321', '6598710432', '7659821043', '8765932104', '9876543210'];
 const VP = ['0123456789', '1576283094', '5803796142', '8916043527', '9453126870', '4286573901', '2793806415', '7046913258'];
 const verhoeff = n => { let c = 0; [...n].reverse().forEach((ch, i) => { c = +VD[c][+VP[i % 8][+ch]]; }); return c === 0; };
+const COST_LIST = [125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000];
+const costOpts = () => { const q = (S.quoteList && S.quoteList.quotes) || (S.regData && S.regData.quotes) || []; return q.length ? q.map(x => +x.amount) : COST_LIST; };
+const loadQuotes = () => api('/quotes').then(q => { S.quoteList = q; }).catch(() => {});
+const rupees = n => 'Rs ' + (+n).toLocaleString('en-IN');
 const REG_RULES = {
-  aadhaar: { hint: 'Last 4 digits, from the QR. A full number is checked, then cut to the last 4', max: 16, mode: 'numeric', check: v => {
+  aadhaar: { hint: 'The 12-digit number, read from the card. Checked, then stored encrypted', max: 16, mode: 'numeric', check: v => {
     v = v.trim(); if (!v) return ''; if (/^[Xx*]{4}[ -]?[Xx*]{4}[ -]?\d{4}$/.test(v) || /^\d{4}$/.test(v)) return '';
     if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, '');
     return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^[01]/.test(n) ? 'Never starts with 0 or 1' : verhoeff(n) ? '' : 'Check digit does not match; check each digit on the card'; } },
   name: { hint: 'As on the Aadhaar', max: 60, check: v => !v ? 'Required' : v.trim().length < 3 ? 'At least 3 characters' : /[^\p{L}\p{M} .'-]/u.test(v) ? 'Use letters and spaces (a full stop, apostrophe or hyphen is fine)' : '' },
-  mobile: { hint: '10 digits. The portal sends the OTP here', max: 16, mode: 'numeric', check: v => { const n = v.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); return !v ? '' : !n ? 'Digits only' : /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting with 6, 7, 8 or 9'; } },
+  mobile: { hint: '10 digits. The portal sends the OTP here', max: 16, mode: 'numeric', check: v => { const n = v.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); const m = v.replace(/\s/g, ''); if (/^n\/a$/i.test(m) || (m.length === 10 && /^\d*[xX*]+\d*$/.test(m))) return ''; return !v ? '' : !n ? 'Digits only' : /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting with 6, 7, 8 or 9'; } },
   email: { hint: 'The portal sends an OTP here', max: 120, check: v => !v || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) ? '' : 'Does not look like an email' },
   consumer_no: { hint: '12 digits, printed on the bill', max: 16, mode: 'numeric', check: v => { if (!v) return ''; if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, ''); return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^(\d)\1+$/.test(n) ? 'Repeats one digit; check the bill' : ''; } },
   kw: { hint: '0.5 to 10, e.g. 3 or 3.3', max: 6, mode: 'decimal', check: v => !v ? '' : !/^\d+(\.\d+)?$/.test(v.trim()) ? 'A number, e.g. 3.3' : +v < 0.5 || +v > 10 ? 'Between 0.5 and 10 kW' : '' },
-  rts_cost: { hint: 'In rupees, e.g. 285000', max: 14, mode: 'decimal', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); if (!/^\d+(\.\d{1,2})?$/.test(t)) return 'An amount in rupees; up to 2 decimals'; return +t < 10000 || +t > 2500000 ? 'Between Rs 10,000 and Rs 25,00,000' : ''; } },
+  place: { hint: 'Area and district, as the quotation prints it, e.g. Dighi, Pune', max: 80, check: () => '' },
+  rts_cost: { hint: 'One of the quotations; the agreement and the quotation print it', max: 14, mode: 'numeric', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); const n = Number(t); if (!/^\d+(\.0+)?$/.test(t)) return 'Pick one of the listed amounts'; return costOpts().includes(n) ? '' : 'Only the listed amounts: ' + costOpts().map(x => x.toLocaleString('en-IN')).join(', '); } },
+  gender: { hint: 'From the Aadhaar; change it if it is wrong', max: 10, check: () => '' },
+  location_type: { hint: 'Urban or Rural, found from the address; check it', max: 10, check: () => '' },
+  residence_category: { hint: 'What the portal asks as Category. Usual method for a house', max: 40, check: () => '' },
+  roof_load_ok: { hint: 'Site feasibility form. Seen on site, never guessed', max: 4, check: () => '' },
+  shadow_free: { hint: 'Site feasibility form', max: 4, check: () => '' },
+  site_visited: { hint: 'Site feasibility form', max: 4, check: () => '' },
+  roof_free_area: { hint: 'Square metres, measured on site (about 10 per kW)', max: 8, mode: 'decimal', check: v => !v ? '' : /^\d{1,5}(\.\d{1,2})?$/.test(v.trim()) ? '' : 'A number, e.g. 30 or 32.5' },
+  permissible_kw: { hint: 'Defaults to the proposed capacity; the portal asks it', max: 6, mode: 'decimal', check: v => !v ? '' : /^\d+(\.\d+)?$/.test(v.trim()) && +v >= 0.5 && +v <= 10 ? '' : '0.5 to 10' },
+  sfr_visitor: { hint: 'The vendor employee who went to the site', max: 60, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  sfr_visitor_phone: { hint: '10 digits', max: 16, mode: 'numeric', check: v => { const n = (v || '').replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, ''); return !v || /^[6-9]\d{9}$/.test(n) ? '' : '10 digits starting 6 to 9'; } },
+  ulb: { hint: 'The municipal body, as the portal lists it. A map hint; the portal list decides', max: 80, check: () => '' },
+  taluka: { hint: 'The block / taluka, as the portal lists it', max: 80, check: () => '' },
+  panchayat: { hint: 'Type it; the map cannot find this', max: 80, check: () => '' },
+  lat: { hint: 'Found from the address on the map; type it if wrong', max: 12, mode: 'decimal', check: v => !v ? '' : !/^\d{1,2}(\.\d+)?$/.test(v.trim()) || +v < 6 || +v > 38 ? 'A number inside India, e.g. 18.5679' : '' },
+  lng: { hint: 'Found from the address on the map; type it if wrong', max: 12, mode: 'decimal', check: v => !v ? '' : !/^\d{2}(\.\d+)?$/.test(v.trim()) || +v < 68 || +v > 98 ? 'A number inside India, e.g. 73.8567' : '' },
   district: { hint: 'Optional', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
   app_no: { hint: 'Copied by the co-pilot; type only if it missed', max: 40, check: v => { v = v.trim().toUpperCase(); return !v ? '' : !/^NP-[A-Z0-9]+-\d{6,}$/.test(v) ? 'Looks like NP-MHSED26-12345678' : /^NP-MHSED/.test(v) && v.split('-').pop().length !== 8 ? 'Ends in 8 digits; check for a missed digit' : ''; } }
 };
@@ -706,9 +744,73 @@ const regSyncButtons = () => {
    Sections the owner opens or closes stay that way until another customer is picked. */
 const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Registered', accepted: 'Accepted', signed: 'E-signed', uploaded: 'Uploaded', approved: 'Customer approved' };
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
-const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'],
-  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar']];
+const REG_MISS = [['consumer_no', 'Consumer number'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['kw', 'Capacity (kW)']];
+const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['place', 'Place'],
+  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'],
+  ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)'],
+  ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
+  ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number']];
+const REG_SEL = { roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
+// Chrome's autofill fills every phone box on a page at once: picking a number for the visitor also overwrote the
+// customer's mobile, and auto-save kept it. Separate sections tell Chrome they are two people's numbers.
+const REG_AUTOFILL = { mobile: 'section-customer tel-national', email: 'section-customer email', sfr_visitor_phone: 'section-visitor tel-national', sfr_visitor: 'section-visitor name' };
 const REG_KW = [1, 2, 3, 4, 5];
+// a document's stage: needed, uploading, reading, then read / check / not read, from what was actually taken
+const regDocPill = (g, k, docs) => {
+  const busy = ((S.docBusy || {})[g.customer.id] || {})[k], st = (g.doc_status || {})[k];
+  const [cls, txt] = busy ? ['live', busy + '…'] : st ? { read: ['ok', 'read ✓'], check: ['warn', 'check'], unread: ['bad', 'not read'] }[st.state]
+    : docs[k] ? ['ok', 'on file'] : ['bill', 'aadhaar'].includes(k) ? ['warn', 'needed'] : ['idle', 'later'];
+  return `<span class="pill ${cls}" aria-live="polite">${txt}</span>`;
+};
+// Each document opens in a new tab, which downloads it and closes. In the same tab Chrome allows one download
+// per page load once "Automatic downloads" is blocked for the site: the second document then did nothing until
+// a refresh. Shown only once the saved details have what that document needs.
+// The two documents as two tiles of the same size: the buttons sit in the same place whether or not the document
+// can be made yet; what is missing is said on its own line in the tile, never inside a button.
+const regDraftWhy = (g, kind) => {
+  const c = g.customer, cost = g.data.rts_cost;
+  return !can('operator') ? 'Needs the operator role'
+    : !(c.name && c.address) ? 'Needs the name and address: upload the bill'
+    : kind === 'quotation' && g.quotation_own ? ''
+    : !(cost && (kind === 'agreement' || g.quotes.some(q => +q.amount === +cost))) ? 'Pick the installation cost above'
+    : kind === 'quotation' && !g.quotes.some(q => +q.amount === +cost && q.file) ? 'No quotation for this price: add one in Reports, or upload this customer\u2019s own' : '';
+};
+const regDraftBtn = (g, kind, label, fmt, why, main) => why
+  ? `<button class="btn${main ? '' : ' sm'}" disabled>${esc(label)}</button>`
+  : `<a class="btn${main ? '' : ' sm'}" data-draft="${kind}" href="/api/registration/${esc(g.customer.id)}/draft/${kind}${fmt === 'pdf' ? '?fmt=pdf' : ''}" target="_blank" rel="noopener">${esc(label)}</a>`;
+const regDrafts = g => {
+  const cost = g.data.rts_cost, aw = regDraftWhy(g, 'agreement'), qw = regDraftWhy(g, 'quotation');
+  const signs = [g.customer_sign ? '' : 'customer', g.vendor_sign ? '' : 'company'].filter(Boolean);
+  const tile = (title, line, why, btns, note = '') => `<div class="rgdoc${why ? ' off' : ''}"><div class="rgdoc-h"><b>${title}</b><span class="sub">${esc(line)}</span></div>
+    <p class="rgdoc-why${why ? '' : ' ok'}">${esc(why || (note ? 'Ready · ' + note : 'Ready'))}</p><div class="rgdoc-b">${btns}</div></div>`;
+  return tile('Agreement', 'PDF, both parties', aw,
+      regDraftBtn(g, 'agreement', 'Download PDF', 'pdf', aw, true), signs.length ? `no ${signs.join(' or ')} signature yet` : 'both signatures on')
+    + tile('Quotation', cost ? `Rs ${(+cost).toLocaleString('en-IN')}` : 'No cost chosen', qw,
+      regDraftBtn(g, 'quotation', 'Download PDF', 'pdf', qw, true) + (g.quotation_own ? '' : regDraftBtn(g, 'quotation', 'Word', 'docx', qw, false))
+      + (can('operator') ? (g.quotation_own ? '<button class="btn sm" id="quoteOwnRemove">Use the template again</button>'
+        : '<label class="btn sm">Upload this customer\u2019s own<input type="file" id="quoteOwn" accept=".pdf,.docx" hidden></label>') : ''),
+      g.quotation_own ? 'this customer\u2019s own file' : '');
+};
+// Each box in Details saves itself when it is left, on Enter, or when a list choice is made: nothing typed is lost
+// when the screen redraws (after a document upload, for one). The screen is not redrawn after the save itself.
+async function regAutosave(el) {
+  if (!el || !S.regCid || el.value === el.dataset.shown || !regFieldCheck(el)) return;
+  const st = $('#regSaveState'), cid = S.regCid;
+  if (st) st.textContent = 'Saving…';
+  try {
+    const g = await api('/registration/' + cid, { method: 'PUT', body: { [el.dataset.r]: el.value } });
+    if (S.regCid !== cid) return;
+    S.regData = g; el.dataset.shown = el.value;
+    const d = $('#regDrafts'); if (d) d.innerHTML = regDrafts(g);
+    if (st) st.textContent = 'Saved ✓';
+  } catch (err) { if (st) st.textContent = 'Not saved'; toast(err.message, true); }
+};
+const regDocRead = (g, k) => {
+  const st = (g.doc_status || {})[k];
+  if (!st || ((S.docBusy || {})[g.customer.id] || {})[k]) return '';
+  return `<span class="sub">${st.got.length ? 'Got: ' + esc(st.got.join(', ')) : 'Nothing read yet'}${st.missing.length ? ` · <b>Not found: ${esc(st.missing.join(', '))}</b>` : ''}${st.unsure.length ? ` · Check: ${esc(st.unsure.join(', '))}` : ''}</span>`
+    + (st.model_error ? `<span class="sub warn">Gemini did not answer (${esc(st.model_error)}). <button class="btn sm" data-reread="${k}">Read again</button></span>` : '');
+};
 const regKwChips = (g, val, op) => {
   const sug = g.suggest && g.suggest.kw, sizes = [...new Set([...REG_KW, ...(sug ? [sug] : [])])].sort((a, b) => a - b);
   return `<div class="kwchips" role="group" aria-label="Pick the capacity">${sizes.map(n => `<button type="button" class="chip${+val === n ? ' on' : ''}${n === sug ? ' sug' : ''}" data-usekw="${n}" aria-pressed="${+val === n}"${op}>${n} kW</button>`).join('')}</div>`;
@@ -720,12 +822,13 @@ const regFold = (id, title, meta, body, def) => {
     <summary><h3>${title}</h3><span class="rgmeta">${meta}</span></summary><div class="rgbody">${body}</div></details>`;
 };
 const regWhy = (g, act) => {
-  const c = g.customer, first = esc((c.name || '').split(' ')[0]);
+  const c = g.customer, first = esc((c.aadhaar_name || c.name || '').split(' ')[0]);
   const unsure = g.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key)).map(f => esc(f.field));
   return {
     docs: 'Add the electricity bill (the PDF from the MSEDCL website, or a photo) and the Aadhaar. Solara reads them as soon as they are uploaded.',
     check: `Solara is not sure about: ${unsure.join(', ') || 'the PIN code'}. Compare with the document, then confirm.`,
-    details: g.steps[2].done ? 'The agreement prints the installation cost from the vendor’s quote.' : `Still needed: ${g.missing.map(m => esc(m.replace(/\s*\(.*\)$/, ''))).join(', ')}.`,
+    details: g.steps[2].done ? 'The agreement prints the installation cost from the vendor’s quote.' : g.missing.length ? `Still needed: ${g.missing.map(m => esc(m.replace(/\s*\(.*\)$/, ''))).join(', ')}.`
+      : esc((g.validation.issues.find(i => i.field === 'name') || {}).message || ''),
     register: 'With the customer on the phone, open the portal. The co-pilot fills the form; you type the OTP and press Submit. It copies the application number back here.',
     accept: `In the vendor login, open Vendor Consent and approve ${first}. Then open My Application: the co-pilot reads the list and updates Solara.`,
     vsig: 'Once only: add the company signature that goes on every agreement.',
@@ -780,10 +883,13 @@ VIEWS.reg = () => {
   const open = g.validation.issues.filter(i => !flagged.some(f => f.note && f.note === i.message));
   const issues = !regd && open.length ? `<div class="rgissues" id="regIssues"><p>Also needed before registering:</p><ul>${open.map(i =>
     `<li><b>${REG_KIND[i.kind] || esc(i.kind)}</b><span>${esc(i.kind === 'missing' ? i.field[0].toUpperCase() + i.field.slice(1) : i.message)}</span></li>`).join('')}</ul></div>` : '';
+  const missNow = REG_MISS.filter(([k]) => !({ name: c.name, mobile: d.mobile, consumer_no: c.consumer_no, kw: c.kw })[k]);
+  const missBar = !regd && missNow.length ? `<div class="missbar" id="regMissing"><b>Still missing</b>${missNow.map(([k, l]) => `<button type="button" data-focusfield="${k}">${l}</button>`).join('')}</div>` : '';
   const next = `<div class="rgnext${act ? '' : ' idle'}">
     <div class="rgnext-main"><div class="rgnext-txt">${act ? '<span class="rgk">Next step</span>' : ''}<p>${regWhy(g, act)}</p></div>${primary}</div>
+    ${missBar}
     ${act === 'docs' || (act === 'details' && !d.email && !regd) ? `<div class="rgline">Documents on the customer's phone? <button class="btn sm" id="regAskDocs"${op}>Ask the customer on WhatsApp</button> They send the bill, Aadhaar and email themselves.</div>` : ''}
-    ${['register', 'approve'].includes(act) && g.otp ? `<div class="rgline">Call ${esc((c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the code. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
+    ${['register', 'approve'].includes(act) && g.otp ? `<div class="rgline">Call ${esc((c.aadhaar_name || c.name || '').split(' ')[0])} on <a href="${esc(g.otp.tel)}"><b>${fmtPhone(g.otp.phone)}</b></a> when you open the portal: they read out the code. <a class="btn sm" href="${esc(g.otp.whatsapp)}" target="_blank" rel="noopener">Tell them on WhatsApp first</a></div>` : ''}
     ${act === 'approve' ? `<div class="rgline">Approved on the portal without the co-pilot? <button class="btn sm" id="regApproved"${op}>Mark it approved</button></div>` : ''}
     ${act === 'register' ? appField : ''}
     ${act === 'upload' ? `<div class="rgline">Pressed Submit on the portal without the co-pilot? <button class="btn sm" id="regUploaded"${op}>Mark the agreement uploaded</button></div>` : ''}
@@ -793,10 +899,10 @@ VIEWS.reg = () => {
   const onFile = ['bill', 'aadhaar', 'passbook', 'roof'].filter(k => docs[k]).length;
   const docsSec = regFold('regDocs', 'Documents', `${onFile} of ${Object.keys(g.doc_kinds).length} on file`,
     Object.entries(g.doc_kinds).map(([k, label]) => `<div class="docrow">
-      <span class="pill ${docs[k] ? 'ok' : ['bill', 'aadhaar'].includes(k) ? 'warn' : 'idle'}">${docs[k] ? 'on file' : ['bill', 'aadhaar'].includes(k) ? 'needed' : 'later'}</span>
-      <span class="nm">${esc(label)}${docs[k] ? `<span class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</span>` : ''}</span>
-      <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${op}></label></div>`).join('')
-    + `<p class="rgnote">The Aadhaar is read from its QR code on this computer; only the last 4 digits are kept.${g.llm.enabled ? '' : ' A photo of a bill or bank page is flagged for you to type.'}</p>`,
+      ${regDocPill(g, k, docs)}
+      <span class="nm">${esc(label)}${docs[k] ? `<span class="sub">${esc(docs[k].filename.replace(k + '_', ''))} · ${Math.round(docs[k].bytes / 1024)} KB</span>` : ''}${regDocRead(g, k)}</span>
+      <label class="btn sm">${docs[k] ? 'Replace' : 'Upload'}${k === 'aadhaar' ? ' (front + back)' : ''}<input type="file" data-doc="${k}" accept="image/*,.pdf" hidden${k === 'aadhaar' ? ' multiple' : ''}${op}></label></div>`).join('')
+    + `<p class="rgnote">Each document is read as soon as it is uploaded, and the details fill from it. The full Aadhaar number is kept encrypted.${g.llm.enabled ? '' : ' A photo of a bill or bank page is flagged for you to type.'}</p>`,
     act === 'docs' || (!stepDone('documents') && onFile < Object.keys(g.doc_kinds).length));
   const pinCard = !pinConflict ? '' : `<div class="fld review" id="regPin"><div class="fk">PIN code: the bill and the Aadhaar disagree</div>
     <div class="fnote" style="grid-column:1/-1">The portal and the agreement use the PIN you pick: the one where the customer lives and the meter is.</div>
@@ -809,16 +915,27 @@ VIEWS.reg = () => {
   const rest = g.fields.filter(f => !flagged.includes(f));
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
-  const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, aadhaar: d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+  const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
+    rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
-    `<div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
-      ${k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
+    `<div class="field" style="margin-bottom:14px"><label>Company signature <span class="sub">(Second Party: uploaded once, on every customer's agreement)</span></label>
+      <div class="row" style="gap:12px;align-items:center">${g.vendor_sign ? `<img src="${g.vendor_sign}" alt="The company signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet</span>'}
+      ${can('supervisor') ? `<label class="btn sm">${g.vendor_sign ? 'Replace for all customers' : 'Upload a photo of the company signature'}<input type="file" id="vendorSignFile" accept="image/*" hidden></label>` : '<span class="fhint">A supervisor uploads it</span>'}</div></div>
+    <div class="cofields">${det.map(([k, label, val]) => `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
+      ${k === 'rts_cost' ? `<select id="r_rts_cost" data-r="rts_cost" aria-describedby="h_rts_cost"${op}><option value="">Pick the installation cost</option>${costOpts().map(x => `<option value="${x}"${+val === x ? ' selected' : ''}>Rs ${x.toLocaleString('en-IN')}</option>`).join('')}</select>`
+      : REG_SEL[k] ? `<select id="r_${k}" data-r="${k}" aria-describedby="h_${k}"${op}><option value="">Not set</option>${(val && !REG_SEL[k].includes(val) ? [val, ...REG_SEL[k]] : REG_SEL[k]).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
+      : k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
         ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
-      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="off" aria-describedby="h_${k}"${op}>`}
-      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
-    <div class="rgactions"><button class="btn" id="regSave"${op}>Save details</button></div>`, !stepDone('details') || ['check', 'details'].includes(act));
+      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="${REG_AUTOFILL[k] || 'off'}" aria-describedby="h_${k}"${op}>`}
+      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
+    <div class="field" style="grid-column:1/-1"><label>Customer's signature <span class="sub">(goes on the agreement's Sign line)</span></label>
+      <div class="row" style="gap:12px;align-items:center">${g.customer_sign ? `<img src="${g.customer_sign}" alt="The customer's signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet: upload a photo of it</span>'}
+      <label class="btn sm">${g.customer_sign ? 'Replace' : 'Upload a photo of the signature'}<input type="file" id="signFile" accept="image/*" hidden${op}></label></div></div>
+    <div class="rgformbar"><div class="rgformbar-l"><button class="btn" id="regSave"${op}>Save details</button>
+      <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude</button></div>
+      <span id="regSaveState" class="rgsavestate" aria-live="polite">Changes save themselves</span></div>
+    <div id="regDrafts" class="rgdocs">${regDrafts(g)}</div>`, !stepDone('details') || ['check', 'details'].includes(act));
   const portalSec = regFold('regPortal', 'On PM Surya Ghar', c.application_no ? esc(c.application_no) : 'not registered yet',
     `<dl class="rgfiled">${[['Name filed', v.name], ['Consumer number', v.consumer_no], ['Mobile', v.mobile], ['Capacity', v.capacity ? v.capacity + ' kW' : null],
       ['State', v.state], ['District', v.district], ['DISCOM', v.discom], ['Vendor', v.vendor]].map(([k, x]) => `<div><dt>${k}</dt><dd>${esc(x || 'not yet')}</dd></div>`).join('')}</dl>
@@ -837,6 +954,7 @@ VIEWS.reg = () => {
     <header class="rghead"><h2 id="rgName">${esc(c.name)}</h2>
       <p class="rgfacts">${c.id} · consumer ${esc(c.consumer_no || 'not read yet')} · ${c.kw ? esc(c.kw) + ' kW' : 'capacity not set'}${c.application_no ? ' · ' + esc(c.application_no) : ''}</p></header>
     ${steps}${next}${order.join('')}
+    ${can('supervisor') ? `<div class="rgactions" style="justify-content:flex-end;padding:20px 0 6px"><button class="btn danger sm" id="regDelete">Delete this customer</button></div>` : ''}
   </section></div></div>`;
 };
 
@@ -894,7 +1012,7 @@ const CO_STATE = {
   needs_approval: ['info', 'Customer to sign'], changed: ['warn', 'Changed, re-approve'],
   needs_vendor_sig: ['warn', 'Company signature']
 };
-const CO_SELECT = { phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
+const CO_SELECT = { get rts_cost() { return costOpts().map(String); }, phase: ['Single phase', 'Three phase'], lightning_arrester: ['Yes', 'No'], protection_checks: ['Yes', 'No'] };
 const MSEDCL_URL = '/msedcl/'; // sandbox; the live build opens https://rts.mahadiscom.in/RoofTopSolarVendor/
 
 async function loadCo(cid) {
@@ -997,6 +1115,68 @@ VIEWS.closeout = () => {
     </div>
   </div></div>`;
 };
+
+/* The customer's signature from a photo: a crop box with four corner dots joined by lines. Drag a corner to
+   resize it, drag inside it to move it, zoom with the slider. crop() returns the boxed part as a PNG. */
+function signCrop(img) {
+  // at zoom 1 the whole photo fits the dialog, so all four dots can be reached; zooming in scrolls
+  const cv = $('#scCanvas'), ctx = cv.getContext('2d'), fit = Math.min(1, (cv.parentElement.clientWidth - 2) / img.width);
+  let z = 1, drag = null;
+  const b = { x0: img.width * .08, y0: img.height * .25, x1: img.width * .92, y1: img.height * .75 };
+  const pts = () => [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
+  const draw = () => {
+    const s = fit * z; cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    const [x0, y0, x1, y1] = [b.x0 * s, b.y0 * s, b.x1 * s, b.y1 * s];
+    ctx.fillStyle = 'rgba(0,0,0,.45)';   // shade what is cut away
+    ctx.fillRect(0, 0, cv.width, y0); ctx.fillRect(0, y1, cv.width, cv.height - y1); ctx.fillRect(0, y0, x0, y1 - y0); ctx.fillRect(x1, y0, cv.width - x1, y1 - y0);
+    ctx.strokeStyle = '#2f80ed'; ctx.lineWidth = 2; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.fillStyle = '#fff';
+    pts().forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x * s, y * s, 8, 0, 7); ctx.fill(); ctx.stroke(); });
+  };
+  const at = e => { const r = cv.getBoundingClientRect(), s = fit * z; return [(e.clientX - r.left) / s, (e.clientY - r.top) / s]; };
+  const clamp = () => {
+    [b.x0, b.x1] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)]; [b.y0, b.y1] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)];
+    b.x0 = Math.max(0, b.x0); b.y0 = Math.max(0, b.y0); b.x1 = Math.min(img.width, b.x1); b.y1 = Math.min(img.height, b.y1);
+  };
+  cv.onpointerdown = e => {
+    const [x, y] = at(e), near = 14 / (fit * z), i = pts().findIndex(([px, py]) => Math.hypot(px - x, py - y) < near);
+    if (i >= 0) drag = { corner: i };
+    else if (x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1) drag = { from: [x, y] };
+    if (drag) cv.setPointerCapture(e.pointerId);
+  };
+  cv.onpointermove = e => {
+    if (!drag) return;
+    const [x, y] = at(e);
+    if (drag.corner !== undefined) {
+      if (drag.corner === 0 || drag.corner === 3) b.x0 = x; else b.x1 = x;
+      if (drag.corner < 2) b.y0 = y; else b.y1 = y;
+    } else {
+      const dx = Math.max(-b.x0, Math.min(img.width - b.x1, x - drag.from[0])), dy = Math.max(-b.y0, Math.min(img.height - b.y1, y - drag.from[1]));
+      b.x0 += dx; b.x1 += dx; b.y0 += dy; b.y1 += dy; drag.from = [x, y];
+    }
+    draw();
+  };
+  cv.onpointerup = cv.onpointercancel = () => { drag = null; clamp(); draw(); };
+  draw();
+  return {
+    zoom: v => { z = v; draw(); },
+    box: () => ({ ...b }),
+    crop: () => {
+      clamp();
+      const w = b.x1 - b.x0, h = b.y1 - b.y0, k = Math.min(1, 900 / w, 400 / h), out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(w * k)); out.height = Math.max(1, Math.round(h * k));
+      out.getContext('2d').drawImage(img, b.x0, b.y0, w, h, 0, 0, out.width, out.height);
+      return out.toDataURL('image/png');
+    }
+  };
+}
+async function regSaveSign(image) {
+  try {
+    S.regData = await api(`/registration/${S.regCid}/signature`, { method: 'POST', body: { image } });
+    (S.regOpen ||= {}).regDetails = true; closeModal(); render(); toast("Signature saved. It goes on the agreement's Sign line.");
+  } catch (err) { toast(err.message, true); }
+}
 
 function signPad(canvas) {
   const ctx = canvas.getContext('2d'), k = devicePixelRatio || 1, r = canvas.getBoundingClientRect();
@@ -1385,12 +1565,27 @@ VIEWS.reports = () => {
       ${u.username === S.me.username ? '' : `<button class="btn sm danger" data-uremove="${esc(u.username)}">Remove</button>`}</div>`).join('')}
       <button class="btn" id="userAdd" style="justify-self:start">+ Add a person</button>
       <div class="hint">Viewer: looks only. Operator: does the daily work. Supervisor: also people, backups and exports.</div></div></div>`;
+  const boss = can('supervisor'), ql = S.quoteList || { quotes: [], can_pdf: true };
+  const quotesCard = `<div class="card" id="quotesCard"><div class="ch"><h3>Quotations</h3><span class="spacer"></span>
+      <span class="sub">${ql.quotes.filter(q => q.file).length} on file</span></div><div class="cb" style="display:grid;gap:6px">
+    ${ql.quotes.map(q => `<div class="row" style="gap:10px" data-quote="${esc(q.amount)}"><b style="min-width:110px">${rupees(q.amount)}</b>
+      <span class="sub" style="flex:1">${!q.file ? 'no template yet: Solara\u2019s own layout is used' : q.own ? 'added in Solara' : 'from the quotation folder'}</span>
+      ${boss && q.own ? `<button class="btn sm danger" data-qremove="${esc(q.amount)}">Remove</button>` : ''}</div>`).join('')}
+    ${boss ? `<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px"><input type="text" id="qAmt" placeholder="Price in Rs, e.g. 275000" inputmode="numeric" style="width:190px" aria-label="Price in rupees">
+      <label class="btn">Choose the Word file<input type="file" id="qFile" accept=".docx" hidden></label><span class="sub" id="qFileName">no file chosen</span>
+      <button class="btn pri" id="qAdd">Add this quotation</button></div>` : ''}
+    <div class="hint">One Word file per price, on your letterhead. Solara puts each customer\u2019s name, place and the date into it and sends it to the portal as a PDF.
+      It needs a line \u201cDate : dd.mm.yyyy\u201d and a line \u201cTo,\u201d with the name and the place under it. The new price is offered at once, here and in the Chrome panel.</div>
+    <div class="row" style="gap:10px;margin-top:8px;border-top:1px solid var(--line);padding-top:10px" id="agrRow"><b style="min-width:110px">Agreement</b>
+      <span class="sub" style="flex:1">${ql.agreement === 'own' ? 'your draft, uploaded in Solara' : ql.agreement === 'folder' ? 'the draft in the agreement folder' : 'no draft yet: the agreement cannot be made'}</span>
+      ${boss ? '<label class="btn sm">Upload the draft (PDF)<input type="file" id="agrFile" accept=".pdf" hidden></label>' : ''}</div>
+    ${ql.can_pdf ? '' : '<div class="hint" style="color:var(--warn)">This computer has no Microsoft Word or LibreOffice, so a Word quotation cannot be turned into a PDF here. Install one of them, or upload each customer\u2019s quotation as a PDF on their page.</div>'}</div></div>`;
   const exportsCard = `<div class="card"><div class="ch"><h3>Exports</h3></div><div class="cb" style="display:grid;gap:9px">
       <div class="row" style="gap:9px;flex-wrap:wrap"><b>Monthly report</b><input type="month" id="month" value="${thisMonth()}" style="width:170px">
         <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button></div>
       <button class="btn" id="xlsx" data-demo>Pipeline, numbers, runs and audit (.xlsx)</button>
       <button class="btn danger" id="resetdemo" data-demo${sup}>Reset the demo environment</button></div></div>`;
-  return `<div class="grid" style="gap:14px">${ms}<div class="two">${care}${exportsCard}</div>${people}${time}
+  return `<div class="grid" style="gap:14px">${ms}<div class="two">${care}${exportsCard}</div>${quotesCard}${people}${time}
     ${S.live || !S.reports ? '' : demoReports()}</div>`;
 };
 
@@ -1450,6 +1645,10 @@ const demoReports = () => {
 document.addEventListener('click', e => {
   const sm = e.target.closest('summary'), f = sm && sm.parentElement;
   if (f && f.dataset.fold) (S.regOpen ||= {})[f.dataset.fold] = !f.open;
+  // a document is made from the saved details: changes still in the boxes are saved first
+  if (e.target.closest('a[data-draft]') && $$('[data-r]').some(i => i.dataset.shown !== undefined && i.value !== i.dataset.shown)) {
+    e.preventDefault(); $$('[data-r]').forEach(regAutosave); toast('Saving what you typed; click again in a moment.');
+  }
 });
 document.addEventListener('click', async e => {
   const t = e.target.closest('button,a[data-goto]'); if (!t) return;
@@ -1550,12 +1749,17 @@ document.addEventListener('click', async e => {
     }
     return;
   }
+  if (t.dataset.focusfield !== undefined) {
+    (S.regOpen ||= {}).regDetails = true; if (!$('#r_' + t.dataset.focusfield)) render();
+    const i = $('#r_' + t.dataset.focusfield); if (i) { i.closest('details')?.setAttribute('open', ''); i.scrollIntoView({ behavior: 'smooth', block: 'center' }); i.focus(); i.classList.add('flash'); setTimeout(() => i.classList.remove('flash'), 1600); }
+    return;
+  }
   if (t.dataset.pinpick) {
     const v = t.dataset.pinpick;
     if (await regPost('/confirm', { key: 'pin', value: v }) && await regPost('/confirm', { key: 'aadhaar_pin', value: v })) toast(`PIN ${v} will be used on the portal and the agreement`);
     return;
   }
-  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); }
+  if (t.dataset.usekw) { const i = $('#r_kw'); if (i) { i.value = t.dataset.usekw; i.dispatchEvent(new Event('input', { bubbles: true })); regAutosave(i); }
     $$('.kwchips .chip').forEach(b => { b.classList.toggle('on', b === t); b.setAttribute('aria-pressed', String(b === t)); }); return; }
   if (t.id === 'regAskDocs') { regAskDocs(); return; }
   if (t.dataset.today) { todayAct(t); return; }
@@ -1566,9 +1770,39 @@ document.addEventListener('click', async e => {
     if (await regPost('/confirm', { key: k, value: $(`[data-fval="${k}"]`).value })) toast('Confirmed');
     return;
   }
+  if (t.id === 'regLocate') {
+    t.disabled = true; t.textContent = 'Looking on the map…';
+    try { const r = await api('/registration/' + S.regCid + '/locate?force=true', { method: 'POST' }); S.regData = r.registration; (S.regOpen ||= {}).regDetails = true; render(); toast(`Found: ${r.lat}, ${r.lng}${r.kind ? ' · ' + r.kind : ''} (${r.accuracy === 'address' ? 'the address' : 'the area only; check it'})`); }
+    catch (err) { toast(err.message, true); render(); }
+    return;
+  }
   if (t.id === 'regSave') {
     const body = Object.fromEntries($$('[data-r]').map(i => [i.dataset.r, i.value]));
-    try { S.regData = await api('/registration/' + S.regCid, { method: 'PUT', body }); clearDrafts(); S.reg = await api('/registration'); render(); toast('Saved'); }
+    // Details stays open after saving: the agreement and quotation are downloaded from there next
+    try { S.regData = await api('/registration/' + S.regCid, { method: 'PUT', body }); clearDrafts(); S.reg = await api('/registration'); (S.regOpen ||= {}).regDetails = true; render(); toast('Saved. The agreement and quotation can be made below.'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'scUse') {
+    if (S.signFor !== 'vendor') { regSaveSign(S.crop.crop()); return; }
+    try {
+      await api('/signature/vendor', { method: 'POST', body: { image: S.crop.crop(), photo: true } });
+      S.regData = await api('/registration/' + S.regCid); (S.regOpen ||= {}).regDetails = true; closeModal(); render();
+      toast("Company signature saved. It goes on every customer's agreement, Second Party Sign line.");
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.reread) {
+    const cid = S.regCid, kind = t.dataset.reread, busy = ((S.docBusy ||= {})[cid] ||= {});
+    busy[kind] = 'reading'; render();
+    try { await api(`/extract/${cid}?kind=${kind}`, { method: 'POST' }); } catch (err) { toast(err.message, true); }
+    delete busy[kind]; await loadReg(cid); return;
+  }
+  if (t.id === 'regDelete') {
+    const c = S.regData.customer;
+    if (!confirm(`Delete ${c.name} (${c.id}) and everything kept for them: documents, what was read, details, links?
+This cannot be undone.`)) return;
+    try { await api('/customers/' + c.id, { method: 'DELETE' }); S.regCid = null; await loadReg(); toast(`${c.name} deleted`); }
     catch (err) { toast(err.message, true); }
     return;
   }
@@ -1606,20 +1840,29 @@ document.addEventListener('click', async e => {
     try { await navigator.clipboard.writeText($(t.id === 'askCopy' ? '#askUrl' : '#signUrl').value); toast('Link copied'); } catch { toast('Copy blocked by the browser', true); }
     return;
   }
-  if (t.id === 'coKey') {
+  if (t.id === 'coKey' || t.closest('[data-connect]')) {
+    if (!can('operator')) { toast('Connecting the extension needs the operator role.', true); return; }
     try {
       const k = await api('/copilot/key', { method: 'POST' });
-      modal('Connect the co-pilot', 'Do this once on the computer you use for the portals. The key is shown only now.',
-        `<div class="field"><label>Your key</label><input type="text" readonly value="${esc(k.key)}"></div>
-         <div class="field"><label>Solara address</label><input type="text" readonly value="${esc(location.origin)}"></div>
-         <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:4px">
-           <li>Open <span class="mono">chrome://extensions</span>, switch on Developer mode, press Load unpacked and pick the <span class="mono">extension</span> folder.</li>
-           <li>Open the co-pilot's Options, paste the address and the key, press Save.</li>
-           <li>Log in to a portal yourself. On a customer's page the Solara panel appears at the bottom right.</li></ol>`,
+      const row = (label, id, val, secret) => `<div class="field"><label for="${id}">${label}</label>
+        <div class="row" style="flex-wrap:nowrap;gap:8px"><input type="${secret ? 'password' : 'text'}" readonly id="${id}" value="${esc(val)}" style="flex:1;min-width:0;font-family:var(--font-mono)">
+        ${secret ? `<button class="btn sm" type="button" data-reveal="${id}">Show</button>` : ''}<button class="btn sm pri" type="button" data-copyfield="${id}">Copy</button></div></div>`;
+      modal('Connect the extension', 'Do this once on the computer you use for the portals.',
+        `${row('Solara address', 'exUrl', location.origin, false)}${row('Co-pilot key', 'exKey', k.key, true)}
+         <p class="hint" style="margin:2px 0 12px">This key is shown only now. If you lose it, press Connect extension again to create a new one.</p>
+         <ol class="hint" style="margin:0;padding-left:18px;display:grid;gap:5px">
+           <li>Open <span class="mono">chrome://extensions</span>, switch on <b>Developer mode</b>, press <b>Load unpacked</b> and pick the <span class="mono">extension</span> folder.</li>
+           <li>Open <b>Solara co-pilot</b> &rarr; Details &rarr; Extension options. Paste the address and the key, press <b>Save and test</b>.</li>
+           <li>Open a portal. In the Solara panel pick the customer, then press <b>Start</b>.</li></ol>`,
         '<button class="btn" data-close>Done</button>');
     } catch (err) { toast(err.message, true); }
     return;
   }
+  if (t.dataset.copyfield) {
+    const f = $('#' + t.dataset.copyfield); try { await navigator.clipboard.writeText(f.value); t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy'; }, 1500); } catch { f.select(); toast('Press Ctrl+C to copy', true); }
+    return;
+  }
+  if (t.dataset.reveal) { const f = $('#' + t.dataset.reveal), hide = f.type === 'text'; f.type = hide ? 'password' : 'text'; t.textContent = hide ? 'Show' : 'Hide'; return; }
   if (t.dataset.themeSet) {
     document.documentElement.setAttribute('data-theme', t.dataset.themeSet);
     try { localStorage.setItem('solara-theme', t.dataset.themeSet); } catch { }
@@ -1709,6 +1952,32 @@ document.addEventListener('click', async e => {
     catch (err) { toast(err.message, true); }
     return;
   }
+  if (t.id === 'qAdd') {
+    const f = $('#qFile').files[0];
+    if (!f) { toast('Choose the Word file of the quotation first.', true); return; }
+    const fd = new FormData(); fd.append('amount', $('#qAmt').value); fd.append('file', f);
+    t.disabled = true;
+    try {
+      const r = await fetch('/api/quotes', { method: 'POST', body: fd }), j = await r.json();
+      if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.quoteList = j; render(); toast('Quotation added. Its price can be picked for any customer now.');
+    } catch (err) { t.disabled = false; toast(err.message, true); }
+    return;
+  }
+  if (t.dataset.qremove) {
+    if (!confirm(`Remove the ${rupees(t.dataset.qremove)} quotation? Customers already at this price keep it, but need another price or their own quotation file.`)) return;
+    try {
+      const j = await api('/quotes/' + encodeURIComponent(t.dataset.qremove), { method: 'DELETE' });
+      S.quoteList = j; render();
+      toast(j.using && j.using.length ? `Removed. Still at this price: ${j.using.join(', ')}` : 'Removed', !!(j.using && j.using.length));
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'quoteOwnRemove') {
+    try { S.regData = await api('/registration/' + S.regCid + '/quotation', { method: 'DELETE' }); (S.regOpen ||= {}).regDetails = true; render(); toast('The quotation template for the chosen price is used again.'); }
+    catch (err) { toast(err.message, true); }
+    return;
+  }
   if (t.dataset.uremove) {
     if (!confirm(`Remove ${t.dataset.uremove}? They can no longer sign in. What they did stays in the audit trail.`)) return;
     try { S.users = await api('/users/' + encodeURIComponent(t.dataset.uremove), { method: 'DELETE' }); render(); toast('Removed'); }
@@ -1773,24 +2042,72 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset && (t.dataset.r || t.dataset.rule)) { regFieldCheck(t); regSyncButtons(); }
+  if (t.id === 'scZoom' && S.crop) S.crop.zoom(+t.value);
 });
+document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.r) regAutosave(e.target); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.r && e.target.tagName === 'INPUT') { e.preventDefault(); regAutosave(e.target); } });
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }
   if (e.target.id === 'runcid') pickRunCustomer(e.target.value);
   if (e.target.id === 'runwf') { S.runWf = e.target.value; runHead(); }
   if (e.target.id === 'runkw') S.runKw = e.target.value;
   if (e.target.id === 'file' && e.target.files[0]) uploadBill(e.target.files[0]);
+  if ((e.target.id === 'signFile' || e.target.id === 'vendorSignFile') && e.target.files[0]) {
+    const img = new Image(), url = URL.createObjectURL(e.target.files[0]);
+    S.signFor = e.target.id === 'vendorSignFile' ? 'vendor' : 'customer';
+    img.onload = () => {
+      modal(S.signFor === 'vendor' ? 'Company signature' : "Customer's signature", 'Drag the corner dots to box the signature; drag inside the box to move it. Zoom in for a closer look.',
+        `<div style="overflow:auto;max-height:58vh;border:1px solid var(--line);border-radius:var(--r);background:#f4f4f4"><canvas id="scCanvas" style="display:block;touch-action:none;cursor:crosshair"></canvas></div>
+         <div class="row" style="gap:10px;align-items:center;margin-top:10px"><label for="scZoom">Zoom</label><input type="range" id="scZoom" min="1" max="4" step="0.1" value="1" style="flex:1"></div>
+`,
+        '<button class="btn" data-close>Cancel</button><button class="btn go" id="scUse">Use this crop</button>');
+      S.crop = signCrop(img); URL.revokeObjectURL(url);
+    };
+    img.onerror = () => toast('That file is not a photo the browser can open (use JPG or PNG).', true);
+    img.src = url; e.target.value = '';
+    return;
+  }
+  if (e.target.id === 'agrFile' && e.target.files[0]) {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    try {
+      const r = await fetch('/api/templates/agreement', { method: 'POST', body: fd }), j = await r.json();
+      if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.quoteList = j; render(); toast('Agreement draft saved. Every new agreement is made from it.');
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (e.target.id === 'qFile') { const n = $('#qFileName'); if (n) n.textContent = e.target.files[0] ? e.target.files[0].name : 'no file chosen'; return; }
+  if (e.target.id === 'quoteOwn' && e.target.files[0]) {
+    const fd = new FormData(); fd.append('file', e.target.files[0]);
+    busyBar.on('Saving this customer\u2019s quotation as a PDF.');
+    try {
+      const r = await fetch(`/api/registration/${S.regCid}/quotation`, { method: 'POST', body: fd }), j = await r.json();
+      if (!r.ok) throw new Error(j.detail || r.statusText);
+      S.regData = j; (S.regOpen ||= {}).regDetails = true; render(); toast('Saved. This file goes to the portal for this customer.');
+    } catch (err) { toast(err.message, true); }
+    busyBar.off();
+    return;
+  }
   if (e.target.dataset.doc && e.target.files[0]) {
     (S.regOpen ||= {}).regDocs = true;  // the owner is adding documents: keep the list open after the last one
-    const fd = new FormData(); fd.append('file', e.target.files[0]);
-    toast('Reading the document…');
+    if (e.target.files.length > 2) { toast('Pick at most two photos: the front and the back of the Aadhaar.', true); e.target.value = ''; return; }
+    const cid = S.regCid, kind = e.target.dataset.doc, files = [...e.target.files], busy = ((S.docBusy ||= {})[cid] ||= {});
+    const label = (S.regData && S.regData.doc_kinds[kind]) || kind;
+    busy[kind] = 'reading'; if (S.view === 'reg') render();
+    busyBar.on(`Reading the ${label.toLowerCase()} with ${readerName()}. Please wait, this takes a few seconds.`);
+    const fd = new FormData(); files.forEach(f => fd.append('file', f));
     try {
-      const r = await fetch(`/api/registration/${S.regCid}/document?kind=${e.target.dataset.doc}`, { method: 'POST', body: fd });
+      const r = await fetch(`/api/registration/${cid}/document?kind=${kind}`, { method: 'POST', body: fd });
       const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
-      S.regData = j; S.reg = await api('/registration'); render();
-      const n = j.fields.filter(f => f.status === 'review' && !REG_LATER.includes(f.key)).length;
-      toast(n ? `Read. ${n} detail${n > 1 ? 's' : ''} to check.` : 'Read. Nothing to check.');
-    } catch (err) { toast(err.message, true); }
+      delete busy[kind];
+      if (S.regCid === cid) S.regData = j;
+      S.reg = await api('/registration'); render();
+      const st = (j.doc_status || {})[kind];
+      toast(j.extract_error ? j.extract_error : !st ? `${label} saved.`
+        : st.missing.length ? `${label} read. Not found: ${st.missing.join(', ')}.` : `${label} read: ${st.got.join(', ')}.`, !!(j.extract_error || (st && st.missing.length)));
+    } catch (err) { delete busy[kind]; render(); toast(err.message, true); }
+    finally { busyBar.off(); }
+    return;
   }
   if (e.target.id === 'coPhoto' && e.target.files[0]) coUpload('photo', e.target.files[0]);
   if (e.target.dataset.receipt && e.target.files[0]) {
@@ -1819,13 +2136,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 async function uploadBill(file) {
   const fd = new FormData(); fd.append('file', file);
+  busyBar.on(`Reading ${file.name} with ${readerName()}. Please wait, this takes a few seconds.`);
   try {
     const r = await fetch(`/api/documents/${S.docCid}/upload?kind=bill`, { method: 'POST', body: fd });
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
     toast(`${file.name} stored, parsing it now`);
     S.extract = await api(`/extract/${S.docCid}`, { method: 'POST' });
     render();
-  } catch (err) { toast(err.message, true); }
+  } catch (err) { toast(err.message, true); } finally { busyBar.off(); }
 }
 document.addEventListener('dragover', e => {
   const d = e.target.closest('#drop'); if (!d) return;

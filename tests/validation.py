@@ -27,12 +27,13 @@ def refuses(fn, *a):
 
 
 # ---- pure rules
-for good, want in [("250000", "250000"), ("2,50,000", "250000"), ("Rs 285000", "285000"), ("₹ 1,85,000.5", "185000.50"),
-                   ("250000.50", "250000.50")]:
+for good, want in [("250000", "250000"), ("2,50,000", "250000"), ("Rs 300000", "300000"), ("₹ 1,85,000", "185000"),
+                   ("143000", "143000"), ("125000.00", "125000")]:
     check(f"cost {good!r} -> {want}", valid.cost(good) == want, valid.cost(good))
-for bad in ["-250000", "0", "999999999999", "Rs 1.5 lakh", "250000.555", "abc", "1e6", "5000"]:
-    check(f"cost {bad!r} refused", refuses(valid.cost, bad))
-check("cost keeps paise: never 25000050", valid.cost("250000.50") != "25000050")
+for bad in ["-250000", "0", "999999999999", "Rs 1.5 lakh", "250000.50", "abc", "1e6", "5000", "210000", "199999", "300001"]:
+    check(f"cost {bad!r} refused (not on the price list)", refuses(valid.cost, bad))
+check("exactly the nine listed costs are accepted", sorted(c for c in range(100000, 350001, 1000) if not refuses(valid.cost, str(c)))
+      == sorted(valid.COST_OPTIONS))
 
 for bad in ["123", "@@@ ###", "Priya1234", "<script>x</script>", "A" * 300, "ab", "..."]:
     check(f"name {bad[:20]!r} refused", refuses(valid.name, bad))
@@ -76,8 +77,10 @@ check("garbage consumer number refused with 400", r.status_code == 400, r.text[:
 check("...and the saved number is still there",
       sup.get(f"/api/registration/{cid}").json()["customer"]["consumer_no"] == "170011122233")
 
-check("cost 250000.50 saved as 250000.50", put({"rts_cost": "250000.50"}).status_code == 200
-      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000.50")
+check("a listed cost is saved", put({"rts_cost": "250000"}).status_code == 200
+      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000")
+check("a cost that is not on the list is refused and the saved one kept", put({"rts_cost": "210000"}).status_code == 400
+      and sup.get(f"/api/registration/{cid}").json()["data"]["rts_cost"] == "250000")
 check("negative cost refused", put({"rts_cost": "-250000"}).status_code == 400)
 check("one bad field saves nothing", put({"kw": "3", "rts_cost": "abc"}).status_code == 400
       and sup.get(f"/api/registration/{cid}").json()["customer"]["kw"] != 3)
@@ -93,7 +96,13 @@ r = put({"aadhaar": good})
 check("the Details box accepts a full valid Aadhaar number", r.status_code == 200, r.text[:80])
 g = sup.get(f"/api/registration/{cid}").json()
 check("only the last 4 are on file", g["data"].get("aadhaar_last4") == good[-4:])
-check("the full number is nowhere in the saved record", good not in sup.get(f"/api/registration/{cid}").text)
+check("the full number is shown to a supervisor", g["data"].get("aadhaar_full") == good.replace(" ", ""))
+from app import db as _db  # noqa: E402
+_row = _db.one("SELECT data FROM closeout WHERE customer_id=?", (cid,))["data"]
+check("the full number is stored only encrypted", good.replace(" ", "") not in _row and good not in _row and '"aadhaar_enc"' in _row)
+viewer = httpx.Client(base_url=BASE, timeout=60)
+viewer.post("/api/login", json={"username": "a.more", "password": "demo"}).raise_for_status()
+check("a viewer never sees the full number", good.replace(" ", "") not in viewer.get(f"/api/registration/{cid}").text)
 from app import db as _db  # noqa: E402
 dump = chr(10).join(str(tuple(row)) for (t,) in _db.conn().execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
                   for row in _db.conn().execute(f"SELECT * FROM {t}"))
@@ -102,7 +111,11 @@ check("a wrong check digit is refused with a reason", put({"aadhaar": wrong}).st
 check("a bad Aadhaar leaves the saved last 4 alone",
       sup.get(f"/api/registration/{cid}").json()["data"].get("aadhaar_last4") == good[-4:])
 check("saving the masked form again changes nothing", put({"aadhaar": "XXXX XXXX " + good[-4:]}).status_code == 200)
-check("AI is off by default", sup.get("/api/bootstrap").json().get("llm", {}).get("enabled") is False)
+import os as _os  # noqa: E402
+from app import extract as _ex  # noqa: E402
+_os.environ["SOLARA_USE_AI"] = "0"
+check("SOLARA_USE_AI=0 switches the AI off even with a key in .env", _ex.llm_status()["enabled"] is False)
+_os.environ.pop("SOLARA_USE_AI", None)
 
 # ---- order of steps
 r = sup.post(f"/api/registration/{cid}/mark", json={"step": "registered", "app_no": "NP-MHSED26-16190001"})
@@ -126,12 +139,13 @@ check("...and every one has its own ID", len(ids) == len(set(ids)))
 check("favicon request is answered, not a 404", httpx.get(BASE + "/favicon.ico").status_code == 204)
 put({"kw": "3"})
 v = sup.get(f"/api/registration/{cid}").json()
-check("roof area is never guessed (it is measured on site)", "roof_area" not in v["values"])
+check("what is seen or measured on site is never guessed: roof area and the three Yes/No answers stay empty until recorded",
+      not any(v["values"].get(k) for k in ("roof_area", "roof_load_ok", "shadow_free", "site_visited")))
 check("module technology defaults from settings", bool(v["values"]["module_type"]))
 key = sup.post("/api/copilot/key").json()["key"]
 look = httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()
-check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type"}, str(look.get("derived")))
-check("co-pilot receives the module technology, not a roof area", "roof_area" not in look["values"] and look["values"].get("module_type"))
+check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type", "permissible_kw"}, str(look.get("derived")))
+check("co-pilot receives the module technology, not a roof area", not look["values"].get("roof_area") and look["values"].get("module_type"))
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402
@@ -144,10 +158,70 @@ for k in ("pin", "aadhaar_pin"):
 check("the PIN the owner picked is the one on file", sup.get(f"/api/registration/{cid}").json()["customer"]["pin"] == "410503")
 check("a PIN that is not 6 digits is refused", sup.post(f"/api/registration/{cid}/confirm", json={"key": "pin", "value": "41"}).status_code == 400)
 
+# ---- the customer name must be the Aadhaar's: a middle name may be left out, nothing else may differ
+A = "Priya Sanjay Kulkarni"
+same = [n for n in ("Priya Kulkarni", "PRIYA SANJAY KULKARNI", "Priya S Kulkarni") if registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
+differ = [n for n in ("Priya Kulkarny", "Priya Ramesh Kulkarni", "Kulkarni Priya", "Priya", "Someone Else") if not registration.name_vs_aadhaar({"name": n, "aadhaar_name": A})]
+check("a customer name that differs from the Aadhaar is caught; a left-out middle name is not", not same and not differ, f"{same} {differ}")
+
+# ---- a value typed in the co-pilot box because Solara had none
+r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
+               json={"customer_id": cid, "event": "detail", "key": "email", "value": "typed.here@example.com"})
+check("a detail typed in the co-pilot is saved in Solara", r.status_code == 200 and r.json().get("saved") is True
+      and sup.get(f"/api/registration/{cid}").json()["data"].get("email") == "typed.here@example.com", r.text[:80])
+r = httpx.post(BASE + "/api/copilot/report", headers={"X-Solara-Key": key},
+               json={"customer_id": cid, "event": "detail", "key": "rts_cost", "value": "-5"})
+check("...and it is validated like any other entry", r.status_code == 400)
+
 # ---- the public sign page
 tok = "x" * 24
 check("an unknown link shows no crafted text",
       "Your payment failed" not in httpx.get(f"{BASE}/sign/{tok}?error=Your payment failed").text)
+
+# ---- the quotation: date, name and place changed in a Word file whose date is split over runs, as Word saves it
+import io as _io, re as _re, tempfile as _tf, zipfile as _zf  # noqa: E402
+from datetime import date as _date  # noqa: E402
+from pathlib import Path as _P  # noqa: E402
+from app import drafts  # noqa: E402
+_body = ('<w:document><w:body><w:p><w:r><w:t>Outward no. x/2026/13/01   Date : </w:t></w:r><w:r><w:t>13</w:t></w:r>'
+         '<w:r><w:t>.10.2026</w:t></w:r></w:p><w:p><w:r><w:t>To,</w:t></w:r></w:p><w:p><w:r><w:t>Old </w:t></w:r>'
+         '<w:r><w:t>Name</w:t></w:r></w:p><w:p><w:r><w:t>Manchar, Pune</w:t></w:r></w:p><w:p><w:r><w:t>A &amp; B</w:t></w:r></w:p></w:body></w:document>')
+_tmp = _P(_tf.mkdtemp()) / "q.docx"
+with _zf.ZipFile(_tmp, "w") as _z:
+    _z.writestr("word/document.xml", _body)
+_out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dighi, Pune", _date(2026, 11, 14)))).read("word/document.xml").decode()
+_lines = [_re.sub(r"<[^>]+>", "", q) for q in _re.findall(r"<w:p[ >].*?</w:p>", _out)]
+check("the quotation gets the date, the name and the place; the outward number and the rest stay",
+      _lines == ["Outward no. x/2026/13/01   Date : 14.11.2026", "To,", "ASHA D SAMPLE", "Dighi, Pune", "A &amp; B"], str(_lines))
+# the customer's signature from a photo: saved through the API, and put on the agreement as ink only
+from PIL import Image as _Im, ImageDraw as _Dr  # noqa: E402
+import base64 as _b64  # noqa: E402
+_ph = _Im.new("RGB", (600, 200), (240, 236, 225))
+_Dr.Draw(_ph).line([(40, 150), (120, 50), (200, 150), (300, 60), (420, 140), (560, 90)], fill=(20, 25, 70), width=6)
+_buf = _io.BytesIO(); _ph.save(_buf, "JPEG")
+_url = "data:image/jpeg;base64," + _b64.b64encode(_buf.getvalue()).decode()
+_r = sup.post(f"/api/registration/{cid}/signature", json={"image": _url})
+check("a cropped signature photo is saved and shown back", _r.status_code == 200 and (_r.json().get("customer_sign") or "").startswith("data:image/png"), _r.text[:80])
+check("anything that is not an image is refused", sup.post(f"/api/registration/{cid}/signature", json={"image": "data:text/plain;base64,aGk="}).status_code == 400)
+_ink = _Im.open(_io.BytesIO(drafts.ink_only(_b64.b64decode(_r.json()["customer_sign"].split(",", 1)[1])))).getchannel("A").histogram()
+check("on the agreement the paper drops out and the ink stays", _ink[0] > 0.7 * sum(_ink) and sum(_ink[200:]) > 0)
+# a blank line above "GST NO." (as in two templates) is made 1 pt high, so the white text stays on the banner
+_gst = _body.replace("<w:body>", '<w:body><w:p><w:pPr><w:spacing w:after="0" w:line="276"/></w:pPr><w:r><w:pict/></w:r></w:p>'
+                     '<w:p><w:r><w:t>GST NO. 27XXXXX</w:t></w:r></w:p>')
+with _zf.ZipFile(_tmp, "w") as _z:
+    _z.writestr("word/document.xml", _gst)
+_out = _zf.ZipFile(_io.BytesIO(drafts.quotation_docx(_tmp, "ASHA D SAMPLE", "Dighi, Pune"))).read("word/document.xml").decode()
+_first = _re.findall(r"<w:p[ >].*?</w:p>", _out)[0]
+check("a blank line above the GST number is flattened, its picture kept",
+      drafts.FLAT in _first and "<w:pict/>" in _first and 'w:line="276"' not in _first, _first[:120])
+
+# ---- a phone's file name in Hindi, or with quote marks: stored and opened again without a crash
+for fname in ("बिजली बिल.pdf", 'bill "final".pdf'):
+    up = sup.post(f"/api/documents/{cid}/upload?kind=passbook", files={"file": (fname, b"%PDF-1.4 test", "application/pdf")})
+    stored = up.json().get("filename", "") if up.status_code == 200 else ""
+    back = sup.get(f"/files/docs/{cid}/{stored}") if stored else None
+    check(f"an upload named {fname!r} is stored under a plain name and opens again",
+          stored.isascii() and '"' not in stored and back is not None and back.status_code == 200, f"{up.status_code} {stored!r}")
 
 sup.post("/api/demo/reset")
 print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

@@ -54,6 +54,28 @@ Every hour Solara checks, and records each action in the Audit Trail:
 Reports → **Health** shows the database, the key, the last backup, disk space and portal changes.
 Reports → **Restore drill** opens the newest backup on the side and proves it would restore.
 
+## The desktop app
+
+`desktop/` wraps the same program in its own window (Electron). It keeps the data in
+`%APPDATA%\Solara\data` (or `SOLARA_DATA`), which an update or an uninstall leaves alone, and opens
+portal and WhatsApp links in the computer's browser, where the Chrome helper is. The Solara menu opens
+the data folder, the backups, the logs and the helper's folder.
+
+```
+pyinstaller --noconfirm solara.spec        the program itself, into dist\Solara
+cd desktop
+npm install
+npm start                                  run it from source
+npm run dist                               the installer, in desktop\out
+```
+
+## Templates and prices
+
+Reports → **Quotations**: upload the agreement draft (PDF) once, and one Word quotation per price. A new
+price is offered everywhere as soon as its quotation is added. Turning a Word quotation into a PDF needs
+Microsoft Word or LibreOffice on this computer; without either, upload each customer's quotation as a PDF
+on their page.
+
 ## Build Solara.exe (Almmatix)
 
 ```

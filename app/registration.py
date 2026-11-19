@@ -7,7 +7,7 @@ customers row and the close-out record (closeout.data), so every later document 
 import json, os, re
 from datetime import datetime
 import sqlite3
-from . import db, closeout, extract, valid
+from . import db, closeout, extract, valid, vault
 from .config import vendor, region
 
 PRE_STAGES = ("lead", "docs", "register", "feasible")  # before installation
@@ -88,7 +88,7 @@ def derived(cid):
     fills them but tells the owner to check them."""
     _, d = closeout.data(cid)
     # roof area is measured on site, never guessed; the bank's name comes from the IFSC, the account type is assumed
-    return [k for k in ("module_type",) if not d.get(k)] + ["bank_name", "account_type"]
+    return [k for k in ("module_type",) if not d.get(k)] + ["bank_name", "account_type"] + (["permissible_kw"] if not d.get("permissible_kw") else [])
 
 
 def suggest(cid):
@@ -117,12 +117,21 @@ def values(cid):
     read = lambda label: (rows.get(label) or {}).get("value") if (rows.get(label) or {}).get("status") != "review" else None
     ifsc = (read(extract.PRETTY["ifsc"]) or "").upper()
     return {**region(), "consumer_no": c["consumer_no"], "mobile": d.get("mobile"),
-            "gender": GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
+            "gender": d.get("gender") or GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
+            "location_type": d.get("location_type") or None, "ulb": d.get("ulb") or None, "taluka": d.get("taluka") or None,
+            "panchayat": d.get("panchayat") or None,
+            # the site feasibility form: facts measured or seen on site are never guessed; the permissible capacity defaults to the proposed one
+            "roof_load_ok": d.get("roof_load_ok") or None, "shadow_free": d.get("shadow_free") or None,
+            "site_visited": d.get("site_visited") or None, "roof_area": d.get("roof_free_area") or None,
+            "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
+            "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or vendor()["name"],
+            "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
             "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
             "account_type": "Savings" if ifsc else None,
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
-            "capacity": f"{c['kw']:g}" if c["kw"] else None, "category": c["category"],
+            "capacity": f"{c['kw']:g}" if c["kw"] else None,
+            "category": d.get("residence_category") or valid.RESIDENCE_CATEGORIES[0],   # the portal's Category box; changeable in Solara
             "module_type": d.get("module_type") or os.environ.get("SOLARA_MODULE_TYPE", "Mono PERC (DCR)"),
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
@@ -151,6 +160,18 @@ def missing(cid):
 MISMATCH = {"bill_name", "pin", "aadhaar_pin", "bill_mobile", "consumer_no", "owner_name"}
 
 
+def name_vs_aadhaar(c):
+    """The Aadhaar name when the customer name on file does not match it, else None. First and last names must
+    be the Aadhaar's; a middle name may be left out or given as an initial, nothing else may differ."""
+    an = c["aadhaar_name"]
+    t, a = extract.norm_name(c["name"]).split(), extract.norm_name(an).split()
+    if not (t and a):
+        return None
+    ok = (t[0] == a[0] and t[-1] == a[-1] and len(t) <= len(a)
+          and all(x in a[1:-1] or (len(x) == 1 and any(m.startswith(x) for m in a[1:-1])) for x in t[1:-1]))
+    return None if ok else an
+
+
 def validate(cid):
     """Everything wrong or doubtful with the record, before the portal form is filled.
     kinds: missing, invalid, uncertain (could not be read or is unsure), mismatch (two sources
@@ -159,10 +180,17 @@ def validate(cid):
     issues = [{"kind": "missing", "field": label, "message": f"{label} is not on file"}
               for label in missing(cid)]
     bad = lambda f, m: issues.append({"kind": "invalid", "field": f, "message": m})
-    if d.get("mobile") and not MOBILE.match(re.sub(r"\D", "", d["mobile"])):
+    if d.get("mobile") and valid.mobile_masked(d["mobile"]):
+        bad("mobile", ("the bill shows only part of the mobile" if d["mobile"].upper() != "N/A" else
+                       "no mobile on the bill or the Aadhaar") + ": type the customer's full number, the portal sends the OTP to it")
+    elif d.get("mobile") and not MOBILE.match(re.sub(r"\D", "", d["mobile"])):
         bad("mobile", "the mobile number must be 10 digits starting with 6-9")
     if c["pin"] and not PIN.match(c["pin"]):
         bad("PIN code", "the PIN code must be 6 digits")
+    if an := name_vs_aadhaar(c):
+        issues.append({"kind": "mismatch", "field": "name",
+                       "message": f"The customer name “{c['name']}” does not match the Aadhaar, which reads “{an}”. "
+                                  "Type the name as on the Aadhaar under Details"})
     if c["consumer_no"]:
         try:
             valid.consumer_no(c["consumer_no"])
@@ -191,7 +219,7 @@ def status(cid):
                                AND expires_at>? AND docs LIKE '%agreement%'""", (cid, db.now())))
     steps = [
         ("documents", "Documents read", {"bill", "aadhaar"} <= kinds and bool(rows) and not flagged),
-        ("details", "Details complete", not miss),
+        ("details", "Details complete", not miss and not name_vs_aadhaar(c)),
         ("registered", "Registered on PM Surya Ghar", bool(c["application_no"])),
         ("accepted", "Accepted in vendor login", bool(d.get("accepted_at"))),
         ("signed", "Agreement e-signed", signed),
@@ -203,6 +231,8 @@ def status(cid):
         nxt = ("docs", "Upload the bill and Aadhaar")
     elif flagged:
         nxt = ("check", f"Check {len(flagged)} highlighted detail{'s' if len(flagged) > 1 else ''}")
+    elif name_vs_aadhaar(c):
+        nxt = ("details", "Fix the customer name to match the Aadhaar")
     elif miss:
         nxt = ("details", "Add: " + ", ".join(miss))
     elif "registered" not in done:
@@ -247,8 +277,11 @@ def save_details(cid, body, user):
         cols["consumer_no"] = no or None
     if "kw" in body:
         cols["kw"] = valid.kw(body["kw"])
-    if "mobile" in body:
-        rest["mobile"] = valid.mobile(body["mobile"])
+    if "place" in body:   # "Dighi, Pune": printed under the customer's name on the quotation
+        cols["place"] = valid.text(body["place"], "place").strip()[:80] or None
+    if "mobile" in body:   # a part-hidden number as the bill prints it, or N/A, is kept as it is
+        m = valid.text(body["mobile"], "mobile number").strip()
+        rest["mobile"] = m.replace(" ", "") if valid.mobile_masked(m) else valid.mobile(m)
     if "email" in body:
         rest["email"] = valid.email(body["email"])
     if "district" in body:
@@ -257,14 +290,139 @@ def save_details(cid, body, user):
                             else valid.name(body["district"], "district", required=False))
     if "rts_cost" in body:
         rest["rts_cost"] = valid.cost(body["rts_cost"])
+    for k, opts in (("gender", valid.GENDERS), ("location_type", valid.LOCATION_TYPES),
+                    ("residence_category", valid.RESIDENCE_CATEGORIES)):
+        if k in body:
+            rest[k] = valid.choice(body[k], opts, k.replace("_", " "))
+    for k in ("roof_load_ok", "shadow_free", "site_visited"):
+        if k in body:
+            rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
+    if "roof_free_area" in body:
+        t = valid.text(body["roof_free_area"], "roof area").strip()
+        if t and not re.match(r"^\d{1,5}(\.\d{1,2})?$", t):
+            raise ValueError("the roof area is a number of square metres, e.g. 30 or 32.5")
+        rest["roof_free_area"] = t
+    if "permissible_kw" in body:
+        rest["permissible_kw"] = "" if not valid.text(body["permissible_kw"], "permissible capacity").strip() else f"{valid.kw(body['permissible_kw']):g}"
+    if "sfr_visitor" in body:
+        rest["sfr_visitor"] = valid.name(body["sfr_visitor"], "the visitor's name", required=False) if valid.text(body["sfr_visitor"], "name").strip() else ""
+    if "sfr_visitor_phone" in body:
+        p = valid.text(body["sfr_visitor_phone"], "visitor phone").strip()
+        rest["sfr_visitor_phone"] = valid.mobile(p) if p else ""
+    from . import geo
+    for k, opts in (("ulb", geo.ULB_PUNE), ("taluka", geo.TALUKA_PUNE), ("panchayat", None)):
+        if k in body:
+            v = valid.name(body[k], k, required=False) if valid.text(body[k], k).strip() else ""
+            rest[k] = (geo.canon(v, opts) or v) if opts else v
+    if "lat" in body:
+        rest["lat"] = valid.coord(body["lat"], "latitude")
+    if "lng" in body:
+        rest["lng"] = valid.coord(body["lng"], "longitude")
+    sealed = None
     if valid.text(body.get("aadhaar"), "Aadhaar").strip():
-        rest["aadhaar_last4"] = valid.aadhaar_any(body["aadhaar"])  # the full number is dropped here
+        rest["aadhaar_last4"] = valid.aadhaar_any(body["aadhaar"])
+        n = re.sub(r"\D", "", body["aadhaar"])
+        if len(n) == 12:
+            sealed = vault.seal(n)   # the full number, checked above, kept only encrypted
+        elif rest["aadhaar_last4"] != closeout.data(cid)[1].get("aadhaar_last4"):
+            sealed = ""              # a different last 4 typed: the stored full number no longer applies
     for col, v in cols.items():
         db.ex(f"UPDATE customers SET {col}=? WHERE id=?", (v, cid))
     if rest:
         closeout.save(cid, rest, user["username"])
+    if sealed is not None:
+        closeout.mark(cid, user["username"], aadhaar_enc=sealed)
     db.audit(user["username"], user["role"], "Updated registration details", cid,
              ", ".join(sorted(list(cols) + list(rest))))
+
+
+DOC_CHECKS = {"bill": (("consumer_no", "consumer no."), ("bill_name", "name"), ("bill_mobile", "mobile"),
+                        ("address", "address"), ("bill_district", "district")),
+              "aadhaar": (("aadhaar_name", "name"), ("aadhaar_masked", "number"), ("aadhaar_dob", "date of birth"),
+                          ("aadhaar_address", "address"))}
+
+
+def doc_status(cid):
+    """For the bill and the Aadhaar on file: how the read went (read / check / unread), what it gave, what it
+    did not, and whether the model answered."""
+    kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
+    rows = {extract.KEY_OF.get(r["field"]): r for r in extract.saved(cid)}
+    _, d = closeout.data(cid)
+    out = {}
+    for kind, keys in DOC_CHECKS.items():
+        if kind not in kinds:
+            continue
+        got = [lbl for k, lbl in keys if k in rows and rows[k]["value"] != "not read"]
+        if kind == "aadhaar" and "number" in got and not d.get("aadhaar_enc"):
+            got[got.index("number")] = "number (last 4 only)"
+        unsure = [lbl for k, lbl in keys if k in rows and rows[k]["status"] == "review"]
+        out[kind] = {"state": "unread" if f"{kind}_unread" in rows else "check" if unsure else "read",
+                     "got": got, "missing": [lbl for k, lbl in keys if not (k in rows and rows[k]["value"] != "not read")],
+                     "unsure": unsure, "model_error": extract.MODEL_STATE.get((cid, kind)) or None}
+    return out
+
+
+_QUOTES = {}
+
+
+def QUOTES_DIR():
+    from pathlib import Path
+    from .config import ROOT
+    return Path(os.environ.get("SOLARA_QUOTES_DIR") or ROOT / "Quoatation (all range)")
+
+
+def OWN_QUOTES():
+    """Quotations the owner added in Solara (Reports), kept with the data: <amount>.docx."""
+    from .config import DATA
+    p = DATA / "quotes"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def quotes():
+    """The installation-cost choices: one per quotation template, named by its amount ("Bank Quotation -
+    125000.docx"). Two places: the client's quotation folder, and the ones the owner added in Solara, which
+    win for the same amount. Read from disk, never written into the code: the repo is public.
+    [{"amount": "125000", "file": "...", "own": False}], cheapest first; the standard amounts when there are none."""
+    folder, own = QUOTES_DIR(), OWN_QUOTES()
+    files = (sorted(folder.glob("*.docx")) if folder.is_dir() else []) + sorted(own.glob("*.docx"))
+    key = tuple((str(p), p.stat().st_mtime) for p in files)
+    if key not in _QUOTES:
+        by = {}
+        for p in files:
+            if m := re.search(r"(\d{5,7})", p.stem):
+                by[m.group(1)] = {"amount": m.group(1), "file": p.name, "own": p.parent == own}
+        _QUOTES.clear()
+        _QUOTES[key] = sorted(by.values(), key=lambda q: int(q["amount"]))
+    out = _QUOTES[key]
+    return out or [{"amount": str(a), "file": None, "own": False} for a in valid.COST_OPTIONS]
+
+
+def quote_file(q):
+    return (OWN_QUOTES() if q["own"] else QUOTES_DIR()) / q["file"]
+
+
+valid.cost_options = lambda: [int(q["amount"]) for q in quotes()]   # the price list is the quotations on file
+
+
+def delete_customer(cid, user):
+    """Remove a customer and everything kept for them (documents on disk, readings, record, links, runs).
+    The audit trail keeps the fact that it happened."""
+    import shutil
+    from .config import DOCS
+    c = db.one("SELECT name FROM customers WHERE id=?", (cid,))
+    if not c:
+        raise KeyError(cid)
+    runs = [r["id"] for r in db.q("SELECT id FROM runs WHERE customer_id=?", (cid,))]
+    for t in ("run_steps", "run_events", "holds", "screenshots") if runs else ():
+        db.ex(f"DELETE FROM {t} WHERE run_id IN ({','.join('?' * len(runs))})", runs)
+    for t in ("runs", "documents", "extractions", "calls", "closeout", "sign_requests", "doc_requests",
+              "signatures", "approvals"):
+        db.ex(f"DELETE FROM {t} WHERE customer_id=?", (cid,))
+    db.ex("UPDATE numbers SET customer_id=NULL WHERE customer_id=?", (cid,))   # the number goes back to the pool
+    db.ex("DELETE FROM customers WHERE id=?", (cid,))
+    shutil.rmtree(DOCS / cid, ignore_errors=True)
+    db.audit(user["username"], user["role"], "Deleted customer", cid, c["name"] or "")
 
 
 def require_ready(cid, what):
@@ -274,7 +432,8 @@ def require_ready(cid, what):
     if "documents" not in done:
         raise ValueError(f"{what}: upload the bill and Aadhaar and check what was read first")
     if "details" not in done:
-        raise ValueError(f"{what}: add " + ", ".join(st["missing"]) + " first")
+        raise ValueError(f"{what}: " + ("add " + ", ".join(st["missing"]) if st["missing"]
+                                       else "make the customer name match the Aadhaar") + " first")
     if st["validation"]["blocking"]:
         raise ValueError(f"{what}: fix " + st["validation"]["issues"][0]["field"] + " first")
 
@@ -447,7 +606,7 @@ def today(close_rows):
         cid = r["id"]
         c, d = closeout.data(cid)
         st = status(cid)
-        act, first = st["next"]["act"], (c["name"] or "").split()[0]
+        act, first = st["next"]["act"], (c["aadhaar_name"] or c["name"] or "").split()[0]
         line = {"cid": cid, "name": c["name"], "screen": "reg", "act": act, "phone": phone10(cid)}
         if act == "docs":
             open_link = db.one("SELECT 1 FROM doc_requests WHERE customer_id=? AND expires_at>?", (cid, db.now()))
@@ -485,3 +644,31 @@ def today(close_rows):
         else:
             portal.append({**line, "act": "upload", "text": f"Upload {first}'s six documents to MSEDCL"})
     return {"calls": calls, "todo": todo, "portal": portal, "waiting": waiting}
+
+
+def locate(cid, user, force=False):
+    """Find the premises on the map from the address (Aadhaar's address when it was read, else the bill's)
+    and keep latitude, longitude and urban/rural. What a person typed is not overwritten unless force."""
+    from . import geo
+    c, d = closeout.data(cid)
+    rows = {extract.KEY_OF.get(r["field"]): r["value"] for r in extract.saved(cid)}
+    # the billing address on the electricity bill decides Urban / Rural and the position; the Aadhaar's is the fallback
+    addr = rows.get("address") or c["address"] or rows.get("aadhaar_address") or ""
+    pin = rows.get("pin") or c["pin"] or rows.get("aadhaar_pin") or ""
+    if rows.get("bill_district") and rows["bill_district"].lower() not in addr.lower():
+        addr = f"{addr}, {rows['bill_district']}"
+    if not (addr or pin):
+        return None
+    if d.get("lat") and d.get("lng") and not force:
+        return {"lat": d["lat"], "lng": d["lng"], "kind": d.get("location_type"), "accuracy": "saved", "found": ""}
+    hit = geo.locate(addr, pin)
+    if not hit:
+        return None
+    new = {"lat": hit["lat"], "lng": hit["lng"]}
+    if hit["kind"] and (force or not d.get("location_type")):
+        new["location_type"] = hit["kind"]
+    for k in ("ulb", "taluka"):   # a hint from the map for the box that appears after Urban / Rural; the portal's own list decides
+        if hit.get(k) and (force or not d.get(k)):
+            new[k] = hit[k]
+    closeout.save(cid, new, user["username"])
+    return hit

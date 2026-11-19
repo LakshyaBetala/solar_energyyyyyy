@@ -304,7 +304,7 @@ SEED_AUDIT = [
 # only on signatures; SS-2048 is half entered, the way most backlog files start.
 CLOSEOUT = {
     "SS-2042": {"msedcl_app_id": "79435901", "install_date": "2026-10-21",
-                "agreement_date": "2026-10-02", "rts_cost": "285000", "invoice_no": "INV/26-27/0412",
+                "agreement_date": "2026-10-02", "rts_cost": "300000", "invoice_no": "INV/26-27/0412",
                 "aadhaar_last4": "4471", "billing_unit": "4642 Nashik Road", "phase": "Single phase",
                 "module_make": "Premier Energies", "almm_model": "PE-M144-550", "module_wp": "550",
                 "module_count": "9",
@@ -315,7 +315,7 @@ CLOSEOUT = {
                 "earth_ohm": "1.5", "lightning_arrester": "Yes", "protection_checks": "Yes",
                 "dcr_cert_no": "7201-5530-1188-2042"},
     "SS-2048": {"msedcl_app_id": "79436117", "install_date": "2026-10-08",
-                "agreement_date": "2026-09-14", "rts_cost": "232000", "phase": "Single phase",
+                "agreement_date": "2026-09-14", "rts_cost": "240000", "phase": "Single phase",
                 "module_make": "Premier Energies", "module_wp": "550", "module_count": "7",
                 "inverter_make": "Polycab PSIS-4K", "inverter_kw": "4"},
 }
@@ -339,6 +339,9 @@ def seed():
                     ("s.kale", "Sneha Kale", "operator"),
                     ("a.more", "Amit More", "viewer")]:
         ex("INSERT INTO users(username,name,role,pw) VALUES(?,?,?,?)", (u, n, r, pwhash("demo")))
+    from .config import clean
+    if clean():   # an empty platform: users only, every customer is added by hand
+        return False
 
     for c in CUSTOMERS:
         ex("""INSERT INTO customers(id,name,aadhaar_name,place,consumer_no,kw,category,stage,

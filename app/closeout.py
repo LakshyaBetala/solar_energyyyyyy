@@ -34,6 +34,21 @@ FIELDS = [  # key, label, group
     ("email", "Customer email", "Connection"),
     ("district", "District", "Connection"),
     ("aadhaar_last4", "Aadhaar, last 4 digits only", "Connection"),
+    ("roof_free_area", "Available shadow-free roof area (m2)", "Site feasibility"),
+    ("roof_load_ok", "Roof load capacity checked (Yes/No)", "Site feasibility"),
+    ("shadow_free", "Shadow-free roof available (Yes/No)", "Site feasibility"),
+    ("permissible_kw", "Permissible RTS capacity at this site (kW)", "Site feasibility"),
+    ("site_visited", "Vendor visited the site (Yes/No)", "Site feasibility"),
+    ("sfr_visitor", "Vendor employee who visited the site", "Site feasibility"),
+    ("sfr_visitor_phone", "That employee's contact number", "Site feasibility"),
+    ("gender", "Gender (as on the Aadhaar)", "Portal form"),
+    ("location_type", "Type of location (Urban / Rural)", "Portal form"),
+    ("residence_category", "Residence category on the portal", "Portal form"),
+    ("ulb", "Urban local body name (Urban)", "Portal form"),
+    ("taluka", "Development block / taluka (Rural)", "Portal form"),
+    ("panchayat", "Village panchayat (Rural)", "Portal form"),
+    ("lat", "Latitude of the premises", "Portal form"),
+    ("lng", "Longitude of the premises", "Portal form"),
     ("billing_unit", "Name of billing unit", "Connection"),
     ("sanctioned_load", "Sanctioned / connected load (kW)", "Connection"),
     ("phase", "Type of connection", "Connection"),
@@ -80,7 +95,8 @@ SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           "sfr_at", "loan_at", "field_at", "serials_at", "dcr_at", "dcr_dealer_wait",
           "installation_at", "install_accepted_at", "paused_at", "paused_by", "paused_reason",
           "approved_sfr", "approved_loan", "approved_dcr", "approved_installation",
-          "approved_registration", "approved_msedcl", "photo_source", "agreement_approved_at")
+          "approved_registration", "approved_msedcl", "photo_source", "agreement_approved_at",
+          "aadhaar_enc")   # the full Aadhaar number, encrypted (vault.seal); never shown in the record as is
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,
@@ -481,8 +497,8 @@ def doc_hash(key, cid):
 def signature(role, cid=None):
     if role == "vendor":
         return db.one("SELECT * FROM signatures WHERE role='vendor' ORDER BY id DESC")
-    return db.one("SELECT * FROM signatures WHERE role='consumer' AND customer_id=? "
-                  "ORDER BY id DESC", (cid,))
+    # "consumer": signed by the customer on their own phone; "consumer_upload": a photo of their signature
+    return db.one("SELECT * FROM signatures WHERE role=? AND customer_id=? ORDER BY id DESC", (role, cid))
 
 
 def png_from_data_url(url):
@@ -503,6 +519,29 @@ def png_from_data_url(url):
     ink = sum(im.getchannel("A").point(lambda a: 255 if a > 40 else 0).histogram()[255:])
     if ink < 150:
         raise ValueError("the signature is empty; draw it in the box")
+    out = io.BytesIO()
+    im.save(out, "PNG", optimize=True)
+    return out.getvalue()
+
+
+def png_from_upload(url):
+    """A photo or scan of a signature (PNG or JPEG data URL, cropped in the browser) as a PNG at most 900x400."""
+    m = re.match(r"data:image/(png|jpeg);base64,([A-Za-z0-9+/=]+)$", url or "")
+    if not m:
+        raise ValueError("send the signature as a PNG or JPEG image")
+    raw = base64.b64decode(m.group(2))
+    if len(raw) > 4_000_000:
+        raise ValueError("that signature image is over 4 MB; crop it smaller")
+    try:
+        im = Image.open(io.BytesIO(raw))
+        if im.width * im.height > 6000 * 6000:   # refuse before decoding
+            raise ValueError
+        im = im.convert("RGB")
+    except Exception:
+        raise ValueError("the signature image could not be read; take the photo again")
+    if im.width < 40 or im.height < 15:
+        raise ValueError("that crop is too small to be a signature")
+    im.thumbnail((900, 400))
     out = io.BytesIO()
     im.save(out, "PNG", optimize=True)
     return out.getvalue()

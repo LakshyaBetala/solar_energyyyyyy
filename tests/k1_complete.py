@@ -149,7 +149,7 @@ async def main():
     check("replacing the corrected document asks for the check again", f["bill_name"]["status"] == "review")
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_name", "value": fx.NEW["billed_name"]})
     sup.post(f"/api/registration/{cid}/confirm", json={"key": "bill_mobile", "value": "9876543211"})
-    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "210000", "email": "k1.customer@example.test"}).raise_for_status()
+    sup.put(f"/api/registration/{cid}", json={"kw": "3", "rts_cost": "200000", "email": "k1.customer@example.test"}).raise_for_status()
     g = sup.get(f"/api/registration/{cid}").json()
     check("once corrected and complete, nothing blocks the portal fill",
           not g["validation"]["blocking"] and g["next"]["act"] == "register", str(g["validation"]["issues"]))
@@ -177,8 +177,14 @@ async def main():
     xml = '<PrintLetterBarcodeData uid="999911112222" name="Test Person" gender="M" yob="1980" pc="410503" dist="Pune"/>'
     parsed = extract.parse_xml_qr(xml)
     check("the older XML QR keeps only the last 4 digits", parsed["last4"] == "2222" and "99991111" not in json.dumps(parsed))
-    check("the Aadhaar number is never sent to a model (no model call path for it)",
-          "aadhaar" not in extract.PROMPTS and not re.search(r"llm_read\(\s*['\"]aadhaar", Path("app/extract.py").read_text(encoding="utf-8")))
+    src_x = Path("app/extract.py").read_text(encoding="utf-8")
+    check("the Aadhaar card goes to an AI model only when SOLARA_AI_AADHAAR=1 is set (off by default)",
+          extract.aadhaar_to_model() is False and "if model and aadhaar_to_model() and" in src_x
+          and len(re.findall(r'llm_read(?:_cached)?\(docs\["aadhaar"\]', src_x)) == 1)
+    got, full = extract.split_aadhaar({"aadhaar_number": {"value": "9999 4105 7058", "sure": True}})
+    check("a model's full Aadhaar number is checked, kept apart for encryption, and masked in what is read",
+          full == "999941057058" and got["aadhaar_masked"]["value"] == "XXXX XXXX 7058" and "aadhaar_number" not in got
+          and extract.split_aadhaar({"aadhaar_number": {"value": "9999 4105 7050", "sure": True}})[1] is None)
 
     # ---------------- E. agreement: kept copy, e-sign, verification ----------------
     print("\n  -- E. agreement")
@@ -201,14 +207,14 @@ async def main():
     db.ex("UPDATE customers SET aadhaar_name=NULL, address=? WHERE id=?", (fx.NEW["address"], cid))
     html_ = closeout.unsigned_html("agreement", cid)
     check("without an Aadhaar name the agreement uses the customer name, never 'None'",
-          "None" not in html_ and "Priya Kulkarni" in html_)
+          "None" not in html_ and db.one("SELECT name FROM customers WHERE id=?", (cid,))["name"] in html_)
     db.ex("UPDATE customers SET aadhaar_name=? WHERE id=?", (nm, cid))
     s1 = sup.post(f"/api/registration/{cid}/agreement").json()
     tok1 = s1["url"].rsplit("/", 1)[1]
     snap = closeout.snapshot_html(tok1, "agreement", cid)
     check("the exact version sent is kept, encrypted", snap is not None and snap == closeout.unsigned_html("agreement", cid)
           and snap.encode() not in Path(closeout.snapshot_path(tok1, "agreement", cid)).read_bytes())
-    sup.put(f"/api/registration/{cid}", json={"rts_cost": "230000"})
+    sup.put(f"/api/registration/{cid}", json={"rts_cost": "220000"})
     out = sign(s1["url"], fx.NEW["consumer_no"][-4:])
     check("a change after sending stops the signature; nothing is signed", "changed after this link" in out)
     check("no approval was recorded for the changed document", not db.one("SELECT 1 FROM approvals WHERE customer_id=?", (cid,)))
@@ -220,7 +226,7 @@ async def main():
         pub.post(s2["url"] + "/verify", data={"digits": fx.NEW["consumer_no"][-4:]})
         shown = pub.get(s2["url"] + "/doc/agreement").text
     # a phone viewport is prepended to the response only; the kept copy itself follows byte for byte
-    check("the customer is shown the kept copy", shown.endswith(closeout.snapshot_html(tok2, "agreement", cid)) and "Rs 230000" in shown)
+    check("the customer is shown the kept copy", shown.endswith(closeout.snapshot_html(tok2, "agreement", cid)) and "Rs 220000" in shown)
     check("the customer e-signs the current version", "signed" in sign(s2["url"], fx.NEW["consumer_no"][-4:]))
     ap = db.one("SELECT * FROM approvals WHERE customer_id=?", (cid,))
     rq = db.one("SELECT * FROM sign_requests WHERE token=?", (tok2,))
@@ -384,21 +390,44 @@ async def main():
     # the one place a click is sent: opening a dropdown and choosing its option (a field value, like typing)
     pick = re.search(r"async function pickCustom\(.*?\n  \}\n", code, re.S)
     rest = code.replace(pick.group(0), "") if pick else code
+    card = re.search(r"function openApplyCard\(\w*\) \{.*?\n  \}\n", rest, re.S)   # opens one page; never submits
+    rest = rest.replace(card.group(0), "") if card else rest
+    rest = re.sub(r"const realClick = [^\n]*\n", "", rest)   # the one mouse-click helper, used only for the non-submitting buttons and the opt-in forward button
+    PRESS_BLOCK = code[code.index("const PRESS = {"):code.index("function openApplyCard")]
+    presses = set(re.findall(r"^    (\w+): \{ find:", code, re.M))   # the only buttons ever pressed for the owner
+    check("the extension presses only the card, the vendor Yes, Fetch Details, and (opt-in, fully filled pages only) the forward button",
+          presses == {"card", "vendor", "fetch", "forward"} and "autoSubmit" in code and "readyToPress" in code, str(presses))
     clicks = re.findall(r"(\w+(?:\[0\])?)\.dispatchEvent\(new MouseEvent", pick.group(0)) if pick else []
     sels = re.search(r"const boxOf = .*?\n", code).group(0) + re.search(r"const OPTS = .*?\n", code).group(0)
     # the other clicks, each a field value and never a submission: the Yes/No radio answer taken from the
     # record (r, from radioGroups: input[type=radio] only), the "+ Add Serial Number" box opener only when
     # it cannot submit (inert), and the panel's own Fill button (again)
     others = set(re.findall(r"([\w()]+)\.click\(", rest))
-    check("the extension never submits or ticks anything on a portal: it picks dropdown options, answers Yes/No from the record, opens a serial box",
+    # every other click, and what each one is: el = a Yes/No radio answer from the record, or the vendor's own
+    # equipment certification (only with its switch on); addSerial(t) = the "+ Add Serial Number" box opener, only
+    # when it cannot submit; act, chev, item = the Action menu that opens the Site Feasibility Report; fwd = the
+    # forward button, pressed by the owner's own "Looks right" button or with the switch on, on a fully filled page
+    real = set(re.findall(r"realClick\((\w+)\)", rest))   # Fetch Details, a search suggestion, Next / Select Vendor (switch on or the owner's own press)
+    vsel = re.search(r"async function vendorSelectStep\(.*?\n  \}\n", code, re.S)
+    check("the extension never submits a form itself; every click it sends is one the rules name",
           not re.search(r"\.submit\(|requestSubmit|\.checked\s*=|dispatchEvent\(new (Mouse|Pointer)Event", rest)
-          and others <= {"r", "again", "addSerial(t)"} and "input[type=radio]" in code and "inert(addSerial(t))" in code
+          and others <= {"addSerial(t)", "el", "el)", "act", "chev", "item", "fwd"} and real <= {"b", "hit", "nextBtn"}
+          and "input[type=radio]" in code and "inert(addSerial(t))" in code
           and pick is not None and set(clicks) <= {"box", "hit[0]"} and not re.search(r"(?i)button|checkbox|submit|input", sels),
-          f"clicks in pickCustom on: {sorted(set(clicks))}; elsewhere on: {sorted(others)}")
+          f"clicks in pickCustom on: {sorted(set(clicks))}; elsewhere on: {sorted(others)}; real clicks on: {sorted(real)}")
+    check("Select Vendor (a 45-day lock), the forward button and the certification tick each wait for the owner's switch or own press",
+          vsel is not None and "autoSubmit: false" in vsel.group(0) and "byOwner" in vsel.group(0)
+          and "store.get({ certify: false })" in code and "readyToPress" in code
+          and "certify: false" in (EXT / "options.js").read_text(encoding="utf-8") and "autoSubmit: false" in (EXT / "options.js").read_text(encoding="utf-8"))
+    check("nothing about a client is written into the extension (the vendor's name comes from the options or from Solara)",
+          not re.search(r"(?i)pvt\.? ltd|private limited", code + (EXT / "options.js").read_text(encoding="utf-8") + (EXT / "options.html").read_text(encoding="utf-8")))
     check("OTP, CAPTCHA and password fields are excluded by rule and by guard",
           "otp|captcha" in code and "humanOnly" in code and "'password'" in code)
-    check("it asks for no powers beyond Solara and the listed portals",
-          json.loads((EXT / "manifest.json").read_text())["permissions"] == ["storage"])
+    man = json.loads((EXT / "manifest.json").read_text())
+    check("its powers: its own storage, and loading the panel on the page the owner clicks the Solara button on; no site is read without that",
+          man["permissions"] == ["storage", "scripting", "activeTab"] and "tabs" not in man["permissions"]
+          and not any("*://*" in h or "<all_urls>" in h for h in man["host_permissions"])
+          and all("<all_urls>" not in x and "*://*/*" not in x for cs in man["content_scripts"] for x in cs["matches"]))
     check("no CAPTCHA solver, stealth or automation library is referenced",
           not re.search(r"(?i)2captcha|anticaptcha|puppeteer-extra|stealth|webdriver", code))
 
