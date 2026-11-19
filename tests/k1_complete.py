@@ -428,8 +428,9 @@ async def main():
           and "certify: false" in (EXT / "options.js").read_text(encoding="utf-8") and "autoSubmit: false" in (EXT / "options.js").read_text(encoding="utf-8"))
     check("nothing about a client is written into the extension (the vendor's name comes from the options or from Solara)",
           not re.search(r"(?i)pvt\.? ltd|private limited", code + (EXT / "options.js").read_text(encoding="utf-8") + (EXT / "options.html").read_text(encoding="utf-8")))
-    check("the helper re-reads a customer from Solara: its own copy lasts 20 seconds, is read in one place, and the refresh button drops it",
-          len(re.findall(r"JSON\.parse\(sessionStorage\.getItem\('solaraCache", code)) == 1 and "x.t < 20000" in code and "forgetCopies();" in code)
+    check("the helper re-reads a customer from Solara: its own copy lives in its memory (never the page's storage), lasts 20 seconds, and the refresh button drops it",
+          "sessionStorage.setItem('solaraCache" not in code and "localStorage" not in code and "COPIES.get(cid)" in code
+          and "x.t < 20000" in code and "forgetCopies();" in code)
     check("OTP, CAPTCHA and password fields are excluded by rule and by guard",
           "otp|captcha" in code and "humanOnly" in code and "'password'" in code)
     man = json.loads((EXT / "manifest.json").read_text())

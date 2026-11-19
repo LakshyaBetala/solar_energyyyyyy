@@ -107,13 +107,23 @@ def suggest(cid):
             + (f", {sanc:g} kW sanctioned load" if sanc else "")}
 
 
+def name_parts(full):
+    """'Priya Sanjay Kulkarni' -> first Priya, middle Sanjay, last Kulkarni. Letters only, as loan forms take them;
+    one word is a first name alone. Titles (Shri, Smt, Mr, Mrs, Ms, Dr) are not part of the name."""
+    words = [w for w in re.sub(r"[^A-Za-z ]+", " ", full or "").split()
+             if w.lower().rstrip(".") not in ("shri", "shree", "smt", "mr", "mrs", "ms", "dr", "kumari", "km")]
+    if not words:
+        return {}
+    return {"first_name": words[0], "middle_name": " ".join(words[1:-1]) or None, "last_name": words[-1] if len(words) > 1 else None}
+
+
 def values(cid):
     """Everything the portal forms ask for, in one place. The name filed is the bill's spelling,
     because the portal checks it against the distribution company's register."""
     c, d = closeout.data(cid)
     rows = {r["field"]: r for r in extract.saved(cid)}
     bill = rows.get(extract.PRETTY["bill_name"])
-    name = bill["value"] if bill and bill["status"] != "review" else (c["aadhaar_name"] or c["name"])
+    name = bill["value"] if bill and bill["value"] != "not read" else (c["aadhaar_name"] or c["name"])
     read = lambda label: (rows.get(label) or {}).get("value") if (rows.get(label) or {}).get("status") != "review" else None
     ifsc = (read(extract.PRETTY["ifsc"]) or "").upper()
     return {**region(), "consumer_no": c["consumer_no"], "mobile": d.get("mobile"),
@@ -136,6 +146,7 @@ def values(cid):
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
             "aadhaar_name": c["aadhaar_name"], "pan": d.get("pan") or None,
+            **name_parts(c["aadhaar_name"] or name),   # a loan form's First / Middle / Last name boxes, as on the Aadhaar
             "dob": read(extract.PRETTY["aadhaar_dob"]),   # as the Aadhaar gives it; the helper writes it the way each form wants
             # milestone 2 forms: site feasibility, installation, DCR, loan
             **{k: d[k] for k in FILED if d.get(k)},  # only what was recorded: roof area is measured on site, never guessed

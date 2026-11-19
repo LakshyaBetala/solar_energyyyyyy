@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw
 from playwright.async_api import async_playwright
 sys.path.insert(0, "."); sys.path.insert(0, "tests")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-from app import db, closeout  # noqa: E402
+from app import db, closeout, valid  # noqa: E402
 import fixtures as fx  # noqa: E402
 
 
@@ -277,11 +277,47 @@ async def main():
         await js.wait_for_selector("text=Aadhaar Verification")
         await panel_says(js, fx.NEW["billed_name"])
         await js.wait_for_timeout(1500)
-        check("the co-pilot never types the Aadhaar number or the OTP",
-              await js.input_value("#aad") == "" and await js.input_value("#otp") == "")
+        BOXES = ("#aadharNoFirst", "#aadharNoSecond", "#aadharNoThird")
+        typed = lambda: asyncio.gather(*[js.input_value(b) for b in BOXES])
+        check("with no Aadhaar number kept in Solara the three boxes and the OTP stay empty, and the helper does not ask for the number in its own box",
+              await typed() == ["", "", ""] and await js.input_value("#otp") == ""
+              and not await js.evaluate("[...document.querySelectorAll('#solaraFallback')].some(e => /aadha/i.test(e.innerText))"))
         check("Today shows the OTP call while the portal waits for it",
               any(x["cid"] == cid and x["group"] == "calls" and "OTP" in x["title"] for x in today_items(sup)))
-        await js.fill("#aad", "123456784471")                       # the customer types these
+        # the owner keeps the customer's number in Solara: the helper types it, four digits a box, as the live portal splits it
+        AAD = next(n for n in (f"{p}4471" for p in range(23456789, 99999999)) if valid.verhoeff_ok(n))
+        sup.put(f"/api/registration/{cid}", json={"aadhaar": AAD}).raise_for_status()
+        await js.click("#solaraRescan")
+        await fill(js)
+        check("the Aadhaar number kept in Solara is typed four digits a box, the first two boxes hidden as the portal has them",
+              await typed() == [AAD[:4], AAD[4:8], AAD[8:]] and await js.get_attribute("#aadharNoFirst", "type") == "password", str(await typed()))
+        check("the OTP is left for the person and the consent box is not ticked for them",
+              await js.input_value("#otp") == "" and not await js.is_checked("#consent"))
+        await js.wait_for_timeout(1200)
+        check("after the fill the top bar folds off the page's own boxes, its message still showing",
+              not await js.evaluate("document.querySelector('#solaraToast').classList.contains('open')")
+              and len((await js.inner_text("#solaraToast")).strip()) > 10, await js.inner_text("#solaraToast"))
+        await js.click("#solaraToast .si-head")                     # the owner opens it to look
+        await js.wait_for_selector("#solaraToast .si-tile")
+        tiles = await js.evaluate("[...document.querySelectorAll('#solaraToast .si-tile')].filter(t => /aadha/i.test(t.innerText)).map(t => t.innerText.replace(/\\s+/g, ' ').trim())")
+        check("the top bar shows the number once, by its last four digits, and done",
+              len(tiles) == 1 and "XXXX XXXX 4471" in tiles[0] and "Fill" not in tiles[0], str(tiles))
+        seen = await js.evaluate("""n => ({ shown: [document.body.innerText, ...[...document.querySelectorAll('#solaraPanel,#solaraToast,#solaraFallback')].map(e => e.outerHTML)].some(t => t.replace(/[^0-9]/g, '').includes(n) || t.includes(n)),
+            stored: Object.keys(sessionStorage).concat(Object.keys(localStorage)).some(k => /solaraCache/.test(k) || (sessionStorage.getItem(k) || localStorage.getItem(k) || '').includes(n)) })""", AAD)
+        check("the full number is nowhere on the page but in its three boxes, and nothing about the customer is kept in the page's storage",
+              not seen["shown"] and not seen["stored"], str(seen))
+        await js.click("#solaraToast .si-head")                     # and folds it again
+        # the customer chooses the Virtual ID instead: those boxes are theirs
+        await js.check("#mat-radio-3-input")
+        await js.evaluate("ids => ids.forEach(i => { document.querySelector(i).value = ''; })", list(BOXES))   # the portal empties its boxes on the switch
+        await js.click("#solaraRescan")
+        await js.wait_for_timeout(2500)
+        check("with Aadhaar Virtual ID chosen the helper leaves the boxes alone", await typed() == ["", "", ""], str(await typed()))
+        await js.check("#mat-radio-2-input")
+        await js.click("#solaraRescan")
+        await fill(js)
+        check("back on Aadhaar number the three boxes are filled again", await typed() == [AAD[:4], AAD[4:8], AAD[8:]], str(await typed()))
+        await js.check("#consent")                                  # the person gives the consent and the OTP
         await js.fill("#otp", "246810")
         await js.click("#btnNext")
         await js.wait_for_selector("text=Select Bank")
@@ -299,8 +335,8 @@ async def main():
         check("loan reference saved without typing, approval letter in the customer's file",
               g["data"].get("loan_ref") == ref and any(x["kind"] == "loan_approval" for x in g["documents"]), ref)
         js_row = db.one("SELECT data FROM js_applications WHERE ref=?", (ref,))
-        check("the full Aadhaar number never reached the portal's stored data or Solara",
-              "123456784471" not in js_row["data"] and "123456784471" not in json.dumps(g))
+        check("the full Aadhaar number is not in what the portal stored, nor in what Solara shows of the filing",
+              AAD not in js_row["data"] and AAD not in json.dumps(g))
         check("next is the field team", g["next"]["act"] == "field", g["next"]["label"])
         await js.close()
 
@@ -565,7 +601,7 @@ async def main():
         check("the receipt shows what was submitted", "Installation details submitted successfully" in txt, txt[:80].replace("\n", " "))
         jsr = sup.get(f"/files/receipt/{cid}/loan")
         jtxt = "".join(pg.get_text() for pg in fitz.open(stream=jsr.content, filetype="pdf"))
-        check("no receipt carries an OTP or Aadhaar number", "246810" not in jtxt and "123456784471" not in jtxt)
+        check("no receipt carries an OTP or Aadhaar number", "246810" not in jtxt and AAD not in jtxt.replace(" ", ""))
         check("all receipts are under 300 KB", all(r["bytes"] <= 300 * 1024 for r in g["receipts"]), str([r["bytes"] // 1024 for r in g["receipts"]]))
         await shot(dash, "8-milestone2-done")
         check("no script errors on the dashboard or the portals", not errors, "; ".join(errors[:3]))

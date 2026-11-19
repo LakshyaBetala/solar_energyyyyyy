@@ -77,9 +77,21 @@ def start(request: Request, step: int = 1, error: str = ""):
 {fg('dis', 'District', '<input id="dis" name="district">')}
 {fg('st', 'State', '<select id="st" name="state"><option value="">Select</option><option>Gujarat</option><option>Maharashtra</option></select>')}</div>"""
     elif step == 3:
-        body = f"""<h3>Aadhaar Verification</h3>{msg}<p>The applicant enters their own Aadhaar number and the OTP sent to the
-mobile linked with Aadhaar.</p><div class="grid">{fg('aad', 'Aadhaar Number', '<input id="aad" name="aadhaar" inputmode="numeric">')}
-{fg('otp', 'Enter OTP', '<input id="otp" name="otp" inputmode="numeric">')}</div><p style="font-size:12px;color:#777">Sandbox OTP: 246810</p>"""
+        # as on the live portal: two ways to verify, the number in three boxes of four (the first two hidden like a
+        # password), a consent box, and focus that jumps to the next box after four digits
+        body = f"""<h3>Aadhaar Verification</h3>{msg}<p>Verify identity with Aadhaar. A six digit OTP will be sent to the mobile
+registered with it.</p>
+<p><label><input type="radio" id="mat-radio-2-input" name="mat-radio-group-0" value="aadhaar" checked> Aadhaar number</label>
+&nbsp; <label><input type="radio" id="mat-radio-3-input" name="mat-radio-group-0" value="vid"> Aadhaar Virtual ID</label></p>
+<div style="margin:10px 0"><div style="margin-bottom:4px">Aadhaar number *</div>
+<input type="password" id="aadharNoFirst" name="aadharNoFirst" maxlength="4" inputmode="numeric" style="width:90px;padding:8px">
+<input type="password" id="aadharNoSecond" name="aadharNoSecond" maxlength="4" inputmode="numeric" style="width:90px;padding:8px">
+<input type="text" id="aadharNoThird" name="aadharNoThird" maxlength="4" inputmode="numeric" style="width:90px;padding:8px"></div>
+<p><label><input type="checkbox" id="consent" name="consent" value="yes"> I provide my consent to share my details with the issuer for
+the purpose of fetching my details.</label></p>
+<div class="grid">{fg('otp', 'Enter OTP', '<input id="otp" name="otp" inputmode="numeric">')}</div><p style="font-size:12px;color:#777">Sandbox OTP: 246810</p>
+<script>['aadharNoFirst', 'aadharNoSecond', 'aadharNoThird'].forEach(function (id, i, all) {{ var el = document.getElementById(id);
+  el.addEventListener('input', function () {{ if (el.value.length >= 4 && all[i + 1]) document.getElementById(all[i + 1]).focus(); }}); }});</script>"""
     else:
         banks = "".join(f"<option>{b}</option>" for b in BANKS)
         branches = "".join(f"<option>{x}</option>" for v in BANKS.values() for x in v)
@@ -108,9 +120,10 @@ async def step_post(request: Request, step: int = 1):
         if not f.get("address") or not re.fullmatch(r"\d{6}", f.get("pin", "")) or not f.get("state"):
             return back("Enter the address, a 6-digit pin code and the state")
     elif step == 3:
-        if not re.fullmatch(r"\d{12}", f.get("aadhaar", "")) or f.get("otp") != "246810":
-            return back("Aadhaar number or OTP is not correct")
-        f = {"aadhaar_verified": "yes", "aadhaar_last4": f["aadhaar"][-4:]}
+        aad = f.get("aadharNoFirst", "") + f.get("aadharNoSecond", "") + f.get("aadharNoThird", "")
+        if f.get("mat-radio-group-0") != "aadhaar" or not re.fullmatch(r"\d{12}", aad) or f.get("otp") != "246810" or f.get("consent") != "yes":
+            return back("Aadhaar number, consent or OTP is not correct")
+        f = {"aadhaar_verified": "yes", "aadhaar_last4": aad[-4:]}
     else:
         if f.get("bank") not in BANKS or f.get("branch") not in BANKS[f.get("bank")]:
             return back("Select the bank and a branch of that bank")

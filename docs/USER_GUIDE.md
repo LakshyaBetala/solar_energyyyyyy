@@ -41,8 +41,8 @@ you mark in one window shows at once in the other window's panel.
 
 ## After the agreement (Installation)
 
-Site feasibility report → loan on Jan Samarth (only with the customer, who types their own Aadhaar
-and OTP) → **Send the field link**: the team photographs the site and every panel label → confirm
+Site feasibility report → loan on Jan Samarth (only with the customer, who gives the consent and the OTP that
+comes to their phone; the Aadhaar number is filled from Solara) → **Send the field link**: the team photographs the site and every panel label → confirm
 the serial numbers → DCR certificate → the 5 installation screens → the customer accepts on their
 phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
 
@@ -62,6 +62,17 @@ phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
   as a PDF.
 - **One customer with a quotation of their own:** on their page, Quotation → **Upload this customer's own**
   (PDF or Word). That file goes to the portal for them; **Use the template again** takes it back.
+
+## When the helper fills by itself, and when it waits for you
+
+Pick the customer once (top bar, **Choose the customer** or **Change**); the same details are used on every portal.
+
+- **A screen it knows** (a portal screen Solara knows, a screen you have filled with it before, or a portal screen where
+  every box is one it recognises): it fills by itself as soon as the screen opens.
+- **A screen that is new to it:** it shows the boxes that match the customer's details and waits. Check them, press
+  **Fill now**. From then on that screen is filled by itself.
+- Partly matching is fine: the boxes that match are filled, the rest are left for you.
+- It never presses Next or Submit (unless you switch that on), and never types the OTP, CAPTCHA or a password.
 
 ## The panel on a page it does not know
 
@@ -100,5 +111,5 @@ If the panel says **Solara already has this filed**, check My Application before
 
 - The OTP, CAPTCHA and passwords are typed by a person only. The Aadhaar number is filled from what Solara keeps (encrypted).
 - Every action is in the **Audit Trail**, with who and when.
-- Aadhaar is never sent to an AI model. Documents are stored encrypted.
+- The Aadhaar card's QR code is read on the computer. Only a card whose QR code does not give everything is read by the AI reader, when one is set up; `SOLARA_AI_AADHAAR=0` keeps every card on the computer. Documents are stored encrypted.
 - Five wrong passwords lock that username for 15 minutes on that computer; a sign-in lasts 12 hours.

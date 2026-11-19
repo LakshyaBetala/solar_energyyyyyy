@@ -8,8 +8,9 @@ is **not** claimed: it needs live customers. Tests prove the code paths, not the
   consumer number) with an explicit "add anyway"; mobile must be a valid Indian number; email,
   PIN and consumer-number checks; a consumer number can sit on only one customer.
 - **Validation before portal fill** (`registration.validate`): missing / invalid / uncertain /
-  mismatch, shown on the Registration screen and in the co-pilot panel. Nothing is hidden;
-  the co-pilot button reads "Fill anyway" while issues remain.
+  mismatch, shown on the Registration screen and in the co-pilot panel. Nothing is hidden: the
+  co-pilot lists them as "to check" and fills the page all the same, except a value known to be wrong
+  (a partly hidden mobile, a PIN that is not six digits), which it asks the owner for.
 - **Extraction**: new conflict checks (bill PIN vs Aadhaar PIN, bill mobile vs typed mobile,
   bill consumer number vs record). Corrections are kept across re-reads unless the corrected
   document is replaced; the original reading stays in the note. An unread Aadhaar or bill can

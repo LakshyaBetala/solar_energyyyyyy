@@ -25,8 +25,20 @@ client's records and for whoever looks after Solara (terms deliverables 10 and 1
 ## What the panel does, and what it never does
 
 **Never:** type an OTP, CAPTCHA or password; tick a customer's declaration or consent;
-work around a portal's bot checks; fill a page that Solara already has as filed, or that has an open
-warning, without the owner pressing Fill.
+work around a portal's bot checks; fill a page that Solara already has as filed without the owner
+pressing Fill; type a value Solara itself knows is wrong (a mobile number of which the bill shows
+only part, a PIN code that is not six digits): it asks the owner for the right one instead; pick the
+lending bank or the loan amount on a loan form, which are the customer's choices; touch a portal's
+own Support / Grievance form.
+
+**The Aadhaar number.** The owner files each form on the customer's behalf, so where a form asks for
+the Aadhaar number the helper types the one Solara keeps (encrypted), four digits a box where the
+portal splits it in three. It is never typed into a Virtual ID box or a box that only mentions the
+Aadhaar (a mobile "linked with Aadhaar"). The helper itself shows only the last four digits, and
+the number is left out of every receipt.
+
+**Where the helper keeps a customer's details.** In its own memory, for 20 seconds, and nowhere
+else: never in the page's storage, which the page's own scripts could read.
 
 **By itself:** fill the boxes it recognises, pick dropdown options, answer Yes/No questions from what was
 recorded for that customer, attach files in the type and size each box takes, open the portal's

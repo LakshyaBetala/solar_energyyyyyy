@@ -68,4 +68,4 @@ Gaps found in the public manuals (13 Nov) and not yet seen live: the plant photo
   the client's own files and recordings. Stage files by name; never `git add -A`.
 - The co-pilot never types an OTP, CAPTCHA or password, never ticks a consent box and never
   presses Submit, Accept or Approve.
-- Aadhaar never goes to an AI model.
+- An Aadhaar card goes to the AI reader only when its QR code cannot be read and an AI key is set (`SOLARA_AI_AADHAAR=0` switches that off).

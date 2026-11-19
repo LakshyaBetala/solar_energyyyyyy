@@ -1302,9 +1302,10 @@ def copilot_pending(step: str = "", user=Depends(copilot_user)):
             c = db.one("SELECT consumer_no, application_no FROM customers WHERE id=?", (r["id"],))
             if c["consumer_no"] and not c["application_no"]:
                 first.append(r["id"])
-    rows = {r["id"]: r for r in db.q("SELECT id, name, consumer_no FROM customers")}
+    rows = {r["id"]: r for r in db.q("SELECT id, name, consumer_no, application_no FROM customers")}
     rest = sorted((i for i in rows if i not in first), reverse=True)   # the newest first
-    return [{"id": i, "name": rows[i]["name"], "consumer_no": rows[i]["consumer_no"] or "", "here": i in first}
+    return [{"id": i, "name": rows[i]["name"], "consumer_no": rows[i]["consumer_no"] or "", "here": i in first,
+             "application_no": rows[i]["application_no"] or ""}
             for i in [x for x in first if x in rows] + rest]
 
 
@@ -1342,6 +1343,10 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
               ("Address", cust["address"]), ("PIN code", cust["pin"]),
               ("Capacity (kWp)", closeout.capacity(d))]
     fields += [(lbl, d.get(k)) for k, lbl, _ in closeout.FIELDS if d.get(k)]
+    issues = registration.validate(cid)["issues"]
+    # A value Solara itself knows is wrong (a mobile of which the bill shows only part, a PIN that is not six digits) is
+    # not handed to the helper: it would be typed into the portal. The helper asks the owner for the right one instead.
+    wrong = {{"mobile": "mobile", "PIN code": "pin"}.get(i["field"]) for i in issues if i["kind"] == "invalid"}
     return {"customer_id": cid, "name": cust["name"], "application_no": cust["application_no"],
             "files": [{"key": s["key"], "slot": s["slot"], "title": s["title"], "bytes": made[s["key"]]}
                       for s in st if s["key"] in made],
@@ -1349,8 +1354,8 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"],
-                                         "aadhaar": _aadhaar_full(d)}.items() if v},
-            "issues": registration.validate(cid)["issues"], "build_error": build_error,
+                                         "aadhaar": _aadhaar_full(d)}.items() if v and k not in wrong},
+            "issues": issues, "build_error": build_error,
             "derived": registration.derived(cid),
             "cost_options": [q["amount"] for q in registration.quotes()],
             "agreement_draft": closeout.TEMPLATE_DRAFT,
@@ -1367,9 +1372,10 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
 def _aadhaar_full(d):
     """The customer's Aadhaar number as Solara keeps it (encrypted), for the helper to type on the portal."""
     try:
-        return vault.unseal(d["aadhaar_enc"]) if d.get("aadhaar_enc") else None
+        n = vault.unseal(d["aadhaar_enc"]) if d.get("aadhaar_enc") else None
     except Exception:
         return None
+    return n if n and n[-4:] == str(d.get("aadhaar_last4") or "") else None   # a replaced card: its old number is not filed
 
 
 def portal_name(name, ext):
