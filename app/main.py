@@ -1360,7 +1360,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
             "cost_options": [q["amount"] for q in registration.quotes()],
             "agreement_draft": closeout.TEMPLATE_DRAFT,
             "docs": [r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=? AND "
-                                             "kind IN ('bill','aadhaar','passbook','roof')", (cid,))]
+                                             "kind IN ('bill','aadhaar','passbook','roof','pan')", (cid,))]
                     + (["site_photo"] if (DOCS / cid / "site_photo.jpg").exists() else []),
             "paused": {"by": d.get("paused_by"), "reason": d.get("paused_reason")} if d.get("paused_at") else None,
             "approvals": {k: filing.review(cid, k)["approval"] for k in filing.FORMS},

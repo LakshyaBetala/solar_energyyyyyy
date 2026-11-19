@@ -264,6 +264,9 @@ async def main():
         helpf = await js.evaluate("[...document.querySelectorAll('#helpForm input,#helpForm textarea')].map(e => e.value).join('')")
         check("the portal's Support / Grievance form on the same page is left alone: not filled, not asked about",
               helpf == "" and not await js.evaluate("[...document.querySelectorAll('#solaraPanel,#solaraFallback')].some(e => /subject of query|write in brief/i.test(e.innerText))"), helpf)
+        coapp = [await js.input_value(s) for s in ("#ca_name", "#ca_dob", "#ca_mob")]
+        check("the co-applicant row (labelled only Name, DOB, Mobile Number) is not given the customer's own details",
+              coapp == ["", "", ""], str(coapp))
         check("date of birth filled from the Aadhaar, in the form the date box takes; the loan amount is the customer's to give",
               await js.input_value("#dob") == "1981-03-14" and await js.input_value("#la") == "", await js.input_value("#dob"))
         await js.fill("#la", "150000")

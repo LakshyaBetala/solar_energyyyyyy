@@ -132,7 +132,7 @@
                  [/pre ?installation/, 'roof', 'doc'],
                  [/plant photo|pv plant|plant with consumer|geo ?co ?ordinates|installed (pv )?system/, 'site_photo', 'doc'],
                  [/excel|column a/, 'dcr', 'xlsx'],
-                 [/bill/, 'bill', 'doc'], [/aadhaar|identity/, 'aadhaar', 'doc'],
+                 [/bill/, 'bill', 'doc'], [/\bpan\b|permanent account/, 'pan', 'doc'], [/aadhaar|identity/, 'aadhaar', 'doc'],
                  [/passbook|bank|cheque/, 'passbook', 'doc'], [/roof|site photo/, 'roof', 'doc']];
   // pages that file a step the owner marks done after pressing the portal's own button
   const MARK = {
@@ -253,7 +253,32 @@
         }
       }
     }
+    if (otherPerson(el)) t.push('co applicant');
     return norm(t.join(' | ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' '));
+  }
+  // When a portal names a box in a way no rule knows (a new screen, a changed label), the box itself often says what it
+  // takes: an e-mail box, a phone box, a sample number in its placeholder. Used only when no rule matched, and only on
+  // the customer's own boxes; on a screen new to the helper it is shown first and filled only on "Fill now".
+  const shapeKey = el => {
+    const ph = el.placeholder || '', ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+    if (el.type === 'email' || ac === 'email') return 'email';
+    if (el.type === 'tel' || ac === 'tel' || ac === 'tel-national') return 'mobile';
+    if (/NP[-\/]/.test(ph)) return 'application_no';          // "NP-AAAAA00000-00000": the PM Surya Ghar application
+    if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ph.trim())) return 'ifsc';    // a sample IFSC
+    if (ac === 'postal-code') return 'pin';
+    if (ac === 'bday') return 'dob';
+    return undefined;
+  };
+  const OTHER_PERSON = /co-?\s?applicant|co-?\s?borrower|guarantor|joint applicant/i;
+  function otherPerson(el) {
+    if (/jansamarth\.in$/.test(location.hostname) && /^(name|dateOfBirth|mobileNumber|relationWith)$/.test(el.getAttribute('formcontrolname') || '')) return true;
+    // the nearest block whose own first words name somebody else (a heading or a question just above the boxes)
+    for (let p = el.parentElement, i = 0; p && p !== document.body && i < 7; p = p.parentElement, i++) {
+      const all = (p.innerText || '').trim();
+      if (all.length > 700) break;   // past the small block around the box: the page's own form is not somebody else's
+      if (OTHER_PERSON.test(all.slice(0, 120))) return true;
+    }
+    return false;
   }
 
   // the field's name as the owner sees it on the page, for "Filled" and "Left for you"
@@ -1478,6 +1503,7 @@
     const seen = new Map(), vid = vidChosen(root); // a repeating table (one row per make): fill its first row only
     const plan = els.map(el => {
       let key = ruleFor(labelOf(el), page);
+      if (key === undefined && !otherPerson(el)) key = shapeKey(el);   // no name the helper knows: the box's own kind says what it takes
       if (key === 'only_option' && el.tagName !== 'SELECT') key = undefined;  // a typed Branch Name is left for the person
       if (key === 'aadhaar' && vid) key = null;
       const tb = tableOf(el);

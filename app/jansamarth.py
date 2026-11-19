@@ -69,7 +69,11 @@ def start(request: Request, step: int = 1, error: str = ""):
 {fg('dob', 'Date of Birth', '<input id="dob" type="date" name="dob">')}
 {fg('cap', 'Proposed Rooftop Solar Capacity (kW)', '<input id="cap" name="capacity">')}
 {fg('pc', 'Project Cost (Rs.)', '<input id="pc" name="cost">')}
-{fg('la', 'Loan Amount Required (Rs.)', '<input id="la" name="loan">')}</div>"""
+{fg('la', 'Loan Amount Required (Rs.)', '<input id="la" name="loan">')}</div>
+<div id="coapp" style="margin-top:14px;padding:10px;border:1px dashed #bbb"><div>Do you want to add a co-applicant? (optional)</div>
+<div class="grid">{fg('ca_name', 'Name', '<input id="ca_name" formcontrolname="name">')}
+{fg('ca_dob', 'DOB', '<input id="ca_dob" formcontrolname="dateOfBirth">')}
+{fg('ca_mob', 'Mobile Number', '<input id="ca_mob" formcontrolname="mobileNumber">')}</div></div>"""
     elif step == 2:
         body = f"""<h3>Address Details</h3>{msg}<div class="grid">
 {fg('ad', 'Address', '<textarea id="ad" name="address"></textarea>')}
