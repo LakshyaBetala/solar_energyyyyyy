@@ -24,12 +24,18 @@ ENV_FILE = ROOT / ".env"
 
 
 def load_env():
-    if ENV_FILE.exists():
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    """Settings: the file kept with the data (what the app's own settings screen writes) first, then .env."""
+    from .config import DATA
+    for f in (DATA / "solara.env", ENV_FILE):
+        if f.exists():
+            for line in f.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+PAN_RE = re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b")   # a Permanent Account Number: 5 letters, 4 digits, 1 letter
 
 
 load_env()
@@ -210,12 +216,13 @@ PRETTY = {
     "owner_name": "Property owner", "property_address": "Property address",
     "property_pin": "Property PIN code",
     "bill_unread": "Electricity bill", "aadhaar_unread": "Aadhaar", "passbook_unread": "Bank page",
+    "pan_number": "PAN", "pan_unread": "PAN card",
 }
 KEY_OF = {v: k for k, v in PRETTY.items()}
 ORDER = (list(LABELS) + ["bill_email", "bill_district", "bill_place"] + list(AADHAAR_LABELS) +
          ["aadhaar_address", "aadhaar_pin", "aadhaar_district", "aadhaar_dob", "aadhaar_gender", "aadhaar_mobile", "aadhaar_place"] +
          list(PASSBOOK_LABELS) + list(OWNERSHIP_LABELS) +
-         ["bill_unread", "aadhaar_unread", "passbook_unread"])
+         ["pan_number", "bill_unread", "aadhaar_unread", "passbook_unread", "pan_unread"])
 
 
 def grab(text, labels):
@@ -308,7 +315,7 @@ async def _run(customer_id, use_llm=True, fresh=None):
     if not c:
         raise ValueError(f"unknown customer {customer_id}")
     docs = {d["kind"]: d for d in db.q("SELECT * FROM documents WHERE customer_id=?", (customer_id,))}
-    if not docs.keys() & {"bill", "aadhaar"}:
+    if not docs.keys() & {"bill", "aadhaar", "pan"}:
         raise ValueError("no documents on file for this customer; upload the bill and Aadhaar first")
     st = llm_status()
     model = st if use_llm and st["enabled"] else None
@@ -403,6 +410,26 @@ async def _run(customer_id, use_llm=True, fresh=None):
             fields["owner_name"]["status"] = "review"
             fields["owner_name"]["note"] = f"Identity document reads “{an}”."
 
+    # ---- PAN card (optional): its number, and nothing else from the card ----
+    if "pan" in docs:
+        text, imgs, problem = read_doc(docs["pan"]["path"])
+        m = PAN_RE.search((text or "").upper())
+        if m:
+            fields["pan_number"] = _f(m.group(0), 97, "PAN card")
+        elif model and imgs:   # a photo or a scan: no text to read, so the model reads the one number
+            try:
+                v = (await llm_read_cached(docs["pan"], "pan", st, images=imgs[:1]) or {}).get("pan_number")
+                val = re.sub(r"\s", "", str(v.get("value") if isinstance(v, dict) else v or "")).upper()
+                if PAN_RE.fullmatch(val):
+                    ok_ = bool(v.get("sure", True)) if isinstance(v, dict) else True
+                    fields["pan_number"] = _f(val, 90 if ok_ else 50, st["provider"], "ok" if ok_ else "review",
+                                              "" if ok_ else "The model was not sure of this; check it on the card.")
+                notes.append(f"PAN card read with {st['provider']}")
+            except Exception as e:
+                notes.append(f"model pass skipped: {type(e).__name__}")
+        if "pan_number" not in fields:
+            fields["pan_unread"] = _unread(problem or "the PAN number could not be read from this file. Type it under Details")
+
     # ---- cross-document rules ----
     bn, an = fields.get("bill_name", {}).get("value"), fields.get("aadhaar_name", {}).get("value")
     if bn and an:
@@ -475,6 +502,7 @@ async def _run(customer_id, use_llm=True, fresh=None):
 
 # ------------------------------- the model -------------------------------
 PROMPTS = {
+    "pan": ("an Indian PAN card", "pan_number (the 10-character Permanent Account Number exactly as printed; nothing else from the card)"),
     "bill": ("an Indian electricity bill", "consumer_no, bill_name, tariff, sanctioned_load "
              "(number, kW), meter_no, bill_mobile, bill_email, address, pin, bill_district (the district of "
              "the address), bill_place (the village, town or area of the address, one short name), avg_units"),
@@ -658,6 +686,7 @@ def apply_to_record(customer_id, only=None, overwrite=False):
              "district": district if ok.keys() & {"bill_district", "aadhaar_district"} else None,
              "aadhaar_last4": (ok.get("aadhaar_masked") or "")[-4:] or None}
     # the mobile and email the owner typed are the ones the OTP and mail go to: a bill never replaces them
+    extra["pan"] = ok.get("pan_number")
     extra = {k: v for k, v in extra.items() if v and ((overwrite and k != "email") or not d.get(k))}
     if only is None or only & {"bill_mobile", "aadhaar_mobile"}:
         # the bill's mobile, as printed even when partly hidden (90xxxxxx32); else a full one on the Aadhaar; else N/A.

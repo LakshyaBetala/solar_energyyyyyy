@@ -92,6 +92,14 @@ def cost(v):
     return str(int(amt))
 
 
+def pan(v):
+    """A PAN as printed on the card, or '' for none: ABCDE1234F."""
+    s = re.sub(r"\s", "", text(v, "PAN")).upper()
+    if s and not re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", s):
+        raise ValueError("a PAN is 10 characters: 5 letters, 4 digits and a letter, like ABCDE1234F")
+    return s
+
+
 def amount(v):
     """A new quotation's price: whole rupees, Rs 10,000 to Rs 25,00,000; 1,50,000 / Rs / ₹ allowed."""
     s = re.sub(r"(?i)^\s*(rs\.?|inr|₹)\s*", "", text(v, "amount")).replace(",", "").strip()

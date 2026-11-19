@@ -10,7 +10,7 @@ from . import (db, drafts, extract, exports, docs_gen, portal, discom, vault, ba
                msedcl, pmsg, registration, intake, filing, field, tracker, dcr, jansamarth, upkeep, kpi,
                reset as resetmod)
 from .agent import runner
-from .config import clean, single_owner, HELPER_DIR, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
+from .config import clean, single_owner, HELPER_DIR, DATA, WEB, SHOTS, DOCS, ROLES, HEADLESS_DEFAULT, PORTAL_URL, portals, live, region, is_local
 from .config import public_url as config_public_url
 
 app = FastAPI(title="Solara", docs_url="/api/docs")
@@ -382,7 +382,7 @@ async def extract_post(customer_id: str, use_llm: bool = True, kind: str = "", u
         raise HTTPException(400, str(e))
 
 
-UPLOAD_KINDS = {"bill", "aadhaar", "passbook", "roof", "ownership"}
+UPLOAD_KINDS = {"bill", "aadhaar", "passbook", "roof", "ownership", "pan"}
 
 
 @app.post("/api/documents/{customer_id}/upload")
@@ -811,7 +811,58 @@ def vendor_signature(body: dict = Body(...), user=Depends(need("supervisor"))):
 
 # ------------------------------- registration (milestone 1) -------------------------------
 DOC_KINDS = {"bill": "Electricity bill", "aadhaar": "Aadhaar", "passbook": "Bank passbook or cheque",
-             "roof": "Roof photo"}
+             "roof": "Roof photo", "pan": "PAN card (optional)"}
+
+
+# ------------------------------- AI reading: the key, set in the app -------------------------------
+def _setting(name, value):
+    """One line of the settings file kept with the data; '' removes it. Takes effect at once."""
+    import re as _re
+    f = DATA / "solara.env"
+    lines = [x for x in (f.read_text(encoding="utf-8").splitlines() if f.exists() else []) if not _re.match(rf"\s*{name}\s*=", x)]
+    if value:
+        lines.append(f"{name}={value}")
+        os.environ[name] = value
+    else:
+        os.environ.pop(name, None)
+    f.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def ai_settings():
+    st, keys = extract.llm_status(), extract.gemini_keys()
+    return {"on": st["enabled"], "provider": st["provider"], "model": st["model"], "has_key": bool(keys),
+            "tail": keys[0][-4:] if keys else "", "aadhaar": extract.aadhaar_to_model()}   # the key itself is never sent back
+
+
+@app.get("/api/settings/ai")
+def ai_get(user=Depends(current)):
+    return ai_settings()
+
+
+@app.post("/api/settings/ai")
+async def ai_set(body: dict = Body(...), user=Depends(need("supervisor"))):
+    import re as _re, httpx
+    key = valid.text(body.get("key"), "key").strip()
+    if not _re.fullmatch(r"[A-Za-z0-9_.\-]{20,200}", key):
+        raise HTTPException(400, "that does not look like a Gemini API key; copy it again from Google AI Studio")
+    if not body.get("unchecked"):   # asked of Google once, so a wrong key is known now and not on a customer's day
+        try:
+            async with httpx.AsyncClient(timeout=15) as cl:
+                r = await cl.get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", headers={"x-goog-api-key": key})
+        except httpx.HTTPError:
+            raise HTTPException(502, "Google could not be reached to check the key. Check the internet and try again")
+        if r.status_code != 200:
+            raise HTTPException(400, "Google did not accept this key. Copy it again from Google AI Studio")
+    _setting("GEMINI_API_KEY", key)
+    db.audit(user["username"], user["role"], "AI key set", None, f"Gemini, key ending {key[-4:]}")
+    return ai_settings()
+
+
+@app.delete("/api/settings/ai")
+def ai_remove(user=Depends(need("supervisor"))):
+    _setting("GEMINI_API_KEY", "")
+    db.audit(user["username"], user["role"], "AI key removed", None, "")
+    return ai_settings()
 
 
 def _pre_install():
@@ -1070,7 +1121,7 @@ async def take_document(cid, kind, file, user):
     await upload_doc(cid, kind, file, user)
     registration.docs_uploaded(cid, user["username"])
     kinds = {r["kind"] for r in db.q("SELECT kind FROM documents WHERE customer_id=?", (cid,))}
-    if kinds & {"bill", "aadhaar"}:
+    if kinds & {"bill", "aadhaar", "pan"}:
         try:
             await extract.run(cid, fresh=kind)
         except Exception as ex:  # the upload is kept; the person can retry or type the details
@@ -1082,14 +1133,22 @@ async def take_document(cid, kind, file, user):
 def front_and_back(blobs):
     """The two photos of an Aadhaar (front and back) as one two-page PDF, so the QR and the address on the
     back are read with the name and number on the front."""
+    import fitz
     from PIL import Image
-    try:
-        pages = [Image.open(io.BytesIO(b)).convert("RGB") for b in blobs]
+    out = fitz.open()
+    try:   # each side as it came: a PDF's pages are taken as they are, a photo becomes a page
+        for b in blobs:
+            if not b.startswith(b"%PDF"):
+                buf = io.BytesIO()
+                Image.open(io.BytesIO(b)).convert("RGB").save(buf, "PDF", resolution=200)
+                b = buf.getvalue()
+            with fitz.open(stream=b, filetype="pdf") as side:
+                out.insert_pdf(side)
+        return out.tobytes(garbage=3, deflate=True)
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(400, "send the front and the back as photos (JPG or PNG), or one PDF")
-    out = io.BytesIO()
-    pages[0].save(out, "PDF", save_all=True, append_images=pages[1:], resolution=200)
-    return out.getvalue()
+        raise HTTPException(400, "send the front and the back as two PDFs, two photos (JPG or PNG), or one PDF with both")
 
 
 @app.post("/api/registration/{cid}/document")

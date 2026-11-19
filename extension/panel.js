@@ -33,6 +33,7 @@
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
     [/aadha?ar (no|number|card number)|\buid\b|virtual id/, null],    // the customer types their own Aadhaar
+    [/\bpan( card)? (no|number)\b|permanent account/, 'pan'],          // read from the PAN card; the loan forms ask for it
     [/roof has enough load|load bearing|roof ?load/, 'roof_load_ok'],
     [/shadow ?free roof area|roof area/, 'roof_area'],
     [/shadow ?free roof|availability of shadow/, 'shadow_free'],

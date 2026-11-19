@@ -12,7 +12,7 @@ from .config import vendor, region
 
 PRE_STAGES = ("lead", "docs", "register", "feasible")  # before installation
 APP_NO = re.compile(r"^NP-[A-Z0-9]+-\d{6,}$")
-LATER = {"account_holder", "account_no", "ifsc", "passbook_unread"}  # not needed to register
+LATER = {"account_holder", "account_no", "ifsc", "passbook_unread", "pan_number", "pan_unread"}  # not needed to register
 # what must be on file before the portal form can be filled
 # the live portal's profile step asks for an email and verifies it by OTP, so it is needed too
 REQUIRED = (("consumer_no", "consumer number"), ("name", "customer name"), ("mobile", "mobile"),
@@ -135,7 +135,7 @@ def values(cid):
             "module_type": d.get("module_type") or os.environ.get("SOLARA_MODULE_TYPE", "Mono PERC (DCR)"),
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
-            "aadhaar_name": c["aadhaar_name"],
+            "aadhaar_name": c["aadhaar_name"], "pan": d.get("pan") or None,
             # milestone 2 forms: site feasibility, installation, DCR, loan
             **{k: d[k] for k in FILED if d.get(k)},  # only what was recorded: roof area is measured on site, never guessed
             "inverter_qty": d.get("inverter_qty") or ("1" if d.get("inverter_make") else None),
@@ -319,6 +319,8 @@ def save_details(cid, body, user):
     if "lng" in body:
         rest["lng"] = valid.coord(body["lng"], "longitude")
     sealed = None
+    if "pan" in body:
+        rest["pan"] = valid.pan(body["pan"])
     if valid.text(body.get("aadhaar"), "Aadhaar").strip():
         rest["aadhaar_last4"] = valid.aadhaar_any(body["aadhaar"])
         n = re.sub(r"\D", "", body["aadhaar"])

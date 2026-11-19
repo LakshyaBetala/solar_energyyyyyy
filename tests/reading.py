@@ -13,6 +13,7 @@ it. The rules:
 Synthetic documents only.
 """
 import asyncio, io, os, sys
+from pathlib import Path
 from PIL import Image, ImageDraw
 sys.path.insert(0, "."); sys.path.insert(0, "tests")
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -25,7 +26,7 @@ FULL = "999941057058"   # passes the Aadhaar check digit; not a real person's nu
 CALLS, BREAK = [], []
 sure = lambda v, ok=True: {"value": v, "sure": ok}
 REPLY = {
-    "aadhaar": {"aadhaar_name": sure(fx.AADHAAR_NAME), "aadhaar_gender": sure("F"), "aadhaar_dob": sure("14-03-1981"),
+    "aadhaar": {"aadhaar_name": sure(fx.AADHAAR_NAME), "aadhaar_gender": sure("Female"), "aadhaar_dob": sure("14-03-1981"),
                 "aadhaar_address": sure("B-12 Sai Shraddha Society, Manchar"), "aadhaar_pin": sure("410503"),
                 "aadhaar_district": sure("Pune"), "aadhaar_number": sure("9999 4105 7058")},
     "bill": {"consumer_no": sure(fx.NEW["consumer_no"]), "bill_name": sure(fx.NEW["billed_name"], False),
@@ -104,7 +105,8 @@ def main():
     c = db.one("SELECT * FROM customers WHERE id=?", (cid,))
     check("a bill that is a photo is read by the model: consumer number, address, PIN, load, mobile",
           "bill" in CALLS and rows["consumer_no"]["value"] == fx.NEW["consumer_no"] and c["consumer_no"] == fx.NEW["consumer_no"]
-          and c["pin"] == fx.NEW["pin"] and closeout.data(cid)[1].get("sanctioned_load") in ("5", "5.0"), str(CALLS))
+          and c["pin"] == fx.NEW["pin"] and closeout.data(cid)[1].get("sanctioned_load") in ("5", "5.0"),
+          f"{CALLS} consumer={rows.get('consumer_no', {}).get('value')} / {c['consumer_no']} pin={c['pin']} load={closeout.data(cid)[1].get('sanctioned_load')}")
     check("what the model was not sure of is flagged for the owner to check, not taken as read",
           rows["address"]["status"] == "review" and "not sure" in (rows["address"]["note"] or ""), str(rows["address"])[:200])
     check("...and registration waits for that check", any(i["field"] == rows["address"]["field"] for i in registration.validate(cid)["issues"]))
@@ -114,6 +116,64 @@ def main():
     rows = read(cid, "bill")
     check("a model that does not answer leaves the bill as 'not read' with what to do; nothing crashes",
           "bill_unread" in rows and extract.MODEL_STATE.get((cid, "bill")) == "TimeoutError", str([k for k in rows if k]))
+
+    print("\n  -- the Aadhaar as two files, and the PAN card")
+    import fitz
+    def pdf_of(image=None, words=None):
+        d = fitz.open(); pg = d.new_page()
+        if image:
+            pg.insert_image(pg.rect, stream=image)
+        if words:
+            pg.insert_text((72, 100), words, fontsize=14)
+        return d.tobytes()
+    two = [("file", ("front.pdf", pdf_of(words="Government of India (front, no QR here)"), "application/pdf")),
+           ("file", ("back.pdf", pdf_of(image=fx.aadhaar_photo()), "application/pdf"))]
+    r = sup.post(f"/api/registration/{cid}/document?kind=aadhaar", files=two)
+    doc = db.one("SELECT * FROM documents WHERE customer_id=? AND kind='aadhaar'", (cid,))
+    pages = fitz.open(stream=vault.read(Path(doc["path"])), filetype="pdf").page_count if doc else 0
+    rows = read(cid, "aadhaar")
+    check("the Aadhaar is taken as two PDFs, front and back, kept as one two-page file",
+          r.status_code == 200 and pages == 2, f"{r.status_code} {r.text[:80]} pages={pages}")
+    check("...and read from the QR on the back page, on the computer", rows["aadhaar_name"]["source"] == "Aadhaar QR" and rows["aadhaar_masked"]["value"] == "XXXX XXXX 4471")
+    mixed = [("file", ("front.jpg", photo("front of the card"), "image/jpeg")), ("file", ("back.pdf", pdf_of(image=fx.aadhaar_photo()), "application/pdf"))]
+    check("a photo and a PDF together work too", sup.post(f"/api/registration/{cid}/document?kind=aadhaar", files=mixed).status_code == 200)
+    three = two + [("file", ("extra.pdf", pdf_of(words="x"), "application/pdf"))]
+    check("three files are refused", sup.post(f"/api/registration/{cid}/document?kind=aadhaar", files=three).status_code == 400)
+
+    before = len(CALLS)
+    sup.post(f"/api/registration/{cid}/document?kind=pan", files={"file": ("pan.pdf", pdf_of(words="INCOME TAX DEPARTMENT  Permanent Account Number  ABCPK1234F  Name PRIYA KULKARNI  Date of Birth 14/03/1981"), "application/pdf")}).raise_for_status()
+    rows = read(cid, "pan")
+    d = closeout.data(cid)[1]
+    check("a PAN card as a PDF: the number is read from it without the model",
+          rows["pan_number"]["value"] == "ABCPK1234F" and "pan" not in CALLS[before:] and d.get("pan") == "ABCPK1234F", str(rows.get("pan_number"))[:120])
+    check("...and only the number is kept from the card: no name, no date of birth",
+          [k for k in rows if k and k.startswith("pan")] == ["pan_number"] and registration.values(cid)["pan"] == "ABCPK1234F")
+    REPLY["pan"] = {"pan_number": sure("AAAPZ 9999 Q"), "name": sure("SOMEONE"), "dob": sure("01/01/1990")}
+    sup.put(f"/api/registration/{cid}", json={"pan": ""}).raise_for_status()
+    png = io.BytesIO(); Image.new("RGB", (900, 560), (225, 235, 245)).save(png, "PNG")
+    sup.post(f"/api/registration/{cid}/document?kind=pan", files={"file": ("pan.png", png.getvalue(), "image/png")}).raise_for_status()
+    rows = read(cid, "pan")
+    check("a PAN card as a PNG photo is read by the model, which is asked for the number only",
+          rows["pan_number"]["value"] == "AAAPZ9999Q" and CALLS[before:].count("pan") == 1 and "pan_number" in extract.PROMPTS["pan"][1]
+          and "name" not in extract.PROMPTS["pan"][1].replace("nothing else", ""), str(rows.get("pan_number"))[:120])
+    REPLY["pan"] = {"pan_number": sure("NOT A PAN")}
+    png2 = io.BytesIO(); Image.new("RGB", (910, 560), (225, 235, 245)).save(png2, "PNG")
+    sup.post(f"/api/registration/{cid}/document?kind=pan", files={"file": ("pan.png", png2.getvalue(), "image/png")}).raise_for_status()
+    rows = read(cid, "pan")
+    check("something that is not a PAN is never saved as one; the card shows as not read",
+          "pan_number" not in rows and "pan_unread" in rows, str([k for k in rows if k and k.startswith("pan")]))
+    check("the PAN card is optional: an unread one does not hold registration back",
+          not any("PAN" in i["field"] for i in registration.validate(cid)["issues"]))
+    r1 = sup.put(f"/api/registration/{cid}", json={"pan": "abcpk 1234 f"})
+    r2 = sup.put(f"/api/registration/{cid}", json={"pan": "12345"})
+    check("the owner can type the PAN instead; a wrong one is refused", r1.status_code == 200 and closeout.data(cid)[1]["pan"] == "ABCPK1234F" and r2.status_code == 400, f"{r1.status_code} {r2.status_code}")
+
+    print("\n  -- the AI key, set in the app")
+    s = sup.get("/api/settings/ai").json()
+    check("the settings say whether a key is set, never the key itself", set(s) == {"on", "provider", "model", "has_key", "tail", "aadhaar"} and len(s["tail"]) <= 4, str(s))
+    check("only the owner or a supervisor sets the key", client("s.kale").post("/api/settings/ai", json={"key": "A" * 39}).status_code == 403)
+    check("something that is not a key is refused before anything is saved",
+          sup.post("/api/settings/ai", json={"key": "not a key!"}).status_code == 400 and sup.get("/api/settings/ai").json() == s)
 
     sup.delete(f"/api/customers/{cid}").raise_for_status()
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")

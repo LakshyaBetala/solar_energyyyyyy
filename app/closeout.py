@@ -34,6 +34,7 @@ FIELDS = [  # key, label, group
     ("email", "Customer email", "Connection"),
     ("district", "District", "Connection"),
     ("aadhaar_last4", "Aadhaar, last 4 digits only", "Connection"),
+    ("pan", "PAN (from the PAN card, for the bank loan)", "Connection"),
     ("roof_free_area", "Available shadow-free roof area (m2)", "Site feasibility"),
     ("roof_load_ok", "Roof load capacity checked (Yes/No)", "Site feasibility"),
     ("shadow_free", "Shadow-free roof available (Yes/No)", "Site feasibility"),

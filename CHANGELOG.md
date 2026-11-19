@@ -35,6 +35,11 @@ templates, the island, the automatic application flow on the live consumer login
   the company's name from its own agreement draft. `tests/owner.py`, 14 checks.
 - **Delete this customer** on Installation and Close-out too; everything kept for them goes, in every table.
 - **Connect dialog** shows the helper's folder with Copy and Open, and what to press in Chrome.
+- **The AI key is set in the app** (Reports, Reading documents with AI): checked with Google when saved, kept with
+  the data, never shown again.
+- **PAN card** (optional; PDF or photo): its number only is read, from the text of a PDF or by the model from a photo.
+  The owner can type it instead. The panel fills it where a loan form asks for the PAN.
+- **The Aadhaar as two files**: front and back as two PDFs, two photos, or one of each.
 - **Desktop app** (`desktop/`, Electron): Solara in its own window, the data in one folder that updates
   leave alone, portal links opened in the browser with the helper.
 - `docs/ROADMAP.md`: what comes next, and the risks to settle.

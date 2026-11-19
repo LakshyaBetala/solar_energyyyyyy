@@ -579,6 +579,7 @@ async function loadReports() {
   const [k, h, r, u] = await Promise.all([api('/kpi').catch(() => null), api('/health').catch(() => null),
     S.live ? null : api('/reports').catch(() => null), sup ? api('/users').catch(() => null) : null]);
   S.kpi = k; S.health = h; S.reports = r; S.users = u;
+  S.ai = await api('/settings/ai').catch(() => null);
   await loadQuotes();
   if (S.view === 'reports') render();
 }
@@ -705,6 +706,7 @@ const REG_RULES = {
   consumer_no: { hint: '12 digits, printed on the bill', max: 16, mode: 'numeric', check: v => { if (!v) return ''; if (/[^\d\s-]/.test(v)) return 'Digits only'; const n = v.replace(/\D/g, ''); return n.length !== 12 ? `12 digits needed (${n.length} so far)` : /^(\d)\1+$/.test(n) ? 'Repeats one digit; check the bill' : ''; } },
   kw: { hint: '0.5 to 10, e.g. 3 or 3.3', max: 6, mode: 'decimal', check: v => !v ? '' : !/^\d+(\.\d+)?$/.test(v.trim()) ? 'A number, e.g. 3.3' : +v < 0.5 || +v > 10 ? 'Between 0.5 and 10 kW' : '' },
   place: { hint: 'Area and district, as the quotation prints it, e.g. Dighi, Pune', max: 80, check: () => '' },
+  pan: { hint: 'Optional. Read from the PAN card when you upload it: 5 letters, 4 digits, 1 letter', max: 10, check: v => !v || /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/.test(v.trim()) ? '' : '10 characters, like ABCDE1234F' },
   rts_cost: { hint: 'One of the quotations; the agreement and the quotation print it', max: 14, mode: 'numeric', check: v => { if (!v) return ''; const t = v.replace(/^\s*(rs\.?|inr|\u20b9)\s*/i, '').replace(/,/g, '').trim(); const n = Number(t); if (!/^\d+(\.0+)?$/.test(t)) return 'Pick one of the listed amounts'; return costOpts().includes(n) ? '' : 'Only the listed amounts: ' + costOpts().map(x => x.toLocaleString('en-IN')).join(', '); } },
   gender: { hint: 'From the Aadhaar; change it if it is wrong', max: 10, check: () => '' },
   location_type: { hint: 'Urban or Rural, found from the address; check it', max: 10, check: () => '' },
@@ -747,7 +749,7 @@ const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Reg
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
 const REG_MISS = [['consumer_no', 'Consumer number'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['kw', 'Capacity (kW)']];
 const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['place', 'Place'],
-  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'],
+  ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'], ['pan', 'PAN (optional)'],
   ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)'],
   ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
   ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number']];
@@ -917,7 +919,7 @@ VIEWS.reg = () => {
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
   const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+    rts_cost: d.rts_cost, district: d.district, pan: d.pan, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="field" style="margin-bottom:14px"><label>Company signature <span class="sub">(Second Party: uploaded once, on every customer's agreement)</span></label>
@@ -1583,12 +1585,21 @@ VIEWS.reports = () => {
       <span class="sub" style="flex:1">${ql.agreement === 'own' ? 'your draft, uploaded in Solara' : ql.agreement === 'folder' ? 'the draft in the agreement folder' : 'no draft yet: the agreement cannot be made'}</span>
       ${boss ? '<label class="btn sm">Upload the draft (PDF)<input type="file" id="agrFile" accept=".pdf" hidden></label>' : ''}</div>
     ${ql.can_pdf ? '' : '<div class="hint" style="color:var(--warn)">This computer has no Microsoft Word or LibreOffice, so a Word quotation cannot be turned into a PDF here. Install one of them, or upload each customer\u2019s quotation as a PDF on their page.</div>'}</div></div>`;
+  const ai = S.ai;
+  const aiCard = !ai ? '' : `<div class="card" id="aiCard"><div class="ch"><h3>Reading documents with AI</h3><span class="spacer"></span>
+      <span class="pill ${ai.on ? 'ok' : 'warn'}">${ai.on ? 'on' : 'off'}</span></div><div class="cb" style="display:grid;gap:8px">
+    <div id="aiState">${ai.on ? `Gemini reads bill photos, PAN cards and Aadhaar cards whose QR code cannot be read. Key ending <b class="mono">${esc(ai.tail)}</b>.`
+      : 'No key yet. A bill sent as a photo, a PAN card photo, or an Aadhaar with no readable QR code is typed by hand until a key is added.'}</div>
+    ${boss ? `<div class="row" style="gap:8px;flex-wrap:wrap"><input type="password" id="aiKey" placeholder="Paste the Gemini API key" autocomplete="off" style="flex:1;min-width:220px" aria-label="Gemini API key">
+      <button class="btn pri" id="aiSave">${ai.has_key ? 'Replace the key' : 'Save the key'}</button>${ai.has_key ? '<button class="btn danger" id="aiRemove">Remove</button>' : ''}</div>` : ''}
+    <div class="hint">The key comes from Google AI Studio. Solara checks it with Google when you save it, keeps it on this computer with the data, and never shows it again.
+      An Aadhaar read in full from its QR code is never sent to Google.</div></div></div>`;
   const exportsCard = `<div class="card"><div class="ch"><h3>Exports</h3></div><div class="cb" style="display:grid;gap:9px">
       <div class="row" style="gap:9px;flex-wrap:wrap"><b>Monthly report</b><input type="month" id="month" value="${thisMonth()}" style="width:170px">
         <button class="btn pri" id="monthXlsx">Excel</button><button class="btn" id="monthPdf">PDF</button></div>
       <button class="btn" id="xlsx" data-demo>Pipeline, numbers, runs and audit (.xlsx)</button>
       <button class="btn danger" id="resetdemo" data-demo${sup}>Reset the demo environment</button></div></div>`;
-  return `<div class="grid" style="gap:14px">${ms}<div class="two">${care}${exportsCard}</div>${quotesCard}${people}${time}
+  return `<div class="grid" style="gap:14px">${ms}<div class="two">${care}${exportsCard}</div>${aiCard}${quotesCard}${people}${time}
     ${S.live || !S.reports ? '' : demoReports()}</div>`;
 };
 
@@ -2005,6 +2016,14 @@ This cannot be undone.`)) return;
   if (t.id === 'quoteOwnRemove') {
     try { S.regData = await api('/registration/' + S.regCid + '/quotation', { method: 'DELETE' }); (S.regOpen ||= {}).regDetails = true; render(); toast('The quotation template for the chosen price is used again.'); }
     catch (err) { toast(err.message, true); }
+    return;
+  }
+  if (t.id === 'aiSave' || t.id === 'aiRemove') {
+    t.disabled = true;
+    try {
+      S.ai = t.id === 'aiRemove' ? await api('/settings/ai', { method: 'DELETE' }) : await api('/settings/ai', { method: 'POST', body: { key: $('#aiKey').value } });
+      render(); toast(t.id === 'aiRemove' ? 'Key removed. Documents are read by the rules only.' : 'Key saved and checked with Google. Photos are read by AI from now on.');
+    } catch (err) { t.disabled = false; toast(err.message, true); }
     return;
   }
   if (t.dataset.helperopen) {

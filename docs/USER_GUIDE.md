@@ -48,6 +48,13 @@ phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
 
 **Pause** a customer who is away; **Retry** a step the portal sent back (say what it said).
 
+## Documents Solara reads
+
+- **Aadhaar:** one PDF, or the front and the back as two files (PDFs or photos). The QR code is read on the computer.
+- **Electricity bill:** the PDF from the MSEDCL website reads best. A photo is read by AI when a key is set.
+- **PAN card (optional):** a PDF or a photo. Only the PAN number is taken. It is used where a loan form asks for it.
+- **The AI key:** Reports → Reading documents with AI → paste the Gemini key → Save. Without a key, photos are typed by hand.
+
 ## Quotations
 
 - **Your price list is your quotations.** The ones you already use are in Solara. For a **new price** only:
