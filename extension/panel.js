@@ -1474,9 +1474,6 @@
         : 'Aadhaar screen: Solara has only the last four digits of this customer\'s Aadhaar. Type the number here, or keep it under Details in Solara.', 'idle'); }
     else ISL.screen = '';
     const issues = c.issues || [];
-    const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
-      `<b>${issues.length} to check (the page is filled all the same)</b>` + issues.map(i => `<div style="margin-top:3px"><b>${esc(i.kind)}</b>: ${esc(i.field)} &mdash; ${esc(i.message)}</div>`).join('') + '</div>' : '') +
-      (c.build_error ? `<div style="margin-top:6px;color:#F2A6A0">${esc(c.build_error)}</div>` : '');
     c._customs = customs;
     const seen = new Map(), vid = vidChosen(root); // a repeating table (one row per make): fill its first row only
     const plan = els.map(el => {
@@ -1502,7 +1499,17 @@
     // fields the page asks for that Solara knows by name but has no data for: the owner types them here
     const lacking = plan.filter(p => p.key && !p.extra && p.key !== 'only_option' && p.key !== 'aadhaar' && !has(c.values[p.key]) && !p.el.value && p.el.tagName !== 'SELECT');   // a known field with no data; unknown boxes are left alone
     const lackHtml = '';
-    fallbackItems = [...lacking.map(p => ({ type: 'text', el: p.el, key: p.key, label: shown(p.el) || p.key, why: p.key ? 'Solara has no data' : 'Solara does not know this field', suggest: p.key === 'rts_cost' && (c.cost_options || []).length ? c.cost_options : suggestFor(c, shown(p.el) || p.key || '') })),
+    const ISSUE_KEY = { mobile: 'mobile', 'pin code': 'pin', 'consumer number': 'consumer_no', capacity: 'capacity', 'sanctioned load': 'sanctioned_load', 'date of birth': 'dob', gender: 'gender', pan: 'pan', ifsc: 'ifsc', bank: 'bank_name', email: 'email', address: 'address', district: 'district', state: 'state', discom: 'discom', 'distribution company': 'discom', category: 'category', name: 'name' };
+    const keyOfIssue = i => ISSUE_KEY[norm(i.field)] || (Object.entries(ISSUE_KEY).find(([w]) => norm(i.field).includes(w)) || [])[1];
+    const onPage = new Set(plan.filter(q => q.key && !q.extra).map(q => q.key).concat(customsAll.map(x => x.key).filter(Boolean)));
+    const here = issues.filter(i => onPage.has(keyOfIssue(i))), elsewhere = issues.length - here.length;
+    const takesFiles = [...root.querySelectorAll('input[type=file]')].some(el => !el.disabled);
+    const issueHtml = (here.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +
+      `<b>${here.length} to check on this page</b>` + here.map(i => `<div style="margin-top:3px">${esc(i.field)}: ${esc(i.message)}</div>`).join('') + '</div>' : '') +
+      (elsewhere ? `<div style="margin-top:6px;color:#5E7180;font-size:11px">${elsewhere} more note(s) about this customer in Solara, not for this page.</div>` : '') +
+      (c.build_error && takesFiles ? `<div style="margin-top:6px;color:#F2A6A0">${esc(c.build_error)}</div>` : '');
+    const issueWhy = key => { const i = here.find(x => keyOfIssue(x) === key) || issues.find(x => keyOfIssue(x) === key); return i ? i.message : ''; };
+    fallbackItems = [...lacking.map(p => ({ type: 'text', el: p.el, key: p.key, label: shown(p.el) || p.key, why: p.key ? (issueWhy(p.key) || 'Solara has no data') : 'Solara does not know this field', suggest: p.key === 'rts_cost' && (c.cost_options || []).length ? c.cost_options : suggestFor(c, shown(p.el) || p.key || '') })),
       ...lackCustoms.map(x => ({ type: 'select', el: x.el, key: x.key || '', label: x.label, why: x.key ? 'Solara has no data' : 'Solara does not know this field', suggest: suggestFor(c, x.label) }))];
     showFallback(c);
     const suggestLists = async () => {   // read each empty dropdown's list; a name that appears in the customer's address is the likely answer

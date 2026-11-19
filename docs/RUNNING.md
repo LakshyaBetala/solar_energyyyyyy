@@ -107,7 +107,7 @@ It is the same Solara in the browser, run from this folder's code on the desktop
 customers, files and settings, and nothing to move when you go back to the desktop app.
 
 - One Solara at a time: it refuses to start while the desktop app is open.
-- A change to the code is live after a refresh of the page.
+- A change to Solara's own code needs the window closed and `run_web.bat` started again; the page itself after a refresh.
 - It copies the Chrome helper to the folder Chrome loaded it from (`tools/helper_sync.py`). After a change to
   the helper, run that again, then press the helper's reload arrow on `chrome://extensions` and reload the
   portal tab. The time of the copy shows beside the helper's version there.

@@ -1,6 +1,6 @@
 @echo off
 REM Solara in the browser, from this folder's code, on the desktop app's own data: the same customers, files and
-REM settings. For confirming a change without building the installer. A change to the code is live after a refresh.
+REM settings. For confirming a change without building the installer.
 REM One Solara at a time: close the desktop app first. When the change is confirmed, build the installer and go back.
 setlocal
 cd /d "%~dp0"
@@ -25,7 +25,7 @@ echo   Starting on http://127.0.0.1:8900   data: %SOLARA_DATA%
 echo   Leave this window open. Close it to stop Solara.
 echo.
 start "" /b cmd /c "ping -n 4 127.0.0.1 >nul & start http://127.0.0.1:8900"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8900 --reload --reload-dir app
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8900
 if errorlevel 1 (
   echo.
   echo   Solara stopped with an error. The lines above say why.
