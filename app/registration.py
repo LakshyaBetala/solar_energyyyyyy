@@ -546,12 +546,13 @@ def save_layout(body, user):
     from .config import DATA
     clip = lambda v: valid.text(v, "layout")[:80] if not isinstance(v, (list, dict, bool)) else v
     fields = [{k: clip(v) if k != "options" else [clip(o) for o in (v or [])[:60]] for k, v in f.items()
-               if k in ("tag", "type", "label", "all_labels", "rule", "id", "name", "placeholder", "required", "options")}
+               if k in ("tag", "type", "label", "all_labels", "rule", "id", "name", "placeholder", "required", "options", "section")}
               for f in (body.get("fields") or [])[:200] if isinstance(f, dict)]
     page = clip(body.get("page", ""))
     out = DATA / "layouts" / f"{datetime.now():%Y%m%d-%H%M%S}_{re.sub(r'[^A-Za-z0-9]+', '-', page)[:60]}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"page": page, "title": clip(body.get("title", "")), "fields": fields,
+    out.write_text(json.dumps({"page": page, "title": clip(body.get("title", "")),
+                               "headings": [clip(h) for h in (body.get("headings") or [])[:30]], "fields": fields,
                                "buttons": [clip(b) for b in (body.get("buttons") or [])[:40]], "at": db.now()},
                               indent=1, ensure_ascii=False), encoding="utf-8")
     db.audit(user["username"], user["role"], "Co-pilot saved a page layout", None, f"{page}: {len(fields)} fields")

@@ -261,6 +261,9 @@ async def main():
         check("basic details filled: name as on Aadhaar, mobile, email, consumer no., capacity, cost",
               got == {"name": fx.AADHAAR_NAME, "mob": fx.NEW["msisdn"], "mail": "priya.k@example.com", "cons": fx.NEW["consumer_no"],
                       "cap": "3.3", "cost": "200000"}, str(got))
+        helpf = await js.evaluate("[...document.querySelectorAll('#helpForm input,#helpForm textarea')].map(e => e.value).join('')")
+        check("the portal's Support / Grievance form on the same page is left alone: not filled, not asked about",
+              helpf == "" and not await js.evaluate("[...document.querySelectorAll('#solaraPanel,#solaraFallback')].some(e => /subject of query|write in brief/i.test(e.innerText))"), helpf)
         check("date of birth filled from the Aadhaar, in the form the date box takes; the loan amount is the customer's to give",
               await js.input_value("#dob") == "1981-03-14" and await js.input_value("#la") == "", await js.input_value("#dob"))
         await js.fill("#la", "150000")

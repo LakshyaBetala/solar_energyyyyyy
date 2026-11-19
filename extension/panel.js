@@ -129,7 +129,34 @@
   const CUSTOM = '[role=combobox],[role=listbox],mat-select,.mat-select,.ng-select,.select2-selection,.dropdown-toggle';
 
   // ---------- reading the page ----------
-  const visible = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  // A portal's "Support / Grievance / Contact us" form (a subject and a description to write) sits on every page,
+  // often folded away at the side. It is not the page's form: nothing in it is read, filled or asked about.
+  let helpAt = 0, helpBox = null;
+  const helpForm = () => {
+    if (Date.now() - helpAt < 400) return helpBox;
+    helpAt = Date.now(); helpBox = null;
+    const by = n => `[name="${n}"],[formcontrolname="${n}"]`;
+    const subject = document.querySelector(by('subject')); if (!subject) return null;
+    const also = by('description') + ',' + by('stageOfApplication') + ',' + by('message') + ',' + by('query');
+    let box = subject.closest('form') || subject.parentElement;
+    while (box && box !== document.body && !box.querySelector(also)) box = box.parentElement;
+    if (!box || box === document.body) return null;
+    // the "Support or Grievance" choice above the form belongs to it
+    const up = box.parentElement;
+    if (up && up !== document.body && /support|grievance/i.test(up.innerText || '') && up.querySelectorAll('input:not([type=radio]):not([type=hidden]),textarea').length === box.querySelectorAll('input:not([type=radio]):not([type=hidden]),textarea').length) box = up;
+    return (helpBox = box);
+  };
+  const visible = el => {
+    const r = el.getBoundingClientRect(); if (!(r.width > 0 && r.height > 0)) return false;
+    if (el.closest('#solaraFallback')) return false;                                    // the helper's own asking box
+    // a box to type in that is slid off the side of the screen or switched to hidden is not on this page. Radios, ticks and
+    // file choosers are left out of this: portals often hide the real one and draw their own over it.
+    if (el.matches('input:not([type=radio]):not([type=checkbox]):not([type=file]),select,textarea')) {
+      if (document.documentElement.scrollWidth <= innerWidth + 1 && (r.right <= 0 || r.left >= innerWidth)) return false;
+      try { if (el.checkVisibility && !el.checkVisibility({ visibilityProperty: true })) return false; } catch (e) { /* an old browser */ }
+    }
+    const h = helpForm(); return !(h && h.contains(el));
+  };
   const scope = () => [...document.querySelectorAll('[role=dialog],[aria-modal=true],.modal.show,.mat-dialog-container,.cdk-overlay-pane')]
     .filter(visible).pop() || document.body;
   // the portal's own examples ("e.g. NP-RJJOV25-5119272", "format: NP-...") are not this customer's number
@@ -569,12 +596,14 @@
     const fields = els.slice(0, 200).map(el => ({ tag: el.tagName.toLowerCase(), type: short(el.type || el.getAttribute('role')),
       label: short(shown(el)), all_labels: short(labelOf(el)), rule: (k => k === null ? 'never' : k || 'no rule')(ruleFor(labelOf(el))), id: short(el.id),
       name: short(el.name || el.getAttribute('formcontrolname')), placeholder: short(el.placeholder), required: !!el.required,
-      options: el.tagName === 'SELECT' ? [...el.options].slice(0, 60).map(o => short(o.text)) : undefined }));
+      options: el.tagName === 'SELECT' ? [...el.options].slice(0, 60).map(o => short(o.text)) : undefined,
+      section: short((() => { for (let n = el; n && n !== document.body; n = n.parentElement) { const h = n.querySelector('h1,h2,h3,h4,h5,legend,.card-title,.mat-card-title'); if (h && !h.contains(el)) return h.innerText; } return ''; })()) }));
+    const headings = [...document.querySelectorAll('h1,h2,h3,h4,h5,legend')].filter(h => visible(h) && !panel.contains(h)).slice(0, 30).map(h => short(h.innerText)).filter(Boolean);
     const buttons = [...document.querySelectorAll('button,[role=button],input[type=submit]')].filter(b => visible(b) && !panel.contains(b))
       .slice(0, 40).map(b => short(b.innerText || b.value || b.getAttribute('aria-label')));
     link.textContent = 'Sending…';
     const r = await ask({ type: 'report', body: { event: 'page_layout', page: short(location.host + location.pathname + location.hash),
-      title: short(document.title), fields, buttons } });
+      title: short(document.title), headings, fields, buttons } });
     link.textContent = r.ok ? `Sent: ${fields.length} fields` : 'Not sent: ' + r.error;
   }
 
@@ -662,6 +691,7 @@
       toastEl.onclick = e => {
         if (e.target.closest('[data-isl="vendorgo"]')) { e.stopPropagation(); runVendorNow(); return; }
         if (e.target.closest('[data-isl="vendorlogin"]')) { e.stopPropagation(); window.open('https://vendor.pmsuryaghar.gov.in/', '_blank', 'noopener'); return; }
+        if (e.target.closest('[data-isl="sendfields"]')) { e.stopPropagation(); sendLayout(e.target.closest('[data-isl="sendfields"]')); return; }
         if (e.target.closest('[data-isl="choose"],[data-isl="change"]')) { e.stopPropagation(); pick(undefined, true); return; }   // always there: who is this for
         const b = e.target.closest('[data-isl]');
         if (b) { e.stopPropagation(); const f = ISL.actions[b.dataset.isl]; if (f && !b.disabled) f(); return; }
@@ -701,6 +731,7 @@
           html += T((t.s || '') + (t.fx ? ' pop' : ''), `<div style="display:flex;align-items:center;gap:8px"><div style="min-width:0;flex:1"><div class="si-k">${esc(t.l)}</div><div class="si-v" title="${esc(t.v || '')}">${esc(t.v || '—')}</div></div>${b1}</div>`); t.fx = false; });
         const A = ISL.actions, btns = [];
         if (!ISL.cust) btns.push('<button class="si-btn pri" data-isl="choose">Choose the customer</button>');
+        btns.push('<button class="si-btn" data-isl="sendfields">Send page fields</button>');
         if (/#\/signed-in\/find-vendor/i.test(location.href) || /find a vendor/i.test(document.body.innerText)) btns.push('<button class="si-btn pri" data-isl="vendorgo">Find and select vendor</button>');
         if (A.fill) btns.push('<button class="si-btn pri" data-isl="fill">Fill now</button>');
         if (A.retry) btns.push('<button class="si-btn" data-isl="retry">Retry</button>');
@@ -825,10 +856,11 @@
   const words = t => norm(t).split(' ').filter(w => w.length > 2 && !STOP.has(w));
   function suggestFor(c, label) {
     const want = new Set(words(label)); if (!want.size) return [];
+    const l = norm(label), fits = v => /e ?mail/.test(l) ? /^\S+@\S+\.\S+$/.test(v) : /mobile|phone/.test(l) ? /^\d{10}$/.test(v) : /pin ?code|pincode/.test(l) ? /^\d{6}$/.test(v) : true;
     const pool = [...(c.fields || []).map(f => [f.label, f.value]), ...Object.entries(c.values || {}).map(([k, v]) => [k.replace(/_/g, ' '), v])];
     const seen = new Set(), out = [];
     pool.map(([k, v]) => ({ v: String(v ?? '').trim(), hits: words(k).filter(w => want.has(w)).length }))
-      .filter(x => x.hits && x.v && x.v.length < 80).sort((a, b) => b.hits - a.hits)
+      .filter(x => x.hits && x.v && x.v.length < 80 && fits(x.v)).sort((a, b) => b.hits - a.hits)
       .forEach(x => { if (!seen.has(x.v)) { seen.add(x.v); out.push(x.v); } });
     return out.slice(0, 3);
   }
@@ -1367,6 +1399,8 @@
     const radios = radioGroups(root).filter(g => g.key);
     const known = screenOf(root);
     if (known) { ISL.screen = known.name + ' (' + known.hit + ' of ' + known.total + ' marks seen)'; }
+    else if (els.length <= 6 && [...root.querySelectorAll('input')].some(el => visible(el) && /aadha?ar/i.test(el.id + ' ' + el.name + ' ' + labelOf(el)))) {
+      ISL.screen = ''; tip('This screen asks for the Aadhaar number and its OTP. Type them yourself: Solara does not keep the Aadhaar number.', 'idle'); }
     else if (els.length > 6) { ISL.screen = ''; tip('I do not know this screen by its headings. I fill only the fields whose names I recognise. Check the page.', 'warn'); }
     const issues = c.issues || [];
     const issueHtml = (issues.length ? `<div style="margin-top:8px;padding:8px;border-radius:7px;background:#3A2E12;color:#F2C879">` +

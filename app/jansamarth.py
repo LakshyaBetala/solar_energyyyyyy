@@ -24,12 +24,21 @@ padding:12px 18px;font-weight:700}.main{max-width:760px;margin:18px auto;backgro
 STEPS = ["Basic Details", "Address Details", "Aadhaar Verification", "Select Bank"]
 
 
+# the real portal carries a "Support / Grievance" form on every page; the helper must leave it alone
+HELP = """<div class="help" style="margin-top:28px;padding:12px;border-top:1px solid #ddd"><b>Need help?</b>
+<label><input type="radio" name="sg" value="s"> Support</label> <label><input type="radio" name="sg" value="g"> Grievance</label>
+<form id="helpForm" onsubmit="return false"><input name="name" placeholder="Enter your full name"> <input name="mobileNumber" placeholder="10 digit mobile number">
+<input type="email" name="email" placeholder="Enter your email address"> <input name="applicationId" placeholder="If application is completed">
+<input name="stageOfApplication" placeholder="Stage of application"> <input name="subject" placeholder="Subject of Query">
+<textarea name="description" placeholder="Write in brief"></textarea></form></div>"""
+
+
 def shell(step, body):
     bar = "".join(f'<div class="{"on" if i == step else ""}">{i}. {t}</div>' for i, t in enumerate(STEPS, 1))
     return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>JanSamarth - Rooftop Solar Loan</title>
 <style>{CSS}</style></head><body><div class="sandbox">Demo sandbox &mdash; not Jan Samarth</div>
 <div class="top">JanSamarth &middot; Loan application for Rooftop Solar</div><div class="main">
-{f'<div class="steps">{bar}</div>' if step else ''}{body}</div></body></html>""")
+{f'<div class="steps">{bar}</div>' if step else ''}{body}{HELP}</div></body></html>""")
 
 
 def _sess(request):
