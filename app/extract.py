@@ -13,6 +13,7 @@ Then cross-document rules (name agreement, PIN agreement, duplicate consumer num
 the fields. Nothing is guessed: a value that could not be read is flagged for a person.
 Values that are read cleanly fill the customer record; flagged ones fill it once confirmed.
 """
+import hashlib
 import base64, gzip, io, re, os, json, difflib, asyncio, sys, zlib
 from pathlib import Path
 from pypdf import PdfReader
@@ -34,11 +35,16 @@ def load_env():
 load_env()
 
 
+# what the portals and Solara's papers need from the Aadhaar; the card's QR code gives all of it, offline
+AADHAAR_NEEDS = ("aadhaar_name", "aadhaar_masked", "aadhaar_address", "aadhaar_pin", "aadhaar_district",
+                 "aadhaar_dob", "aadhaar_gender")
+
+
 def aadhaar_to_model():
-    """SOLARA_AI_AADHAAR=1: the Aadhaar card may be sent to the AI model. Off unless set: the card carries the
-    full number and a person's photo, and its QR code already gives the name, gender, address and last 4 digits
-    offline. The electricity bill goes to the model whenever a key is set."""
-    return os.environ.get("SOLARA_AI_AADHAAR", "").lower() in ("1", "true", "yes")
+    """May the Aadhaar card go to the AI model? Yes when AI is on, but only for a card whose QR code did not
+    give everything (no QR on the photo, a blurred one, an old card): a card read in full from its QR never
+    leaves this computer. SOLARA_AI_AADHAAR=0 keeps every card here; the owner then types what is missing."""
+    return os.environ.get("SOLARA_AI_AADHAAR", "").lower() not in ("0", "false", "no", "off")
 
 
 def llm_status():
@@ -348,7 +354,10 @@ async def _run(customer_id, use_llm=True, fresh=None):
         else:
             got = grab(text, AADHAAR_LABELS)
             fields.update({k: _f(v, conf, "identity") for k, (v, conf) in got.items()})
-        if model and aadhaar_to_model() and (imgs or text):   # the QR and the text rules came first; the model fills what they missed
+        lacking = [k for k in AADHAAR_NEEDS if k not in fields]
+        if model and not lacking:
+            notes.append("Aadhaar read in full from its QR code on this computer; not sent to the AI model")
+        if model and lacking and aadhaar_to_model() and (imgs or text):   # the model reads only a card the QR did not cover
             try:
                 got = await llm_read_cached(docs["aadhaar"], "aadhaar", st, text=text[:2000] or None, images=imgs[:2])
                 got, full_aadhaar = split_aadhaar(got)
@@ -494,7 +503,8 @@ def gemini_keys():
 
 
 async def llm_read_cached(doc, kind, st, **kw):
-    key = (doc["path"], doc["uploaded_at"], kind, st["provider"], st["model"])
+    # the stored file itself, not its time: a new upload in the same second is still a new document
+    key = (hashlib.sha1(Path(doc["path"]).read_bytes()).hexdigest(), kind, st["provider"], st["model"])
     if key not in _LLM_CACHE:
         _LLM_CACHE[key] = await llm_read(kind, st, **kw)
     return _LLM_CACHE[key]

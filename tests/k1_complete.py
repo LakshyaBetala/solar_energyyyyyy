@@ -178,8 +178,8 @@ async def main():
     parsed = extract.parse_xml_qr(xml)
     check("the older XML QR keeps only the last 4 digits", parsed["last4"] == "2222" and "99991111" not in json.dumps(parsed))
     src_x = Path("app/extract.py").read_text(encoding="utf-8")
-    check("the Aadhaar card goes to an AI model only when SOLARA_AI_AADHAAR=1 is set (off by default)",
-          extract.aadhaar_to_model() is False and "if model and aadhaar_to_model() and" in src_x
+    check("an Aadhaar read in full from its QR never goes to an AI model; SOLARA_AI_AADHAAR=0 keeps every card on the computer",
+          "if model and lacking and aadhaar_to_model() and" in src_x and "lacking = [k for k in AADHAAR_NEEDS if k not in fields]" in src_x
           and len(re.findall(r'llm_read(?:_cached)?\(docs\["aadhaar"\]', src_x)) == 1)
     got, full = extract.split_aadhaar({"aadhaar_number": {"value": "9999 4105 7058", "sure": True}})
     check("a model's full Aadhaar number is checked, kept apart for encryption, and masked in what is read",

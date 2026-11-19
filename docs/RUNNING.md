@@ -28,6 +28,7 @@ password manager and keep it away from the backups.
    SOLARA_MODE=live
    SOLARA_PUBLIC_URL=https://solara.your-company.in
    SOLARA_VENDOR_NAME=Your Solar Company Pvt Ltd
+   GEMINI_API_KEY=your key                (reads bill photos and Aadhaar cards whose QR code cannot be read)
    SOLARA_BACKUP_COPY=D:\Solara backups
    SOLARA_KEEP_MONTHS=24
    ```

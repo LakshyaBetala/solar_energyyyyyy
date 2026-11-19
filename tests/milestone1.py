@@ -270,7 +270,10 @@ async def main():
         await ven.wait_for_selector("#solaraFill", timeout=30000)
         check("in the Upload Agreement dialog the co-pilot finds the right customer behind the list",
               fx.NEW["billed_name"] in await ven.inner_text("#solaraPanel"))
-        await ven.click("#solaraFill")
+        try:   # a new screen fills by itself two seconds after it opens; the owner's own press does the same
+            await ven.click("#solaraFill", timeout=4000)
+        except Exception:
+            pass
         await ven.wait_for_selector("#solaraFilled")
         await shot(ven, "3-agreement-attached")
         check("cost filled and the signed agreement attached",

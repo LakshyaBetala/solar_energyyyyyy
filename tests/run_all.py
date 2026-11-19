@@ -5,7 +5,7 @@
 """
 import re, subprocess, sys
 
-SUITES = ["smoke", "ui", "closeout", "milestone1", "k1_complete", "validation", "k1_audit", "milestone2", "milestone3", "milestone4", "quotes",
+SUITES = ["smoke", "ui", "closeout", "milestone1", "k1_complete", "validation", "k1_audit", "milestone2", "milestone3", "milestone4", "quotes", "reading",
           "real_labels", "longevity", "live_mode"]
 total, failed = 0, []
 for s in SUITES:

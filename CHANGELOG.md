@@ -8,7 +8,7 @@ into every portal step and field: [docs/PRE_INSTALLATION_FIELDS.md](docs/PRE_INS
 
 The interns' `gemini-integrated` (AI reading of the bill, the client's own agreement and quotation
 templates, the island, the automatic application flow on the live consumer login) merged with
-`field-ready` (installation, DCR, Jan Samarth, MSEDCL, Today, the six milestones). 14 suites.
+`field-ready` (installation, DCR, Jan Samarth, MSEDCL, Today, the six milestones). 15 suites.
 
 ### Merged
 - **One panel.** The interns' automatic flow is the base; field-ready's vendor-side work is carried into
@@ -33,8 +33,11 @@ templates, the island, the automatic application flow on the live consumer login
 - `docs/ROADMAP.md`: what comes next, and the risks to settle.
 
 ### Changed, for safety
-- **The Aadhaar card is not sent to an AI model** unless `SOLARA_AI_AADHAAR=1` is set (the merged branch
-  sent it whenever an AI key was present).
+- **Reading the Aadhaar and the bill with AI.** With an AI key set, a bill photo is read by the model, and
+  what it was unsure of is flagged for the owner. An Aadhaar is read from its QR code first, on the computer;
+  only a card whose QR cannot be read goes to the model (the merged branch sent every card). The full number
+  that comes back is kept encrypted. `SOLARA_AI_AADHAAR=0` keeps every card on the computer. One model call
+  per version of a document; a model that fails leaves "not read", never a crash. `tests/reading.py`, 12 checks.
 - **Site facts are never guessed.** Roof load, shadow-free roof, "vendor visited" and the roof area are
   filled only from what was recorded for that customer (a default of Yes and 10 m2 per kW had crept in).
 - **Select Vendor** (a 45-day lock) and the **equipment certification** are pressed or ticked only with

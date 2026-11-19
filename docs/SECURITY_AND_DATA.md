@@ -54,9 +54,9 @@ that site, in that browser. Sites and taught boxes are listed, and forgotten, in
 - **Documents** (bill, Aadhaar, passbook, photos, signed papers, receipts) are encrypted on disk
   (Fernet: AES-128 with an HMAC) with `data/vault.key`. A backup never contains the key.
 - **Aadhaar**: read from the card's QR code on the computer; the number is masked on generated papers.
-  The card is **not sent to an AI model** unless `SOLARA_AI_AADHAAR=1` is set. With it set, the card's
-  image goes to the AI provider and the full number is kept, encrypted, for the people who file it.
-  Decide this with the client in writing first.
+  A card read in full from its QR is never sent anywhere. Only a card whose QR cannot be read (no QR in
+  the photo, a blurred one) goes to the AI provider, when an AI key is set; the full number that comes back
+  is kept encrypted. `SOLARA_AI_AADHAAR=0` keeps every card on the computer: the owner types what is missing.
 - **AI reading of the electricity bill** happens when an AI key is in the settings
   (`SOLARA_USE_AI=0` switches it off). The bill's image and text go to that provider.
 - **Map lookup**: latitude, longitude and urban/rural are found by sending the customer's address

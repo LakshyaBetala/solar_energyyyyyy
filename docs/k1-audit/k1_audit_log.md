@@ -1,6 +1,6 @@
 # KPI 1 audit test log
 
-Run 19 Nov 2026 20:31, `tests/k1_audit.py`. 119 of 119 cases pass.
+Run 19 Nov 2026 21:26, `tests/k1_audit.py`. 119 of 119 cases pass.
 
 | # | ID | Area | Input | Expected | Actual | Result |
 |---|---|---|---|---|---|---|
@@ -102,15 +102,15 @@ Run 19 Nov 2026 20:31, `tests/k1_audit.py`. 119 of 119 cases pass.
 | 96 | E2 | customer link | a viewer asks for a link | 403 | checked | PASS |
 | 97 | E2 | customer link | the customer sends the bill PDF | stored, read like an owner upload, and the page says received | (303, ['address', 'amount', 'avg_units', 'bill_mobile']) | PASS |
 | 98 | E2 | customer link | the page after the upload | the bill ticked, the Aadhaar asked for next; never the bill's contents | checked | PASS |
-| 99 | E2 | customer link | a document kind the link does not ask for | refused | /up/VHNlhJ1yINRXHUgqtkzZgsRV?err=type | PASS |
-| 100 | E2 | customer link | a wrong email | refused, nothing saved | /up/VHNlhJ1yINRXHUgqtkzZgsRV?err=email | PASS |
+| 99 | E2 | customer link | a document kind the link does not ask for | refused | /up/datoSpTp9v4b3GwP5dt34uKQ?err=type | PASS |
+| 100 | E2 | customer link | a wrong email | refused, nothing saved | /up/datoSpTp9v4b3GwP5dt34uKQ?err=email | PASS |
 | 101 | E2 | customer link | the customer types their email | saved on the record | link.c@example.com | PASS |
 | 102 | L2 | customer link | bill and email sent, Aadhaar not yet | one thing asked: the Aadhaar, step 2 of 3; not 'All done' | checked | PASS |
 | 103 | L1 | customer link | a link made while Solara runs on this computer | flagged: it will not open on the customer's phone | True | PASS |
 | 104 | L1 | customer link | SOLARA_PUBLIC_URL set to the internet address | links use that address | https://solara.example.in/up/abc | PASS |
 | 105 | L3 | dashboard | the dashboard's script file | the browser checks for a newer copy on every load | checked | PASS |
 | 106 | E2 | customer link | a made-up link | 404 | checked | PASS |
-| 107 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/VHNlhJ1yINRXHUgqtkzZgsRV?err=many | PASS |
+| 107 | E2 | customer link | the 31st file on one link | refused; the owner sends a new link | /up/datoSpTp9v4b3GwP5dt34uKQ?err=many | PASS |
 | 108 | E2 | customer link | after 7 days | 410, expired | checked | PASS |
 | 109 | E3 | co-pilot: My Application | a status Solara does not know, and a number on no customer | nothing marked; the status is reported | {'ok': True, 'updated': [], 'unknown': ['Something new (Pend | PASS |
 | 110 | E3 | co-pilot: My Application | the customer listed as 'Upload Agreement (Pending)' | marked accepted in Solara, no click | [{'id': 'SS-2070', 'name': 'List Customer', 'what': 'accepte | PASS |
