@@ -24,7 +24,7 @@ client's records and for whoever looks after Solara (terms deliverables 10 and 1
 
 ## What the panel does, and what it never does
 
-**Never:** type an OTP, CAPTCHA, password or Aadhaar number; tick a customer's declaration or consent;
+**Never:** type an OTP, CAPTCHA or password; tick a customer's declaration or consent;
 work around a portal's bot checks; fill a page that Solara already has as filed, or that has an open
 warning, without the owner pressing Fill.
 

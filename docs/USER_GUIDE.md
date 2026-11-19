@@ -68,7 +68,7 @@ phone → **Close-out**: six documents e-signed and uploaded on MSEDCL.
 - It fills the boxes it recognises and lists the rest under **boxes Solara does not know: teach it once**.
   Pick which of the customer's values goes in a box; it is filled, and remembered for that site.
 - On a site that is not one of the portals, click the **Solara button** in the browser toolbar first.
-- It never asks to be taught an OTP, CAPTCHA, password or Aadhaar number box.
+- It never asks to be taught an OTP, CAPTCHA or password box.
 
 ## When something goes wrong
 
@@ -98,7 +98,7 @@ If the panel says **Solara already has this filed**, check My Application before
 
 ## Rules Solara keeps
 
-- The OTP, CAPTCHA, passwords and the Aadhaar number are typed by a person only.
+- The OTP, CAPTCHA and passwords are typed by a person only. The Aadhaar number is filled from what Solara keeps (encrypted).
 - Every action is in the **Audit Trail**, with who and when.
 - Aadhaar is never sent to an AI model. Documents are stored encrypted.
 - Five wrong passwords lock that username for 15 minutes on that computer; a sign-in lasts 12 hours.
