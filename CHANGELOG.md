@@ -440,3 +440,32 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 
 ## Site Feasibility: nothing left to type
 - Shadow-free roof area defaults to 10 m² per kW (change per customer in Details); the visiting employee defaults to the vendor name, or `SOLARA_SITE_VISITOR_NAME` in `.env`.
+
+## One-go flow
+- After Select Vendor the extension signs out of the consumer login, opens the vendor login (you sign in), then opens My Applications, Upload Agreement and the Site Feasibility Report in order. State is kept in `chrome.storage` (`flow`), so it crosses both portals. Switch: "Run the whole flow in one go" in the options (on by default). Passwords, CAPTCHAs and OTPs are never typed by the extension.
+
+## Vendor dialogs submit themselves
+- Upload Agreement and Site Feasibility Report: when every field is filled and every document is attached (agreement PDF; roof photo and quotation PDF), the extension presses Submit once per application. If anything is missing or not accepted it says what and does not submit. Manual mode never submits.
+
+## Jan Samarth portal (first step)
+- The extension now loads on jansamarth.in. The general form filler, the island and the login mobile fill work there like on the PM Surya Ghar consumer side. Screens and loan-specific fields get named once seen on the real portal.
+
+## Loan fields for Jan Samarth
+- New customer fields in Details: loan amount and annual household income (rupees, never guessed). The extension maps "Loan amount" and "Annual income" boxes to them. Also fixed a stray comma in `registration.values()` that dropped the site-visited default.
+
+## Vendor dialogs find their customer; My Applications by route
+- Site Feasibility Report does not name its customer: the extension now reads the application number of the opened row behind the dialog (verified on the real My Application page) and looks that customer up, instead of asking "who" with an empty list. The flow opens My Applications by its route (`#/signed-in/my-application`), since the sidebar has icons only.
+
+## Merged smart-panel
+- Fast-forwarded gemini-integrated to smart-panel (20 commits: one panel, Jan Samarth steps, Aadhaar/PAN, desktop app, owner settings). My uncommitted work was reapplied on top: Site Feasibility standing answers and 10 m²/kW, loan amount and income, the one-go flow, vendor dialog submit, customer from the opened row. Tests adjusted to match (loan amount and income are now filled; site feasibility defaults). smart-panel's "Select Vendor is left for you" is kept, so the flow hands over to the vendor only if Select Vendor was pressed by the extension.
+
+## Jan Samarth financial details
+- Details now asks for gross annual income (before deductions) and net annual income (take-home), both in rupees, next to the loan amount. The extension fills Jan Samarth's "Gross annual income" and "Net annual income" boxes from them.
+
+## Jan Samarth: "Please complete your financial details"
+- The extension recognises this screen and fills Gross annual income and Net annual income at once (no 2-second wait). It does not press Proceed.
+- Fixed two regexes that had a raw backspace character instead of `\b` (a box whose placeholder only says "Enter Amount" now takes its name from the words beside it; the sample-application-number check in `shapeKey` matches again).
+- Jan Samarth income boxes: the real page names them `grossMonthlyIncome` / `netMonthlyIncome` (the labels say annual), so the rules now accept those names; checked against the real page's field names.
+
+## Quotation 225000
+- Bank Quotation - 225000 is in the quotation folder, so it is in the installation-cost dropdown and the quotation/agreement use that file; the built-in fallback list has 225000 too.

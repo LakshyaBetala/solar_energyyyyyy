@@ -32,7 +32,7 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("last 4 digits of aadhaar number", PLAIN, False, NEVER), ("aadhaarno", PLAIN, False, "aadhaar"),
     # banks: nothing on a loan form, except on the step that asks for the customer's own account
     ("bank name", LOAN, False, NEVER), ("ifsc code", LOAN, False, NEVER), ("select bank", LOAN, False, NEVER), ("bank", LOAN, False, NEVER),
-    ("preferred bank", LOAN, False, NEVER), ("account number", LOAN, False, NEVER), ("loan amount", LOAN, False, NEVER),
+    ("preferred bank", LOAN, False, NEVER), ("account number", LOAN, False, NEVER), ("loan amount", LOAN, False, "loan_amount"),
     ("bank name", LOAN, True, "bank_name"), ("ifsc code", LOAN, True, "ifsc"), ("account holder name", LOAN, True, "account_holder"),
     ("account type", LOAN, True, "account_type"), ("account number", LOAN, True, NEVER),
     ("bank name", PLAIN, False, "bank_name"), ("ifsc", PLAIN, False, "ifsc"), ("account number", PLAIN, False, NEVER),
@@ -60,7 +60,7 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("solar roof top application id", LOAN, False, "application_no"), ("discom consumer id", LOAN, False, "consumer_no"),
     ("first name", LOAN, False, "first_name"), ("middle name", LOAN, False, "middle_name"), ("last name", LOAN, False, "last_name"),
     ("father first name", LOAN, False, UNKNOWN), ("name of lender", LOAN, False, NEVER), ("project cost", LOAN, False, "rts_cost"),
-    ("required loan amount", LOAN, False, NEVER), ("gross annual income", LOAN, False, UNKNOWN),
+    ("required loan amount", LOAN, False, "loan_amount"), ("gross annual income", LOAN, False, "annual_income"), ("net annual income", LOAN, False, "net_income"), ("enter amount gross monthly income", LOAN, False, "annual_income"), ("enter amount net monthly income", LOAN, False, "net_income"),
 ]
 
 RUN = """([table, cases]) => {

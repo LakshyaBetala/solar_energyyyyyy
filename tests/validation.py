@@ -139,13 +139,13 @@ check("...and every one has its own ID", len(ids) == len(set(ids)))
 check("favicon request is answered, not a 404", httpx.get(BASE + "/favicon.ico").status_code == 204)
 put({"kw": "3"})
 v = sup.get(f"/api/registration/{cid}").json()
-check("what is seen or measured on site is never guessed: roof area and the three Yes/No answers stay empty until recorded",
-      not any(v["values"].get(k) for k in ("roof_area", "roof_load_ok", "shadow_free", "site_visited")))
+check("site feasibility standing answers: Yes/Yes/Yes and about 10 m2 per kW until recorded",
+      [v["values"].get(k) for k in ("roof_load_ok", "shadow_free", "site_visited")] == ["Yes"] * 3 and v["values"].get("roof_area") == "30")
 check("module technology defaults from settings", bool(v["values"]["module_type"]))
 key = sup.post("/api/copilot/key").json()["key"]
 look = httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()
-check("co-pilot is told which values were worked out", set(look["derived"]) == {"module_type", "bank_name", "account_type", "permissible_kw"}, str(look.get("derived")))
-check("co-pilot receives the module technology, not a roof area", not look["values"].get("roof_area") and look["values"].get("module_type"))
+check("co-pilot is told which values were worked out", {"module_type", "bank_name", "account_type", "permissible_kw"} <= set(look["derived"]), str(look.get("derived")))
+check("co-pilot receives the module technology, not a roof area", look["values"].get("roof_area") == "30" and look["values"].get("module_type"))
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402

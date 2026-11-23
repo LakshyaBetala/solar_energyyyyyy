@@ -55,6 +55,9 @@
     [/\bname of (the )?(company|firm|organi[sz]ation|institution|employer|bank|branch|village|town|city|post office)\b|\b(company|firm|organi[sz]ation|institution) name\b/, undefined],
     [/address line ?(2|3|two|three)\b|\bline ?(2|3)\b|\blandmark\b/, undefined],
     [/\bpan( card)? (no|number)\b|permanent account/, 'pan'],          // read from the PAN card; the loan forms ask for it
+    [/net (annual |monthly )?income|take home income|income after (all )?deductions/, 'net_income'],   // Jan Samarth names the boxes grossMonthlyIncome / netMonthlyIncome though the page says annual
+    [/loan amount|amount of loan|loan required|required loan|loan applied/, 'loan_amount'],
+    [/(annual|gross) (household |family |monthly )?income|yearly income|income per (year|annum)/, 'annual_income'],
     [/roof has enough load|load bearing|roof ?load/, 'roof_load_ok'],
     [/shadow ?free roof area|roof area/, 'roof_area'],
     [/shadow ?free roof|availability of shadow/, 'shadow_free'],
@@ -245,10 +248,11 @@
       while (h && !/^H[1-6]$/.test(h.tagName) && !h.querySelector('h1,h2,h3,h4,h5,h6')) h = h.previousElementSibling;
       if (h) t.push(h.innerText);
     }
-    if (!t.length) {   // no label, no name: the words just before the box name it
-      let q = el;
-      for (let i = 0; i < 3 && q && !t.length; i++, q = q.parentElement) {
-        for (let sib = q.previousSibling; sib && !t.length; sib = sib.previousSibling) {
+    // a box that only says "Enter Amount" names nothing either: the words beside it do (Jan Samarth's income boxes)
+    if (!t.length || t.every(x => !x.trim() || /^\s*(enter|type|select|choose|please)\b/i.test(x))) {   // no label, no name: the words just before the box name it
+      let q = el; const n0 = t.length;
+      for (let i = 0; i < 3 && q && t.length === n0; i++, q = q.parentElement) {
+        for (let sib = q.previousSibling; sib && t.length === n0; sib = sib.previousSibling) {
           const s = (sib.textContent || '').trim(); if (s && s.length < 60) t.push(s);
         }
       }
@@ -263,7 +267,7 @@
     const ph = el.placeholder || '', ac = (el.getAttribute('autocomplete') || '').toLowerCase();
     if (el.type === 'email' || ac === 'email') return 'email';
     if (el.type === 'tel' || ac === 'tel' || ac === 'tel-national') return 'mobile';
-    if (/NP[-\/]/.test(ph)) return 'application_no';          // "NP-AAAAA00000-00000": the PM Surya Ghar application
+    if (/\bNP[-\/]/.test(ph)) return 'application_no';          // "NP-AAAAA00000-00000": the PM Surya Ghar application
     if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ph.trim())) return 'ifsc';    // a sample IFSC
     if (ac === 'postal-code') return 'pin';
     if (ac === 'bday') return 'dob';
@@ -1265,6 +1269,12 @@
   const running = async () => { const { run, vendorFills } = await store.get({ run: null, vendorFills: true });
     return run && Date.now() - run.at < 60 * 60 * 1000 ? { run, vendorFills } : null; };
 
+  // On the vendor's My Application a dialog (Site Feasibility Report) does not name its customer; the application whose row is opened behind it does.
+  const openRowApp = () => {
+    const hits = [...document.querySelectorAll('tbody tr')].filter(r => visible(r) && !panel.contains(r)).filter(r => { const n = r.nextElementSibling; return n && visible(n) && [...n.querySelectorAll('button')].some(b => /^\s*action\s*$/i.test(b.innerText || '')); })
+      .map(r => ((r.innerText || '').match(/\bNP-[A-Z0-9]+-\d{6,}\b/) || [])[0]).filter(Boolean);
+    return hits.length === 1 ? hits[0] : '';
+  };
   async function scan() {
     const my = ++scanId;
     panel.dataset.scans = String(my);
@@ -1287,7 +1297,7 @@
     }
     const step = stepOf(root);
     const consumer = labelled('Consumer Number', root, /^\d{9,14}$/) || one(/\b\d{12}\b/g, root);
-    let app = labelled('Application Number', root, /^NP-/) || one(NP, root);
+    let app = labelled('Application Number', root, /^NP-/) || one(NP, root) || (root !== document.body && /^vendor\./.test(location.host) ? openRowApp() : '');
     const fields = [...root.querySelectorAll('input,select,textarea')].filter(el => visible(el) &&
       !['hidden', 'checkbox', 'submit', 'button', 'password'].includes(el.type));
     const result = /generated successfully|reference no|in-principle/i.test(root.innerText);
@@ -1454,6 +1464,7 @@
 
   // fixed words of each screen of the portal: a screen is "known" only when most of its words are on the page
   const SCREENS = [
+    ['Financial details', [/complete your financial details/i, /gross annual income/i, /net annual income/i]],   // Jan Samarth
     ['Details of Applicant', [/details of applicant/i, /name as per electricity bill/i, /\bgender\b/i, /type of location/i, /pin ?code/i]],
     ['Electricity Distribution Company Details', [/electricity distribution company details/i, /consumer (account )?(no|number)|ca no/i]],
     ['Site Feasibility Report', [/site feasibility report/i, /roof has enough load|load bearing/i, /shadow ?free roof/i, /permissible rts installation capacity|permissible/i, /quotation (amount|document)/i]],
@@ -1811,6 +1822,23 @@
       }
       ISL.phase = 'waiting';
       if (!showErrors()) tip(left.length ? `Filled ${filled}. ${left.length} left for you.` : `Filled ${filled}${attached ? ' and attached ' + attached : ''}. Check it, then press <b>Next</b>.`, left.length ? 'warn' : 'ok');
+      // The vendor's two dialogs (Upload Agreement, Site Feasibility Report): when everything is filled and every document is attached, press Submit once.
+      const sc0 = /^vendor\./.test(location.host) ? screenOf(root) : null;
+      if (sc0 && /^(Upload Agreement|Site Feasibility Report)$/.test(sc0.name) && MODE !== 'manual') {
+        const files = [...root.querySelectorAll('input[type=file]')], skey = 'solaraSubmit:' + sc0.name + ':' + (c.application_no || c.customer_id);
+        const sub = [...root.querySelectorAll('button')].find(b => visible(b) && /^\s*submit\s*$/i.test((b.innerText || '').trim()));
+        if (left.length || failed.length || fallbackItems.length) tip(`${sc0.name}: not submitted. ${left.length + failed.length + fallbackItems.length} item(s) need you first.`, 'warn');
+        else if (files.some(f => !f.files.length)) tip(`${sc0.name}: a document is not attached yet. Not submitted.`, 'warn');
+        else if (!sub) tip(`${sc0.name}: filled. I cannot see the Submit button.`, 'warn');
+        else if (sessionStorage.getItem(skey)) tip(`${sc0.name}: already submitted once. Press Submit yourself if it is still open.`, 'idle');
+        else {
+          sessionStorage.setItem(skey, String(Date.now()));
+          for (let i = 0; i < 20 && sub.disabled; i++) await sleep(300);
+          tip(`${sc0.name}: filled and attached. Submitting…`, 'busy', 0, 0.9); await sleep(1200); sub.click();
+          const gone = await waitFor(() => !document.contains(root) || !visible(root), 8000);
+          tip(gone ? `${sc0.name}: submitted.` : `${sc0.name}: Submit pressed; the portal still shows the box. Check it for an error.`, gone ? 'ok' : 'warn');
+        }
+      }
       setTimeout(() => { if (!left.length && !fallbackItems.length && ISL.phase === 'waiting') { ISL.open = false; islandRender(); } }, 3500);
       // the portal's own buttons stay reachable: an open island that sits on Submit or a declaration box folds to its pill
       setTimeout(() => { if (ISL.phase === 'waiting' && ISL.open && islandCovers(true)) { ISL.open = false; islandRender(); } }, 700);
@@ -1914,6 +1942,12 @@
     c = fresh(rec.cid);
     if (!c) { const r = await ask({ type: 'lookup', cid: rec.cid }); if (r && r.ok) c = keep(rec.cid, r.data); }
     if (!c || !c.application_no || !(document.body.innerText || '').includes(c.application_no)) return;
+    const fl = (await store.get({ flow: null })).flow;
+    if (fl && fl.step === 'applications' && !fl.agr && MODE !== 'manual') {   // the flow: the agreement first
+      sfrBusy = true;
+      try { await store.set({ flow: { ...fl, agr: Date.now() } }); tip('Opening Upload Agreement…', 'busy', 0, 0.2); if (!(await openVendorAction(c, /^\s*upload agreement\s*$/i))) tip('I could not open Upload Agreement. Use Action on the application.', 'warn'); } catch (err) { /* newer copy */ } finally { sfrBusy = false; }
+      return;
+    }
     const key = 'solaraSFR:' + c.application_no;
     if (Date.now() - (+sessionStorage.getItem(key) || 0) < 600000) return;
     sfrBusy = true;
@@ -1926,6 +1960,7 @@
       }
       tip('Opening the Site Feasibility Report…', 'busy', 0, 0.2);
       const ok = await openFeasibility(c);
+      if (ok && fl) store.remove('flow');   // the flow ends here
       if (!ok) tip('I could not open the Site Feasibility Report. Use Action on the application.', 'warn');
     } catch (err) { if (!/newer copy/.test(err && err.message)) tip('Site Feasibility: ' + esc((err && err.message) || err), 'warn'); } finally { sfrBusy = false; }
   }, 1800);
@@ -2030,8 +2065,34 @@
       ISL.phase = 'waiting'; if (ok) sessionStorage.setItem(key, String(Date.now()));
       tip(ok === 'wait' ? 'Your company is found. Press <b>Select Vendor</b> yourself: it cannot be changed for 45 days.'
         : ok ? 'Vendor selected. Continue on the next screen.' : 'I could not select the vendor by myself. Do it on the page.', ok === true ? 'ok' : 'warn');
+      if (ok === true && (await store.get({ flowOn: true })).flowOn) handToVendor();
     } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
   }, 600);
+  // ---------- the whole flow in one go ----------
+  // consumer login -> details -> Next -> Select Vendor -> (here) sign out -> vendor login -> My Applications -> Upload Agreement -> Site Feasibility Report.
+  // The state lives in chrome.storage (shared by both portals). Passwords, CAPTCHAs and OTPs are always the person's.
+  const VENDOR_HOME = 'https://vendor.pmsuryaghar.gov.in/';
+  const clickable = re => [...document.querySelectorAll('a,button,li,span,div,p-button')].filter(e => visible(e) && !panel.contains(e) && re.test((e.innerText || '').trim()) && (e.innerText || '').length < 40).pop();
+  async function handToVendor() {
+    await store.set({ flow: { step: 'vendor-login', at: Date.now() } });
+    tip('Vendor selected. Signing out of the consumer login…', 'busy', 0, 0.8);
+    await sleep(2500);
+    let out = clickable(/^\s*(log ?out|sign ?out)\s*$/i);
+    if (!out) { const me = clickable(/^\s*(profile|my profile|account)\s*$/i) || document.querySelector('.p-avatar,.profile,[class*=user-menu],[class*=avatar]'); if (me) { me.click(); await sleep(700); out = clickable(/^\s*(log ?out|sign ?out)\s*$/i); } }
+    if (out) { out.click(); const yes = await waitFor(() => [...document.querySelectorAll('button')].find(b => visible(b) && !panel.contains(b) && /^\s*(yes|ok|confirm|log ?out|sign ?out)\s*$/i.test((b.innerText || '').trim())), 2500); if (yes) yes.click(); await sleep(1500); }
+    else tip('I could not find Logout on the consumer side. Going to the vendor login anyway.', 'warn', 3000);
+    location.href = VENDOR_HOME;
+  }
+  setInterval(async () => {
+    if (!isOwner() || !/^vendor\./.test(location.host)) return;
+    const fl = (await store.get({ flow: null })).flow; if (!fl || fl.step !== 'vendor-login') return;
+    if (Date.now() - fl.at > 3 * 3600000) { await store.remove('flow'); return; }
+    if (!/signed-in/i.test(location.href)) { if (!sessionStorage.getItem('solaraFlowTold')) { sessionStorage.setItem('solaraFlowTold', '1'); ISL.open = true; ISL.fresh = true; tip('Vendor login: sign in yourself (password, CAPTCHA, OTP). I continue the moment you are in.', 'idle'); } return; }
+    if (!/#\/signed-in\/my-application/i.test(location.href)) { await store.set({ flow: { ...fl, step: 'applications', at: Date.now() } }); tip('Signed in. Opening My Applications…', 'busy', 0, 0.3); location.hash = '#/signed-in/my-application'; return; }   // the sidebar is icons only: the route is used
+    const link = { click() {} };
+    await store.set({ flow: { ...fl, step: 'applications', at: Date.now() } });
+    tip('Signed in. Opening My Applications…', 'busy', 0, 0.3); link.click();
+  }, 2000);
   // The island's button: search the vendor and press Select Vendor now, whatever the earlier tries did.
   async function runVendorNow() {
     if (vendorBusy) return;
@@ -2045,6 +2106,7 @@
       const ok = (await vendorSearchStep(term)) && (await vendorSelectStep(term, true));
       ISL.phase = 'waiting'; if (ok) sessionStorage.setItem('solaraVendor:' + location.href, String(Date.now()));
       tip(ok ? 'Vendor selected. Continue on the next screen.' : 'I could not find or select the vendor. Check the search box, or do it on the page.', ok ? 'ok' : 'warn');
+      if (ok === true && (await store.get({ flowOn: true })).flowOn) handToVendor();
     } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
   }
   // ---------- consumer login: the mobile number is filled for the chosen customer; the CAPTCHA and the OTP are the person's ----------
@@ -2056,7 +2118,7 @@
   };
   let loginBusy = false, loginAsked = false;
   setInterval(async () => {
-    if (loginBusy || !isOwner() || !/^consumer\./.test(location.host) || /signed-in/i.test(location.href)) return;
+    if (loginBusy || !isOwner() || !/^consumer\.|jansamarth\.in$/.test(location.host) || /signed-in/i.test(location.href)) return;
     const b = loginBoxes(); if (!b) { loginAsked = false; return; }
     const key = 'solaraLogin:' + location.href;
     if (Date.now() - (+sessionStorage.getItem(key) || 0) < 120000) return;
@@ -2103,13 +2165,21 @@
     const sig = sc.name + '|' + location.href; if (screensDone.has(sig)) return;
     watchBusy = true;
     try {
-      if (!(await recalled()) && sc.name !== 'Upload Agreement') return;   // the Upload Agreement dialog names its own customer
+      if (!(await recalled()) && sc.name !== 'Upload Agreement' && !openRowApp()) return;   // the Upload Agreement dialog names its own customer
       screensDone.add(sig);
       if (MODE === 'manual') { await scan(); return; }
-      ISL.phase = 'filling'; tip(`Found <b>${esc(sc.name)}</b>. Filling in 2 seconds…`, 'busy', 0, 0.05);
-      await sleep(2000);
+      const quick = sc.name === 'Financial details';   // two amount boxes: no waiting
+      ISL.phase = 'filling'; tip(quick ? `Found <b>${esc(sc.name)}</b>. Filling…` : `Found <b>${esc(sc.name)}</b>. Filling in 2 seconds…`, 'busy', 0, 0.05);
+      await sleep(quick ? 250 : 2000);
       if (!screenOf(document.body)) { screensDone.delete(sig); return; }
       if (fillBusy || busy || panel.querySelector('#solaraFilled') || panel.dataset.marked) return;   // the owner pressed Fill meanwhile: theirs stands
+      if (quick) {   // the income boxes: the amounts are per customer, kept in Solara's Details; say plainly when they are not there yet
+        const rec = await recalled(), r = rec && await ask({ type: 'lookup', cid: rec.cid }), v = (r && r.ok && r.data.values) || {};
+        if (r && r.ok && !(v.annual_income && v.net_income)) {
+          ISL.open = true; ISL.fresh = true;
+          tip(`${esc(r.data.name || 'This customer')}: ${[!v.annual_income && 'gross annual income', !v.net_income && 'net annual income'].filter(Boolean).join(' and ')} not in Solara yet. Enter it in Details, then press Fill.`, 'warn');
+        }
+      }
       afterNextGo = true; await scan();
       setTimeout(() => { afterNextGo = false; }, 6000);
     } catch (err) { /* a newer copy took over */ } finally { watchBusy = false; }

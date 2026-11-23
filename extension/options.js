@@ -1,10 +1,10 @@
 const $ = id => document.getElementById(id);
-const DEFAULTS = { url: 'http://127.0.0.1:8900', key: '', mode: 'auto', vendorSearch: '', vendorFills: true, autoSubmit: false, certify: false, classic: false, speed: 'fast', islandV: 'top', islandH: 'center', panelV: 'bottom', panelH: 'right', gap: 14 };
+const DEFAULTS = { url: 'http://127.0.0.1:8900', key: '', mode: 'auto', vendorSearch: '', vendorFills: true, autoSubmit: false, certify: true, flowOn: true, classic: false, speed: 'fast', islandV: 'top', islandH: 'center', panelV: 'bottom', panelH: 'right', gap: 14 };
 const POS = ['islandV', 'islandH', 'panelV', 'panelH', 'speed'];
 
 chrome.storage.local.get(DEFAULTS, v => {
   $('url').value = v.url; $('key').value = v.key;
-  ['vendorFills', 'autoSubmit', 'classic', 'certify'].forEach(k => { $(k).checked = !!v[k]; });
+  ['vendorFills', 'autoSubmit', 'classic', 'certify', 'flowOn'].forEach(k => { $(k).checked = !!v[k]; });
   $('vendorSearch').value = v.vendorSearch;
   $('mode_' + (v.mode === 'manual' ? 'manual' : 'auto')).checked = true;
   POS.forEach(k => { $(k).value = v[k]; }); $('gap').value = v.gap; $('gapv').textContent = v.gap;
@@ -17,7 +17,7 @@ $('show').onclick = () => { const k = $('key'); const hide = k.type === 'text'; 
 // the switches save as they are flipped
 ['mode_auto', 'mode_manual'].forEach(id => { $(id).onchange = () => chrome.storage.local.set({ mode: $(id).value }); });
 $('vendorSearch').oninput = () => chrome.storage.local.set({ vendorSearch: $('vendorSearch').value.trim() });
-['vendorFills', 'autoSubmit', 'classic', 'certify'].forEach(k => { $(k).onchange = () => chrome.storage.local.set({ [k]: $(k).checked }); });
+['vendorFills', 'autoSubmit', 'classic', 'certify', 'flowOn'].forEach(k => { $(k).onchange = () => chrome.storage.local.set({ [k]: $(k).checked }); });
 
 $('save').onclick = async () => {
   const url = $('url').value.trim().replace(/\/+$/, ''), key = $('key').value.trim();

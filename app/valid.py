@@ -5,7 +5,7 @@ import re, unicodedata
 from decimal import Decimal, InvalidOperation
 
 # The installation costs on the vendor's price list: nothing else is ever entered. Typing is allowed, but it must match one.
-COST_OPTIONS = (125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000)
+COST_OPTIONS = (125000, 143000, 170000, 185000, 200000, 220000, 225000, 240000, 250000, 300000)
 cost_options = lambda: COST_OPTIONS   # registration.py replaces this with the quotations on file, so a new one counts at once
 KW_MIN, KW_MAX = 0.5, 10
 

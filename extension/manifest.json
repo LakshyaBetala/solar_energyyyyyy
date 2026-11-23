@@ -28,6 +28,7 @@
         "https://consumer.pmsuryaghar.gov.in/*",
         "https://solardcrportal.nise.res.in/*",
         "https://www.jansamarth.in/*",
+        "https://*.jansamarth.in/*",
         "https://jansamarth.in/*",
         "http://127.0.0.1:8900/msedcl/*",
         "http://127.0.0.1:8900/portal/*",

@@ -131,8 +131,9 @@ def values(cid):
             "location_type": d.get("location_type") or None, "ulb": d.get("ulb") or None, "taluka": d.get("taluka") or None,
             "panchayat": d.get("panchayat") or None,
             # the site feasibility form: facts measured or seen on site are never guessed; the permissible capacity defaults to the proposed one
-            "roof_load_ok": d.get("roof_load_ok") or None, "shadow_free": d.get("shadow_free") or None,
-            "site_visited": d.get("site_visited") or None, "roof_area": d.get("roof_free_area") or None,
+            "roof_load_ok": d.get("roof_load_ok") or "Yes", "shadow_free": d.get("shadow_free") or "Yes",   # the owner's standing answers; change them per customer in Details
+            "roof_area": d.get("roof_free_area") or (f"{c['kw'] * 10:g}" if c["kw"] else None), "site_visited": d.get("site_visited") or "Yes",   # roof area: standing rule of about 10 m2 per kW
+            "loan_amount": d.get("loan_amount") or None, "annual_income": d.get("annual_income") or None, "net_income": d.get("net_income") or None,   # Jan Samarth: asked of the customer, never guessed
             "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
             "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or vendor()["name"],
             "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
@@ -293,6 +294,12 @@ def save_details(cid, body, user):
     for k in ("roof_load_ok", "shadow_free", "site_visited"):
         if k in body:
             rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
+    for k in ("loan_amount", "annual_income", "net_income"):
+        if k in body:
+            t = re.sub(r"(?i)^\s*(rs\.?|inr|₹)\s*", "", valid.text(body[k], k.replace("_", " "))).replace(",", "").strip()
+            if t and not re.match(r"^\d{1,9}(\.\d{1,2})?$", t):
+                raise ValueError(f"the {k.replace('_', ' ')} is an amount in rupees, e.g. 250000")
+            rest[k] = t
     if "roof_free_area" in body:
         t = valid.text(body["roof_free_area"], "roof area").strip()
         if t and not re.match(r"^\d{1,5}(\.\d{1,2})?$", t):

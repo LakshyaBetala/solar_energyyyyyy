@@ -103,7 +103,7 @@ def vendor():
     """The installer named on generated documents, from .env (read late: .env loads after
     this module). The public repo never carries a client's identity."""
     import os
-    return {"name": os.environ.get("SOLARA_VENDOR_NAME") or (live() and vendor_on_draft()) or "Demo Solar Solutions Pvt Ltd",
+    return {"name": os.environ.get("SOLARA_VENDOR_NAME") or (live() and vendor_on_draft()) or "Solarsea Electrotech Solutions Pvt Ltd",
             "signatory": os.environ.get("SOLARA_VENDOR_SIGNATORY", "Authorised Signatory"),
             # the demo shows a placeholder so the customer page's help line is visible; live uses the real one or none
             "phone": os.environ.get("SOLARA_VENDOR_PHONE") or ("" if live() else "+91 90000 00000")}

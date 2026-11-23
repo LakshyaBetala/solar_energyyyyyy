@@ -691,7 +691,7 @@ const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).pad
 const VD = ['0123456789', '1234067895', '2340178956', '3401289567', '4012395678', '5987604321', '6598710432', '7659821043', '8765932104', '9876543210'];
 const VP = ['0123456789', '1576283094', '5803796142', '8916043527', '9453126870', '4286573901', '2793806415', '7046913258'];
 const verhoeff = n => { let c = 0; [...n].reverse().forEach((ch, i) => { c = +VD[c][+VP[i % 8][+ch]]; }); return c === 0; };
-const COST_LIST = [125000, 143000, 170000, 185000, 200000, 220000, 240000, 250000, 300000];
+const COST_LIST = [125000, 143000, 170000, 185000, 200000, 220000, 225000, 240000, 250000, 300000];
 const costOpts = () => { const q = (S.quoteList && S.quoteList.quotes) || (S.regData && S.regData.quotes) || []; return q.length ? q.map(x => +x.amount) : COST_LIST; };
 const loadQuotes = () => api('/quotes').then(q => { S.quoteList = q; }).catch(() => {});
 const rupees = n => 'Rs ' + (+n).toLocaleString('en-IN');
@@ -714,6 +714,9 @@ const REG_RULES = {
   roof_load_ok: { hint: 'Site feasibility form. Seen on site, never guessed', max: 4, check: () => '' },
   shadow_free: { hint: 'Site feasibility form', max: 4, check: () => '' },
   site_visited: { hint: 'Site feasibility form', max: 4, check: () => '' },
+  loan_amount: { hint: 'Jan Samarth: the loan the customer asks for, in rupees', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 250000' },
+  net_income: { hint: 'Jan Samarth: take-home income after all deductions, in rupees', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 350000' },
+  annual_income: { hint: 'Jan Samarth: gross yearly income, before deductions, in rupees', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 400000' },
   roof_free_area: { hint: 'Square metres, measured on site (about 10 per kW)', max: 8, mode: 'decimal', check: v => !v ? '' : /^\d{1,5}(\.\d{1,2})?$/.test(v.trim()) ? '' : 'A number, e.g. 30 or 32.5' },
   permissible_kw: { hint: 'Defaults to the proposed capacity; the portal asks it', max: 6, mode: 'decimal', check: v => !v ? '' : /^\d+(\.\d+)?$/.test(v.trim()) && +v >= 0.5 && +v <= 10 ? '' : '0.5 to 10' },
   sfr_visitor: { hint: 'The vendor employee who went to the site', max: 60, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
@@ -752,6 +755,7 @@ const REG_FIELDS = [['name', 'Customer name'], ['mobile', 'Mobile'], ['email', '
   ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['district', 'District'], ['aadhaar', 'Aadhaar'], ['pan', 'PAN (optional)'],
   ['gender', 'Gender'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['lat', 'Latitude'], ['lng', 'Longitude'], ['ulb', 'Urban local body (if Urban)'], ['taluka', 'Block / taluka (if Rural)'], ['panchayat', 'Village panchayat (if Rural)'],
   ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
+  ['loan_amount', 'Loan amount (Rs, Jan Samarth)'], ['annual_income', 'Gross annual income (Rs, Jan Samarth)'], ['net_income', 'Net annual income (Rs, Jan Samarth)'],
   ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number']];
 const REG_SEL = { roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
 // Chrome's autofill fills every phone box on a page at once: picking a number for the visitor also overwrote the
@@ -919,7 +923,7 @@ VIEWS.reg = () => {
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
   const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, pan: d.pan, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+    rts_cost: d.rts_cost, district: d.district, pan: d.pan, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, loan_amount: d.loan_amount, annual_income: d.annual_income, net_income: d.net_income, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
   const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="field" style="margin-bottom:14px"><label>Company signature <span class="sub">(Second Party: uploaded once, on every customer's agreement)</span></label>
