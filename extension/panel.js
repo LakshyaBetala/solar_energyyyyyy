@@ -39,7 +39,7 @@
   // first match wins; null means "never touch". A third element limits a rule to pages whose text
   // matches it. Labels are the client's real screens (tests/real_labels.py checks every one).
   // boxes whose value never leaves the browser: not read, not filled, blanked in every receipt
-  const SECRET = /otp|captcha|human check|password|security code|verification code|aadha?ar ?(no|number|card)|\buid\b|virtual id/;
+  const SECRET = /otp|captcha|human check|password|security code|verification code|aadha?ar ?(no|number|card)|\buid\b|virtual id|bank account (no|number)|confirm (bank )?account/;
   const RULES = [
     [/otp|captcha|human check|password|security code|verification code/, null],
     // The Aadhaar number Solara keeps, encrypted, from the card. A box that only mentions it ("mobile linked with Aadhaar
@@ -48,12 +48,20 @@
     [/\blast ?(4|four)\b.*aadha?ar|aadha?ar.*\blast ?(4|four)\b/, null],
     [/^(?!.*\b(mobile|phone|e ?mail|name|address|last|digits?|co ?applicant|co ?borrower|joint|guarantor|spouse|husband|wife|father|mother|guardian|nominee|witness)\b).*\baadha?ar ?(no|number|card number|card no)\b/, 'aadhaar'],
     [/virtual (id|no)|\bvid\b|\buid\b/, null],                              // the 16-digit stand-in is the customer's to give
+    [/jan ?samarth id/, 'jansamarth_id'],                                // the bank's loan login
+    [/(want|wish|like) to add (a |any )?co ?applicant/, 'co_applicant'],  // the Yes/No question; the row itself stays the person's
     // Somebody else's details, a second contact, a further address line: Solara holds the customer's own, once. These are
     // left for the person (undefined: not known, so the box can still be taught), before the rules below would see only
     // "name", "mobile", "address", "PAN" or "date of birth" in the label.
     [/\b(co ?applicant|co ?borrower|joint applicant|guarantor|spouse|husband|wife|father|mother|guardian|nominee|employer|witness|referee|alternate|alternative|secondary|landline|office)\b/, undefined],
     [/\bname of (the )?(company|firm|organi[sz]ation|institution|employer|bank|branch|village|town|city|post office)\b|\b(company|firm|organi[sz]ation|institution) name\b/, undefined],
-    [/address line ?(2|3|two|three)\b|\bline ?(2|3)\b|\blandmark\b/, undefined],
+    [/address line ?(2|3|two|three)\b|\bline ?(2|3)\b/, undefined],
+    [/\blandmark\b/, 'landmark'],
+    [/collateral/, 'collateral'],
+    [/address (is )?same as|same as (above|permanent|aadhaar|current)/, 'address_same'],
+    [/house ownership|ownership of (the )?house|ownership type/, 'house_ownership'],
+    [/occupation/, 'occupation'],
+    [/own contribution|margin money|down ?payment/, 'own_contribution'],
     [/\bpan( card)? (no|number)\b|permanent account/, 'pan'],          // read from the PAN card; the loan forms ask for it
     [/net (annual |monthly )?income|take home income|income after (all )?deductions/, 'net_income'],   // Jan Samarth names the boxes grossMonthlyIncome / netMonthlyIncome though the page says annual
     [/loan amount|amount of loan|loan required|required loan|loan applied/, 'loan_amount'],
@@ -77,12 +85,14 @@
     // On a loan form the bank is the customer's pick: every bank box is left alone, except on the step that plainly asks
     // for the customer's OWN account ("Bank Account Details"), where the passbook's IFSC, bank and holder are filled.
     [/\bbank\b|ifsc|lender/, null, pg => /jan ?samarth|loan/.test(pg) && !ownAccountStep()],
-    [/account (no|number)/, null, /bank|ifsc|jan ?samarth|loan/],               // Solara keeps it masked: the customer types it
+    [/account (no|number)/, 'bank_account', () => ownAccountStep()],   // the customer's own account, kept encrypted in Solara
+    [/account (no|number)/, null, /bank|ifsc|jan ?samarth|loan/],               // anywhere else on a loan: the person's
     [/mobile|phone/, 'mobile'],
     [/e ?mail/, 'email'],
     [/type of location|location type/, 'location_type'],   // Urban / Rural
     [/urban local ?bod/, 'ulb'],
-    [/development block|taluka/, 'taluka'],
+    [/development block|taluka|sub ?district|tehsil/, 'taluka'],
+    [/^village\b|\bvillage$/, 'village'],
     [/panchayat/, 'panchayat'],
     [/latitude/, 'lat'],
     [/longitude/, 'lng'],
@@ -152,7 +162,8 @@
   // a box that takes the Aadhaar number, or a part of it: told by the same rule that fills it, so a portal that hides it
   // like a password (Jan Samarth) is still filled, and a real password box never is
   const aadBox = el => !['radio', 'checkbox', 'hidden', 'file', 'submit', 'button'].includes(el.type) && ruleFor(labelOf(el)) === 'aadhaar';
-  const humanOnly = el => !aadBox(el) && (el.type === 'password' ||
+  const keptBox = el => aadBox(el) || (!['radio', 'checkbox', 'hidden', 'file', 'submit', 'button'].includes(el.type) && ruleFor(labelOf(el)) === 'bank_account');
+  const humanOnly = el => !keptBox(el) && (el.type === 'password' ||
     HUMAN_ONLY.test([el.id, el.name, el.autocomplete, el.getAttribute('aria-label'), el.placeholder].join(' ')));
   const CUSTOM = '[role=combobox],[role=listbox],mat-select,.mat-select,.ng-select,.select2-selection,.dropdown-toggle';
 
@@ -273,9 +284,11 @@
     if (ac === 'bday') return 'dob';
     return undefined;
   };
+  // the loan sites: Jan Samarth and the bank's own (Bank of Maharashtra's Maha Digital Loans), the same loan form
+  const LOAN_SITE = /(^|\.)(jansamarth\.in|mahadigitalloans\.bankofmaharashtra\.bank\.in)$/.test(location.hostname);
   const OTHER_PERSON = /co-?\s?applicant|co-?\s?borrower|guarantor|joint applicant/i;
   function otherPerson(el) {
-    if (/jansamarth\.in$/.test(location.hostname) && /^(name|dateOfBirth|mobileNumber|relationWith)$/.test(el.getAttribute('formcontrolname') || '')) return true;
+    if (LOAN_SITE && /^(name|dateOfBirth|mobileNumber|relationWith)$/.test(el.getAttribute('formcontrolname') || '')) return true;
     // the nearest block whose own first words name somebody else (a heading or a question just above the boxes)
     for (let p = el.parentElement, i = 0; p && p !== document.body && i < 7; p = p.parentElement, i++) {
       const all = (p.innerText || '').trim();
@@ -300,7 +313,10 @@
   // the customer chose to give the Virtual ID instead: those boxes are theirs to type
   const vidChosen = root => [...root.querySelectorAll('input[type=radio]')].some(r => r.checked && /virtual id|\bvid\b/.test(labelOf(r)));
   // the Aadhaar as the helper shows it: the last four digits only, as on a masked Aadhaar
-  const showVal = (k, v) => k === 'aadhaar' && String(v).replace(/\D/g, '').length === 12 ? 'XXXX XXXX ' + String(v).replace(/\D/g, '').slice(-4) : v;
+  const showVal = (k, v) => k === 'aadhaar' && String(v).replace(/\D/g, '').length === 12 ? 'XXXX XXXX ' + String(v).replace(/\D/g, '').slice(-4)
+    : k === 'bank_account' && v ? 'XXXX' + String(v).slice(-4) : v;
+  // the bank's login shows "ANS-SOLAR-" beside the box: only the rest is typed
+  const jsId = (v, el) => [...(el.parentElement || el).children].some(s => s !== el && /^ANS-SOLAR-?$/i.test((s.innerText || s.textContent || '').trim())) ? String(v).replace(/^ANS-SOLAR-/i, '') : v;
   // 14-03-1981 from the Aadhaar: a date box takes 1981-03-14, a typed box 14/03/1981
   const asDate = (v, el) => { const s = String(v).trim(), y = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
     const m = y ? [s, y[3], y[2], y[1]] : s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); if (!m) return '';   // only the year, or free text: the person types it
@@ -313,7 +329,7 @@
     const r = RULES.find(([re, , ctx]) => re.test(label) && (!ctx || (typeof ctx === 'function' ? ctx(pg) : ctx.test(pg)))); return r && r[1] !== undefined ? r[1] : LEARNED[location.host + '|' + label]; };   // a rule that says "not known" still lets a taught box through
   // the first heading on the screen: on a stepped form it names the step ("Bank Account Details")
   const mainHead = () => norm(([...document.querySelectorAll('h1,h2,h3,h4')].find(h => visible(h) && !h.closest('#solaraPanel') && (h.innerText || '').trim()) || {}).innerText || '');
-  const ownAccountStep = () => /account/i.test(location.pathname) || /\baccount details\b/.test(mainHead());
+  const ownAccountStep = () => /account/i.test(location.pathname + location.hash) || /\baccount details\b/.test(mainHead());   // the bank's site routes by #/...
   let LEARNED = {};   // "<site>|<the field's labels>" -> which Solara value goes there, taught by the owner in the panel
   store.get({ learned: {} }).then(v => { LEARNED = v.learned || {}; });
 
@@ -348,7 +364,7 @@
   store.get({ trustedScreens: {} }).then(v => { TRUSTED = v.trustedScreens || {}; });
   try { chrome.storage.onChanged.addListener(ch => { if (ch.trustedScreens) TRUSTED = ch.trustedScreens.newValue || {}; }); } catch (e) { /* skip */ }
   // the portals the helper is made for, and Solara's own practice copies of them
-  const PORTAL_SITE = /(^|\.)(pmsuryaghar\.gov\.in|jansamarth\.in|mahadiscom\.in|nise\.res\.in)$/.test(location.hostname) ||
+  const PORTAL_SITE = /(^|\.)(pmsuryaghar\.gov\.in|jansamarth\.in|mahadigitalloans\.bankofmaharashtra\.bank\.in|mahadiscom\.in|nise\.res\.in)$/.test(location.hostname) ||
     (/^(127\.0\.0\.1|localhost)$/.test(location.hostname) && /^\/(portal|pmsg|jansamarth|msedcl|dcr)\b/.test(location.pathname));
   const screenKey = () => location.host + location.pathname + '|' + mainHead().slice(0, 60);
   const trustScreen = () => { const k = screenKey(); if (TRUSTED[k]) return; TRUSTED = { ...TRUSTED, [k]: Date.now() };
@@ -548,7 +564,7 @@
     if (/site feasibility report/.test(t)) return 'sfr';
     if (/submit solar rooftop installation|installation details/.test(t)) return 'installation';
     if (/dcr details|dcr verification/.test(t)) return 'dcr';
-    if (/jansamarth|jan samarth/.test(t)) return 'loan';
+    if (LOAN_SITE || /jansamarth|jan samarth/.test(t)) return 'loan';
     if (/upload agreement/.test(t)) return 'agreement_uploaded';
     return '';
   }
@@ -952,12 +968,12 @@
   // For a field Solara has no exact value for: look through everything Solara knows about the customer and
   // offer the values whose names share words with the field's label. A dropdown is also matched against the
   // customer's address: a district named in the address is the likely district.
-  const STOP = new Set(['the', 'of', 'no', 'number', 'enter', 'select', 'please', 'name', 'and', 'for', 'your']);
+  const STOP = new Set(['the', 'of', 'no', 'number', 'enter', 'select', 'please', 'name', 'and', 'for', 'your', 'code', 'details']);
   const words = t => norm(t).split(' ').filter(w => w.length > 2 && !STOP.has(w));
   function suggestFor(c, label) {
     const want = new Set(words(label)); if (!want.size) return [];
-    const l = norm(label), fits = v => /e ?mail/.test(l) ? /^\S+@\S+\.\S+$/.test(v) : /mobile|phone/.test(l) ? /^\d{10}$/.test(v) : /pin ?code|pincode/.test(l) ? /^\d{6}$/.test(v) : true;
-    const pool = [...(c.fields || []).map(f => [f.label, f.value]), ...Object.entries(c.values || {}).filter(([k]) => k !== 'aadhaar').map(([k, v]) => [k.replace(/_/g, ' '), v])];
+    const l = norm(label), fits = v => /e ?mail/.test(l) ? /^\S+@\S+\.\S+$/.test(v) : /mobile|phone/.test(l) ? /^\d{10}$/.test(v) : /pin ?code|pincode/.test(l) ? /^\d{6}$/.test(v) : /ifsc/.test(l) ? /^[A-Z]{4}0[A-Z0-9]{6}$/i.test(v) : true;
+    const pool = [...(c.fields || []).map(f => [f.label, f.value]), ...Object.entries(c.values || {}).filter(([k]) => k !== 'aadhaar' && k !== 'bank_account').map(([k, v]) => [k.replace(/_/g, ' '), v])];
     const seen = new Set(), out = [];
     pool.map(([k, v]) => ({ v: String(v ?? '').trim(), hits: words(k).filter(w => want.has(w)).length }))
       .filter(x => x.hits && x.v && x.v.length < 80 && fits(x.v)).sort((a, b) => b.hits - a.hits)
@@ -1586,7 +1602,7 @@
     const pressYourself = shut.length > closedSerial.length; // this portal's button might submit: the owner presses it
     const ready = new Set(c.files.map(f => f.key));
     // the customer's OTP (registration, Aadhaar) goes on Today as a call; the owner's own login OTP does not
-    const ownLogin = [...root.querySelectorAll('input[type=password]')].some(el => !aadBox(el)) || els.some(el => /user ?id|username|register email|login/.test(labelOf(el)));
+    const ownLogin = [...root.querySelectorAll('input[type=password]')].some(el => !keptBox(el)) || els.some(el => /user ?id|username|register email|login/.test(labelOf(el)));
     // all inputs: the OTP box itself is kept out of els (the co-pilot never fills it)
     const otpBox = !ownLogin && [...root.querySelectorAll('input')].find(el => visible(el) && /otp/.test(labelOf(el)) && !el.value);
     if (otpBox) ask({ type: 'report', body: { customer_id: c.customer_id, event: 'otp_waiting', page: location.host + location.pathname } });
@@ -1613,7 +1629,7 @@
     // rules can be added; again when the screen shows a different number of boxes (a choice opened more of the form).
     // "Once" is remembered in the helper's own storage: a portal may clear the page's storage at any time.
     const layoutKey = location.host + location.pathname + location.hash + '|' + mainHead().slice(0, 60) + '|' + els.length + '.' + customsAll.length;
-    const mapping = /jansamarth\.in$/.test(location.host) && els.length + customsAll.length >= 1;   // shortcut: Jan Samarth only, until its ten steps are mapped
+    const mapping = LOAN_SITE && els.length + customsAll.length >= 1;   // shortcut: Jan Samarth only, until its ten steps are mapped
     if ((mapping || (els.length >= 4 && plan.filter(p => p.key === undefined).length * 2 > els.length)) && !layoutsSent.has(layoutKey)) {
       layoutsSent.add(layoutKey);
       store.get({ layoutsSent: {} }).then(v => { const sent = v.layoutsSent || {}; if (sent[layoutKey]) return;
@@ -1751,7 +1767,7 @@
           if (!el.isConnected) el = (key && freshInput(key)) || el;   // the portal re-drew it: use the one on the page now
           const label = tileName({ key, el });
           const v0 = key === 'module_serials' && serialEls.length > 1 ? serialList[serialEls.findIndex(q => q === p)] : key && valueOf(key);
-          const v = key === 'dob' && has(v0) ? asDate(v0, el) : key === 'aadhaar' && has(v0) ? aadPart(v0, el) : v0;
+          const v = key === 'dob' && has(v0) ? asDate(v0, el) : key === 'aadhaar' && has(v0) ? aadPart(v0, el) : key === 'jansamarth_id' && has(v0) ? jsId(v0, el) : v0;
           if (!key || !has(v)) { if (!el.value && key !== 'only_option' && !p.asked) { p.asked = true; left.push(label); } continue; }
           if (p.filled && (el.tagName === 'SELECT' || el.value)) continue;   // filled on an earlier pass and still there
           // never overwrite what a person typed or chose
@@ -1824,7 +1840,7 @@
       if (!showErrors()) tip(left.length ? `Filled ${filled}. ${left.length} left for you.` : `Filled ${filled}${attached ? ' and attached ' + attached : ''}. Check it, then press <b>Next</b>.`, left.length ? 'warn' : 'ok');
       // The vendor's two dialogs (Upload Agreement, Site Feasibility Report): when everything is filled and every document is attached, press Submit once.
       const sc0 = /^vendor\./.test(location.host) ? screenOf(root) : null;
-      if (sc0 && /^(Upload Agreement|Site Feasibility Report)$/.test(sc0.name) && MODE !== 'manual') {
+      if (sc0 && /^(Upload Agreement|Site Feasibility Report)$/.test(sc0.name) && MODE !== 'manual' && (await store.get({ autoSubmit: false })).autoSubmit) {
         const files = [...root.querySelectorAll('input[type=file]')], skey = 'solaraSubmit:' + sc0.name + ':' + (c.application_no || c.customer_id);
         const sub = [...root.querySelectorAll('button')].find(b => visible(b) && /^\s*submit\s*$/i.test((b.innerText || '').trim()));
         if (left.length || failed.length || fallbackItems.length) tip(`${sc0.name}: not submitted. ${left.length + failed.length + fallbackItems.length} item(s) need you first.`, 'warn');
@@ -2089,9 +2105,6 @@
     if (Date.now() - fl.at > 3 * 3600000) { await store.remove('flow'); return; }
     if (!/signed-in/i.test(location.href)) { if (!sessionStorage.getItem('solaraFlowTold')) { sessionStorage.setItem('solaraFlowTold', '1'); ISL.open = true; ISL.fresh = true; tip('Vendor login: sign in yourself (password, CAPTCHA, OTP). I continue the moment you are in.', 'idle'); } return; }
     if (!/#\/signed-in\/my-application/i.test(location.href)) { await store.set({ flow: { ...fl, step: 'applications', at: Date.now() } }); tip('Signed in. Opening My Applications…', 'busy', 0, 0.3); location.hash = '#/signed-in/my-application'; return; }   // the sidebar is icons only: the route is used
-    const link = { click() {} };
-    await store.set({ flow: { ...fl, step: 'applications', at: Date.now() } });
-    tip('Signed in. Opening My Applications…', 'busy', 0, 0.3); link.click();
   }, 2000);
   // The island's button: search the vendor and press Select Vendor now, whatever the earlier tries did.
   async function runVendorNow() {

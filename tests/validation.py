@@ -146,6 +146,22 @@ key = sup.post("/api/copilot/key").json()["key"]
 look = httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()
 check("co-pilot is told which values were worked out", {"module_type", "bank_name", "account_type", "permissible_kw"} <= set(look["derived"]), str(look.get("derived")))
 check("co-pilot receives the module technology, not a roof area", look["values"].get("roof_area") == "30" and look["values"].get("module_type"))
+# the loan pages' answers, typed once in Details; the bank account kept encrypted, shown only as its last 4
+import json  # noqa: E402
+r = put({"jansamarth_id": "ans-solar-12345678-1234567", "occupation": "Salaried", "collateral": "Yes", "co_applicant": "No",
+         "address_same": "Yes", "house_ownership": "Single", "landmark": "Near the temple", "village": "Dighi",
+         "rts_cost": "250000", "loan_amount": "225000", "bank_account": "601234567890", "ifsc": "mahb0000412", "account_type": "Savings"})
+check("loan details save", r.status_code == 200, r.text[:120])
+g = sup.get(f"/api/registration/{cid}").json()
+lk = lambda: httpx.get(BASE + "/api/copilot/lookup", params={"cid": cid}, headers={"X-Solara-Key": key}).json()["values"]
+lv = lk()
+check("the helper gets every loan answer, the own contribution worked out as cost less loan",
+      (lv.get("jansamarth_id"), lv.get("occupation"), lv.get("own_contribution"), lv.get("co_applicant"), lv.get("ifsc"), lv.get("bank_name"))
+      == ("ANS-SOLAR-12345678-1234567", "Salaried", "25000", "No", "MAHB0000412", "Bank of Maharashtra"), str(lv)[:300])
+check("the bank account reaches the helper in full but is stored only encrypted (Solara's screen sees the last 4)",
+      lv.get("bank_account") == "601234567890" and "601234567890" not in json.dumps(g) and g["data"].get("bank_account_last4") == "7890")
+check("a bad bank account or Jan Samarth ID is refused", put({"bank_account": "12ab"}).status_code == 400 and put({"jansamarth_id": "12345"}).status_code == 400)
+check("the masked copy sent back by Save keeps the number", put({"bank_account": "XXXX7890"}).status_code == 200 and lk().get("bank_account") == "601234567890")
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402

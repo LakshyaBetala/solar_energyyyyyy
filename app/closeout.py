@@ -45,6 +45,17 @@ FIELDS = [  # key, label, group
     ("loan_amount", "Loan amount asked for on Jan Samarth (Rs)", "Loan (Jan Samarth)"),
     ("annual_income", "Gross annual income (Rs), before deductions", "Loan (Jan Samarth)"),
     ("net_income", "Net annual income (Rs), take-home after deductions", "Loan (Jan Samarth)"),
+    ("jansamarth_id", "Jan Samarth ID (ANS-SOLAR-...)", "Loan (Jan Samarth)"),
+    ("occupation", "Occupation", "Loan (Jan Samarth)"),
+    ("own_contribution", "Own contribution (Rs)", "Loan (Jan Samarth)"),
+    ("collateral", "Collateral if the bank asks (Yes/No)", "Loan (Jan Samarth)"),
+    ("address_same", "Current address same as the Aadhaar (Yes/No)", "Loan (Jan Samarth)"),
+    ("house_ownership", "House ownership", "Loan (Jan Samarth)"),
+    ("co_applicant", "Add a co-applicant (Yes/No)", "Loan (Jan Samarth)"),
+    ("landmark", "Landmark", "Loan (Jan Samarth)"),
+    ("village", "Village / area", "Loan (Jan Samarth)"),
+    ("ifsc", "IFSC code of the customer's account", "Customer's bank account"),
+    ("account_type", "Account type (Savings/Current)", "Customer's bank account"),
     ("gender", "Gender (as on the Aadhaar)", "Portal form"),
     ("location_type", "Type of location (Urban / Rural)", "Portal form"),
     ("residence_category", "Residence category on the portal", "Portal form"),
@@ -90,7 +101,7 @@ FIELDS = [  # key, label, group
 ]
 CHOICES = {"phase": ("Single phase", "Three phase"), "location_type": ("Urban", "Rural"),
            **{k: ("Yes", "No") for k in ("lightning_arrester", "protection_checks", "roof_load_ok",
-                                         "shadow_free", "site_visited", "loan")}}
+                                         "shadow_free", "site_visited", "loan", "collateral", "address_same", "co_applicant")}}
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
 SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           # pre-installation milestones, stamped when each step is done
@@ -100,7 +111,7 @@ SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           "installation_at", "install_accepted_at", "paused_at", "paused_by", "paused_reason",
           "approved_sfr", "approved_loan", "approved_dcr", "approved_installation",
           "approved_registration", "approved_msedcl", "photo_source", "agreement_approved_at",
-          "aadhaar_enc")   # the full Aadhaar number, encrypted (vault.seal); never shown in the record as is
+          "aadhaar_enc", "bank_account_enc", "bank_account_last4")   # the full Aadhaar and bank account numbers, encrypted (vault.seal); never shown as is
 
 PLANT = ("module_make", "almm_model", "module_wp", "module_count", "inverter_make", "inverter_kw")
 DOCS_SPEC = [  # key, MSEDCL upload slot (None: not an MSEDCL upload), title, signed by,

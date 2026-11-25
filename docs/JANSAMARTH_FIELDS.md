@@ -18,7 +18,7 @@ otherwise.
 | Box | Kind | Who |
 |---|---|---|
 | Documents to keep ready: Aadhaar (with the mobile linked to it), PAN, latest electricity bill | list | |
-| Required Loan Amount * (Rs 5,000 to Rs 10,00,000) | number | Customer |
+| Required Loan Amount * (Rs 5,000 to Rs 10,00,000) | number | **Solara** (Details: Loan amount) |
 | Attention! (check the amount) → Proceed / Edit | box | Person |
 | Consent (scroll each tab to the end, then Next / Agree & Proceed) | box | Person |
 
@@ -51,8 +51,8 @@ least 20% of the project cost; **up to Rs 2,00,000** no PAN, at least 10%, and a
 
 | Box | Kind | Who |
 |---|---|---|
-| Gross annual income * (before deductions) | number | Customer |
-| Net annual income * (take-home; not more than gross) | number | Customer |
+| Gross annual income * (before deductions) | number | **Solara** (Details) |
+| Net annual income * (take-home; not more than gross) | number | **Solara** (Details) |
 
 For a PAN case the portal may have fetched income from the tax department already; then it is only Proceed.
 
@@ -63,24 +63,24 @@ For a PAN case the portal may have fetched income from the tax department alread
 | First Name *, Middle Name, Last Name * (letters only) | text | **Solara** (from the Aadhaar name; usually pre-filled) |
 | Email Id * | text | **Solara** |
 | Mobile No. * | text | **Solara** |
-| Occupation * | list | Customer |
+| Occupation * | list | **Solara** (Details) |
 | Project Cost * | number | **Solara** (installation cost) |
-| Own Contribution * (10% / 20% minimum, not more than the cost) | number | Customer |
-| If collateral is required later, would you provide it? * | Yes / No | Customer |
+| Own Contribution * (10% / 20% minimum, not more than the cost) | number | **Solara** (Details; else the cost less the loan) |
+| If collateral is required later, would you provide it? * | Yes / No | **Solara** (Details) |
 | Address as per Aadhaar | read-only | Portal |
-| Is current address same as above? (No opens street, landmark, state, district, sub-district, village, block, PIN) | Yes / No | Customer |
+| Is current address same as above? (opens street, landmark, state, district, sub-district, village, block, PIN) | Yes / No | **Solara** (Details); landmark, sub-district (taluka) and village too |
 | Installation address, State, Pincode, RTS Capacity, Vendor Name, Vendor Contact | read-only | Portal (from PM Surya Ghar) |
-| House Ownership * | list | Customer |
-| Do you want to add a co-applicant? **(starts on Yes with an empty row: Name, DOB, Mobile Number, Relationship)** | Yes / No + row | Customer. Solara never puts the customer's own details in that row. Choose No if there is none, then No again in the box that asks |
+| House Ownership * (e.g. Single) | list | **Solara** (Details) |
+| Do you want to add a co-applicant? **(starts on Yes with an empty row: Name, DOB, Mobile Number, Relationship)** | Yes / No + row | **Solara** answers the question from Details; the row itself is never filled with the customer's own details. A confirm box after No is the person's |
 
 ## 6. Bank Account Details (`/sl/bankAccountDetails`): the customer's own account
 
 | Box | Kind | Who |
 |---|---|---|
 | Account Holder Name * | read-only | Portal |
-| Bank Account Number *, Confirm Bank Account Number * (hidden boxes) | number | Customer (Solara keeps the number only masked) |
+| Bank Account Number *, Confirm Bank Account Number * (hidden boxes) | number | **Solara** (Details; kept encrypted, shown as its last 4) |
 | Account type * (Current / Saving) | list | **Solara** (from the passbook) |
-| IFSC Code * | text | **Solara** (from the passbook) |
+| IFSC Code * | text | **Solara** (Details, else the passbook) |
 | Verify (the portal checks the account with the bank) | button | Person |
 
 ## 7. Credit Details (`/sl/creditDetails`)
@@ -105,6 +105,14 @@ from earlier answers. Then **Submit Application** (Person).
 Offers from the customer's existing bank and other banks (amount, product, tenure, interest) → **Select offer**, or
 **Go offline** and choose bank, state, district and branch. All **Customer**. Some banks then ask an Additional
 Details page (tenure, moratorium, declarations).
+
+## The bank's own loan login (Bank of Maharashtra: `mahadigitalloans.bankofmaharashtra.bank.in/surya`)
+
+| Box | Kind | Who |
+|---|---|---|
+| Jansamarth ID (the box already shows `ANS-SOLAR-`) | text | **Solara** (Details: Jan Samarth ID; only the part after `ANS-SOLAR-` is typed) |
+| Mobile Number | text | **Solara** |
+| CAPTCHA, the terms tick, Send OTP, the Scheme Details Accept | | Person |
 
 ## What the helper does on these screens
 

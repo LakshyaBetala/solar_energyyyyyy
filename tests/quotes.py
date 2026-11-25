@@ -153,7 +153,7 @@ SFR = f'''<h3>Site Feasibility Report</h3><table><tr><td>Consumer Number</td><td
 <div class="fg"><label for="amt">Quotation Amount (Rs.)</label><input id="amt" type="text"></div>
 <div class="fg"><label for="qd">Quotation Document (PDF only, Maximum Size 2 MB)</label><input type="file" id="qd" accept=".pdf"></div>'''
 STRANGE = f'''<h3>Applicant details</h3><table><tr><td>Consumer Number</td><td>{CONSUMER}</td></tr></table>
-<div class="fg"><label for="lm">Nearest landmark of the premises</label><input id="lm" type="text"></div>
+<div class="fg"><label for="lm">Nearest bus stop to the premises</label><input id="lm" type="text"></div>
 <div class="fg"><label for="pc">PIN Code</label><input id="pc" type="text"></div>
 <div class="fg"><label for="otp">Enter OTP</label><input id="otp" type="text"></div>'''
 
@@ -205,7 +205,7 @@ async def panel(can):
         await pg.wait_for_selector("#solaraPanel [data-teach]", state="attached", timeout=30000)
         asked = await pg.inner_text("#solaraTeach")
         check("a box Solara has no rule for is offered to be taught; the OTP box never is",
-              "Nearest landmark" in asked and "OTP" not in asked and "PIN" not in asked, asked[:160])
+              "Nearest bus stop" in asked and "OTP" not in asked and "PIN" not in asked, asked[:160])
         await pg.evaluate("document.querySelector('#solaraTeach').open = true")
         await pg.select_option("#solaraPanel [data-teach='0']", "address")
         await pg.wait_for_function("document.querySelector('#solaraPanel').dataset.taught === 'address'", timeout=20000)

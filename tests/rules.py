@@ -34,7 +34,7 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("bank name", LOAN, False, NEVER), ("ifsc code", LOAN, False, NEVER), ("select bank", LOAN, False, NEVER), ("bank", LOAN, False, NEVER),
     ("preferred bank", LOAN, False, NEVER), ("account number", LOAN, False, NEVER), ("loan amount", LOAN, False, "loan_amount"),
     ("bank name", LOAN, True, "bank_name"), ("ifsc code", LOAN, True, "ifsc"), ("account holder name", LOAN, True, "account_holder"),
-    ("account type", LOAN, True, "account_type"), ("account number", LOAN, True, NEVER),
+    ("account type", LOAN, True, "account_type"), ("account number", LOAN, True, "bank_account"), ("confirm bank account number", LOAN, True, "bank_account"),
     ("bank name", PLAIN, False, "bank_name"), ("ifsc", PLAIN, False, "ifsc"), ("account number", PLAIN, False, NEVER),
     ("account number", "pm surya ghar installation details", False, UNKNOWN),
     ("consumer account number", PLAIN, False, "consumer_no"), ("consumer account number", LOAN, False, "consumer_no"),
@@ -44,7 +44,8 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("employer name", LOAN, False, UNKNOWN), ("co applicant mobile number", LOAN, False, UNKNOWN), ("alternate mobile number", LOAN, False, UNKNOWN),
     ("guarantor pan", LOAN, False, UNKNOWN), ("date of birth of co applicant", LOAN, False, UNKNOWN), ("nominee name", LOAN, False, UNKNOWN),
     ("name of village", PLAIN, False, UNKNOWN), ("name of bank", PLAIN, False, UNKNOWN), ("name of organisation", LOAN, False, UNKNOWN),
-    ("office address", LOAN, False, UNKNOWN), ("address line 2", LOAN, False, UNKNOWN), ("landmark", LOAN, False, UNKNOWN),
+    ("office address", LOAN, False, UNKNOWN), ("address line 2", LOAN, False, UNKNOWN), ("landmark", LOAN, False, "landmark"),
+    ("co applicant occupation", LOAN, False, UNKNOWN), ("guarantor landmark", LOAN, False, UNKNOWN),
     # the customer's own, and the neighbours that must keep working
     ("name", LOAN, False, "name"), ("name as per electricity bill", PLAIN, False, "name"), ("name of the applicant", LOAN, False, "name"),
     ("name of consumer", PLAIN, False, "name"), ("full name", LOAN, False, "name"), ("customer name", PLAIN, False, "name"),
@@ -61,6 +62,12 @@ CASES = [  # label as the helper reads it, the page's text, is it the customer's
     ("first name", LOAN, False, "first_name"), ("middle name", LOAN, False, "middle_name"), ("last name", LOAN, False, "last_name"),
     ("father first name", LOAN, False, UNKNOWN), ("name of lender", LOAN, False, NEVER), ("project cost", LOAN, False, "rts_cost"),
     ("required loan amount", LOAN, False, "loan_amount"), ("gross annual income", LOAN, False, "annual_income"), ("net annual income", LOAN, False, "net_income"), ("enter amount gross monthly income", LOAN, False, "annual_income"), ("enter amount net monthly income", LOAN, False, "net_income"),
+    # the loan's Applicant Details and the bank's login, typed once in Solara's Details
+    ("jansamarth id ex ans solar 1234567 123456", LOAN, False, "jansamarth_id"), ("occupation", LOAN, False, "occupation"),
+    ("own contribution", LOAN, False, "own_contribution"), ("house ownership", LOAN, False, "house_ownership"),
+    ("if collateral is required by the processing bank at a later stage would you be willing to provide the same", LOAN, False, "collateral"),
+    ("is current address same as above address", LOAN, False, "address_same"), ("do you want to add a co applicant", LOAN, False, "co_applicant"),
+    ("sub district", LOAN, False, "taluka"), ("village", LOAN, False, "village"), ("premise no street name", LOAN, False, UNKNOWN),
 ]
 
 RUN = """([table, cases]) => {

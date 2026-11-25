@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Solara co-pilot",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Fills portal forms from Solara and reads their status lists, inside your own browser. Click the Solara button to use it on any other site. You type every OTP and CAPTCHA.",
   "permissions": [
     "storage",
@@ -30,6 +30,7 @@
         "https://www.jansamarth.in/*",
         "https://*.jansamarth.in/*",
         "https://jansamarth.in/*",
+        "https://mahadigitalloans.bankofmaharashtra.bank.in/*",
         "http://127.0.0.1:8900/msedcl/*",
         "http://127.0.0.1:8900/portal/*",
         "http://127.0.0.1:8900/pmsg/*",

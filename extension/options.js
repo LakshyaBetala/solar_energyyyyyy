@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const DEFAULTS = { url: 'http://127.0.0.1:8900', key: '', mode: 'auto', vendorSearch: '', vendorFills: true, autoSubmit: false, certify: true, flowOn: true, classic: false, speed: 'fast', islandV: 'top', islandH: 'center', panelV: 'bottom', panelH: 'right', gap: 14 };
+const DEFAULTS = { url: 'http://127.0.0.1:8900', key: '', mode: 'auto', vendorSearch: '', vendorFills: true, autoSubmit: false, certify: false, flowOn: true, classic: false, speed: 'fast', islandV: 'top', islandH: 'center', panelV: 'bottom', panelH: 'right', gap: 14 };
 const POS = ['islandV', 'islandH', 'panelV', 'panelH', 'speed'];
 
 chrome.storage.local.get(DEFAULTS, v => {

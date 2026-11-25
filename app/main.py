@@ -1354,7 +1354,7 @@ async def copilot_lookup(consumer_no: str = "", app_no: str = "", cid: str = "",
                           if s["slot"] and s["key"] not in made],
             "fields": [{"label": k, "value": str(v)} for k, v in fields if v not in (None, "")],
             "values": {k: v for k, v in {**registration.values(cid), "place": cust["place"],
-                                         "aadhaar": _aadhaar_full(d)}.items() if v and k not in wrong},
+                                         "aadhaar": _aadhaar_full(d), "bank_account": _bank_full(d)}.items() if v and k not in wrong},
             "issues": issues, "build_error": build_error,
             "derived": registration.derived(cid),
             "cost_options": [q["amount"] for q in registration.quotes()],
@@ -1376,6 +1376,15 @@ def _aadhaar_full(d):
     except Exception:
         return None
     return n if n and n[-4:] == str(d.get("aadhaar_last4") or "") else None   # a replaced card: its old number is not filed
+
+
+def _bank_full(d):
+    """The customer's own bank account number as Solara keeps it (encrypted), for the loan's bank step."""
+    try:
+        n = vault.unseal(d["bank_account_enc"]) if d.get("bank_account_enc") else None
+    except Exception:
+        return None
+    return n if n and n[-4:] == str(d.get("bank_account_last4") or "") else None
 
 
 def portal_name(name, ext):

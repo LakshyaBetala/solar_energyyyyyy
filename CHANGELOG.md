@@ -469,3 +469,9 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 
 ## Quotation 225000
 - Bank Quotation - 225000 is in the quotation folder, so it is in the installation-cost dropdown and the quotation/agreement use that file; the built-in fallback list has 225000 too.
+
+## Loan details typed once
+- Details is arranged in the portals' order (Customer, Address, Solar system, Site feasibility, Loan, Customer's bank account) and takes everything the live Jan Samarth / Bank of Maharashtra pages asked: Jan Samarth ID, occupation, own contribution (else cost less loan), collateral, current address same, house ownership, co-applicant, landmark, village, sub-district (taluka), bank account number (kept encrypted, last 4 shown), IFSC, account type. Nothing is compulsory; the helper fills what is there.
+- The helper fills these on the loan pages and the bank's login (Jansamarth ID after the `ANS-SOLAR-` prefix, the mobile). The co-applicant row stays the person's.
+- An IFSC box is no longer offered the PIN code as a suggestion.
+- Restored: the vendor dialogs' Submit waits for "Press Save, Upload, Next and Submit for me", like every other forward button; the certification tick is off by default again, as the helper already treated it.

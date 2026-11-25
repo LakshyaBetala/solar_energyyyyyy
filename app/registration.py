@@ -125,7 +125,10 @@ def values(cid):
     bill = rows.get(extract.PRETTY["bill_name"])
     name = bill["value"] if bill and bill["value"] != "not read" else (c["aadhaar_name"] or c["name"])
     read = lambda label: (rows.get(label) or {}).get("value") if (rows.get(label) or {}).get("status") != "review" else None
-    ifsc = (read(extract.PRETTY["ifsc"]) or "").upper()
+    ifsc = (d.get("ifsc") or read(extract.PRETTY["ifsc"]) or "").upper()   # typed in Details, else read from the passbook
+    rupee = lambda k: int(float(d[k])) if re.match(r"^\d+(\.\d+)?$", str(d.get(k) or "")) else None
+    own = d.get("own_contribution") or (str(rupee("rts_cost") - rupee("loan_amount")) if rupee("rts_cost") and rupee("loan_amount") is not None
+                                         and rupee("rts_cost") >= rupee("loan_amount") else None)   # project cost less the loan
     return {**region(), "consumer_no": c["consumer_no"], "mobile": d.get("mobile"),
             "gender": d.get("gender") or GENDER.get((read(extract.PRETTY["aadhaar_gender"]) or "").strip().upper()),
             "location_type": d.get("location_type") or None, "ulb": d.get("ulb") or None, "taluka": d.get("taluka") or None,
@@ -134,11 +137,13 @@ def values(cid):
             "roof_load_ok": d.get("roof_load_ok") or "Yes", "shadow_free": d.get("shadow_free") or "Yes",   # the owner's standing answers; change them per customer in Details
             "roof_area": d.get("roof_free_area") or (f"{c['kw'] * 10:g}" if c["kw"] else None), "site_visited": d.get("site_visited") or "Yes",   # roof area: standing rule of about 10 m2 per kW
             "loan_amount": d.get("loan_amount") or None, "annual_income": d.get("annual_income") or None, "net_income": d.get("net_income") or None,   # Jan Samarth: asked of the customer, never guessed
+            # the loan's Applicant Details and login, each typed once in Details
+            **{k: d.get(k) or None for k in LOAN_TEXT + LOAN_YESNO}, "own_contribution": own,
             "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
             "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or vendor()["name"],
             "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
             "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
-            "account_type": "Savings" if ifsc else None,
+            "account_type": d.get("account_type") or ("Savings" if ifsc else None),
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
             "district": d.get("district"), "sanctioned_load": d.get("sanctioned_load"),
             "capacity": f"{c['kw']:g}" if c["kw"] else None,
@@ -154,6 +159,11 @@ def values(cid):
             "inverter_qty": d.get("inverter_qty") or ("1" if d.get("inverter_make") else None),
             "module_serials": "\n".join(closeout.serials(d)) or None,
             "item_type": "Solar Panels", "scheme": "PM Surya Ghar: Muft Bijli Yojana"}
+
+
+# the loan pages (Jan Samarth, the bank's own login): typed once in Details
+LOAN_TEXT = ("jansamarth_id", "occupation", "house_ownership", "landmark", "village")
+LOAN_YESNO = ("collateral", "co_applicant", "address_same")
 
 
 # record fields the later portal forms ask for, filled as they are
@@ -294,7 +304,26 @@ def save_details(cid, body, user):
     for k in ("roof_load_ok", "shadow_free", "site_visited"):
         if k in body:
             rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
-    for k in ("loan_amount", "annual_income", "net_income"):
+    for k in LOAN_YESNO:
+        if k in body:
+            rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
+    for k in LOAN_TEXT:
+        if k in body:
+            t = re.sub(r"\s+", " ", valid.text(body[k], k.replace("_", " "))).strip()[:80]
+            if k == "jansamarth_id" and t and not re.match(r"^ANS-[A-Z]+-\d+-\d+$", t.upper()):
+                raise ValueError("the Jan Samarth ID looks like ANS-SOLAR-12345678-1234567")
+            rest[k] = t.upper() if k == "jansamarth_id" else t
+    if "ifsc" in body:
+        rest["ifsc"] = valid.ifsc(body["ifsc"]) if valid.text(body["ifsc"], "IFSC").strip() else ""
+    if "account_type" in body:
+        rest["account_type"] = valid.choice(body["account_type"], ("Savings", "Current"), "account type")
+    bank_sealed = None
+    if "bank_account" in body and not re.search(r"[Xx*]", valid.text(body["bank_account"], "bank account")):   # the masked copy shown back: unchanged
+        n = re.sub(r"[\s-]", "", body["bank_account"])
+        if n and not re.match(r"^\d{9,18}$", n):
+            raise ValueError("the bank account number is 9 to 18 digits")
+        bank_sealed = (n[-4:], vault.seal(n)) if n else ("", "")   # the full number kept only encrypted
+    for k in ("loan_amount", "annual_income", "net_income", "own_contribution"):
         if k in body:
             t = re.sub(r"(?i)^\s*(rs\.?|inr|₹)\s*", "", valid.text(body[k], k.replace("_", " "))).replace(",", "").strip()
             if t and not re.match(r"^\d{1,9}(\.\d{1,2})?$", t):
@@ -337,6 +366,8 @@ def save_details(cid, body, user):
         closeout.save(cid, rest, user["username"])
     if sealed is not None:
         closeout.mark(cid, user["username"], aadhaar_enc=sealed)
+    if bank_sealed is not None:
+        closeout.mark(cid, user["username"], bank_account_last4=bank_sealed[0], bank_account_enc=bank_sealed[1])
     db.audit(user["username"], user["role"], "Updated registration details", cid,
              ", ".join(sorted(list(cols) + list(rest))))
 
