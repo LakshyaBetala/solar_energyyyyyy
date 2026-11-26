@@ -475,3 +475,7 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - The helper fills these on the loan pages and the bank's login (Jansamarth ID after the `ANS-SOLAR-` prefix, the mobile). The co-applicant row stays the person's.
 - An IFSC box is no longer offered the PIN code as a suggestion.
 - Restored: the vendor dialogs' Submit waits for "Press Save, Upload, Next and Submit for me", like every other forward button; the certification tick is off by default again, as the helper already treated it.
+
+## Live fixes after the first client run
+- Start a new Application: the State box was "not found" on the live portal. The label reader is back to the one that worked (a box saying "SELECT STATE" is named by that, not by its neighbours), and the box's three dropdowns (State, District, Company) are taken by their fixed order when a label cannot be read.
+- The one-go flow (sign out of the consumer login right after Select Vendor) is now off by default: it ended the customer's OTP session by surprise. Turn it on in the helper's options if wanted.

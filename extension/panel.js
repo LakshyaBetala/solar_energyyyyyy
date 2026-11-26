@@ -259,11 +259,12 @@
       while (h && !/^H[1-6]$/.test(h.tagName) && !h.querySelector('h1,h2,h3,h4,h5,h6')) h = h.previousElementSibling;
       if (h) t.push(h.innerText);
     }
-    // a box that only says "Enter Amount" names nothing either: the words beside it do (Jan Samarth's income boxes)
-    if (!t.length || t.every(x => !x.trim() || /^\s*(enter|type|select|choose|please)\b/i.test(x))) {   // no label, no name: the words just before the box name it
-      let q = el; const n0 = t.length;
-      for (let i = 0; i < 3 && q && t.length === n0; i++, q = q.parentElement) {
-        for (let sib = q.previousSibling; sib && t.length === n0; sib = sib.previousSibling) {
+    // no label, no name: the words just before the box name it. Only then: a dropdown that says "SELECT STATE" is named by
+    // that, not by its neighbours (taking the neighbours' words lost the State box on the live Start a new Application)
+    if (!t.length) {
+      let q = el;
+      for (let i = 0; i < 3 && q && !t.length; i++, q = q.parentElement) {
+        for (let sib = q.previousSibling; sib && !t.length; sib = sib.previousSibling) {
           const s = (sib.textContent || '').trim(); if (s && s.length < 60) t.push(s);
         }
       }
@@ -1152,6 +1153,14 @@
   const customsIn = root => [...root.querySelectorAll(CUSTOM)].filter(el => visible(el) && !el.closest('select') && !el.querySelector('input:not([type=hidden]),select'))
     .map(el => { const key = ruleFor(labelOf(el)); return key === null ? null : { el, key, label: shown(el) || key }; }).filter(Boolean);
   const shownOf = el => (boxOf(el).innerText || '').trim().split('\n')[0];
+  // the Start a new Application box always asks State, District, Company, in that order: a dropdown whose label cannot be
+  // read is taken by its place, but only when the box shows exactly those three
+  const startBox = (idx, key) => {
+    const named = customsIn(scope()).find(z => z.key === key); if (named) return named;
+    const m = startModal(); if (!m) return null;
+    const raw = [...m.querySelectorAll(CUSTOM)].filter(el => visible(el) && !el.closest('select') && !el.querySelector('input:not([type=hidden]),select'));
+    return raw.length === 3 ? { el: raw[idx], key, label: shown(raw[idx]) || key } : null;
+  };
 
   // ---- the rule for the "Start a new Application" box: what to do, in this order, each step confirmed and retried ----
   //   1 State  2 District  3 Company  (pause)  4 Consumer Account Number  5 Fetch Details  6 check all, fix, ready for Next
@@ -1169,21 +1178,21 @@
       const dd = async (idx, key, label, want) => {
         stepSet(idx, 'doing'); tileSet(key, 'doing'); tip(`Filling ${esc(label)}…`, 'busy', 0, idx / 6);
         for (let a = 1; a <= 3; a++) {
-          const x = customsIn(scope()).find(z => z.key === key); if (!x) { await sleep(PACE.step * 2); continue; }
+          const x = startBox(idx, key); if (!x) { await sleep(PACE.step * 2); continue; }
           if (!isEmpty(x.el)) { tileSet(key, 'ok', shownOf(x.el)); stepSet(idx, 'done'); return true; }   // already chosen, by the portal or the owner
           x.el.scrollIntoView({ block: 'center', behavior: 'auto' }); await sleep(PACE.step / 2);
           if (has(want)) { if (await pickCustom(x.el, want)) { await sleep(PACE.step); tileSet(key, 'ok', shownOf(x.el)); stepSet(idx, 'done'); return true; } }
           else break;
           tip(`${esc(label)}: trying again (${a + 1} of 3)…`, 'busy', 0, idx / 6); await sleep(PACE.step * 2);
         }
-        const x = customsIn(scope()).find(z => z.key === key); if (!x) { stepSet(idx, 'fail'); tileSet(key, 'warn', 'not found'); return false; }
+        const x = startBox(idx, key); if (!x) { stepSet(idx, 'fail'); tileSet(key, 'warn', 'not found'); return false; }
         const names = (await pickCustom(x.el, '', 'list')) || [], hay = addressText(c), inAddr = names.filter(n => norm(n).length > 3 && hay.includes(norm(n)));
         if (inAddr.length === 1 && await pickCustom(x.el, inAddr[0])) { tileSet(key, 'ok', shownOf(x.el)); stepSet(idx, 'done'); return true; }   // the one named in the address
         const item = { type: 'select', el: x.el, key, label, options: names.length ? names : null, suggest: inAddr.slice(0, 3), why: has(want) ? `“${want}” is not in the list` : 'Solara has no data' };
         fallbackItems.push(item); showFallback(c); tileSet(key, 'warn', 'choose below'); ISL.open = false;
         tip(`Choose the ${esc(label.toLowerCase())} in the box below.`, 'warn');
         await waitFor(() => item.done, 300000);
-        const y = customsIn(scope()).find(z => z.key === key);
+        const y = startBox(idx, key);
         if (item.done && y) { tileSet(key, 'ok', shownOf(y.el)); stepSet(idx, 'done'); return true; }
         stepSet(idx, 'fail'); return false;
       };
@@ -2081,7 +2090,7 @@
       ISL.phase = 'waiting'; if (ok) sessionStorage.setItem(key, String(Date.now()));
       tip(ok === 'wait' ? 'Your company is found. Press <b>Select Vendor</b> yourself: it cannot be changed for 45 days.'
         : ok ? 'Vendor selected. Continue on the next screen.' : 'I could not select the vendor by myself. Do it on the page.', ok === true ? 'ok' : 'warn');
-      if (ok === true && (await store.get({ flowOn: true })).flowOn) handToVendor();
+      if (ok === true && (await store.get({ flowOn: false })).flowOn) handToVendor();
     } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
   }, 600);
   // ---------- the whole flow in one go ----------
@@ -2119,7 +2128,7 @@
       const ok = (await vendorSearchStep(term)) && (await vendorSelectStep(term, true));
       ISL.phase = 'waiting'; if (ok) sessionStorage.setItem('solaraVendor:' + location.href, String(Date.now()));
       tip(ok ? 'Vendor selected. Continue on the next screen.' : 'I could not find or select the vendor. Check the search box, or do it on the page.', ok ? 'ok' : 'warn');
-      if (ok === true && (await store.get({ flowOn: true })).flowOn) handToVendor();
+      if (ok === true && (await store.get({ flowOn: false })).flowOn) handToVendor();
     } catch (err) { /* a newer copy took over */ } finally { vendorBusy = false; }
   }
   // ---------- consumer login: the mobile number is filled for the chosen customer; the CAPTCHA and the OTP are the person's ----------

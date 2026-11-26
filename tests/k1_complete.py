@@ -420,7 +420,7 @@ async def main():
           not re.search(r"\.submit\(|requestSubmit|\.checked\s*=|dispatchEvent\(new (Mouse|Pointer)Event", rest)
           and others <= {"addSerial(t)", "el", "el)", "act", "chev", "item", "fwd", "sub", "out", "me", "yes"} and real <= {"b", "hit", "nextBtn"}
           and re.search(r"Upload Agreement\|Site Feasibility Report\)\$/\.test\(sc0\.name\) && MODE !== 'manual' && \(await store\.get\(\{ autoSubmit: false \}\)\)\.autoSubmit", code)
-          and "if (ok === true && (await store.get({ flowOn: true })).flowOn) handToVendor();" in code
+          and "if (ok === true && (await store.get({ flowOn: false })).flowOn) handToVendor();" in code
           and "input[type=radio]" in code and "inert(addSerial(t))" in code
           and pick is not None and set(clicks) <= {"box", "hit[0]"} and not re.search(r"(?i)button|checkbox|submit|input", sels),
           f"clicks in pickCustom on: {sorted(set(clicks))}; elsewhere on: {sorted(others)}; real clicks on: {sorted(real)}")
