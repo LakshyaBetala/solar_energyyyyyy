@@ -26,7 +26,8 @@
   // holds the customer's whole record.
   const BUILD = (() => { try { const m = chrome.runtime.getManifest(); return m.version_name || m.version; } catch (e) { return ''; } })();
   const COPIES = new Map(), layoutsSent = new Set();
-  const keep = (cid, data) => { COPIES.set(cid, { t: Date.now(), data }); return data; };
+  const keep = (cid, data) => { if (LOAN_SITE && data && data.values && data.values.loan_email) data.values.email = data.values.loan_email;
+    COPIES.set(cid, { t: Date.now(), data }); return data; };
   const fresh = cid => { const x = COPIES.get(cid); return x && Date.now() - x.t < 20000 ? x.data : null; };
   const forgetCopies = () => COPIES.clear();
   try { Object.keys(sessionStorage).filter(k => k.startsWith('solaraCache:')).forEach(k => sessionStorage.removeItem(k)); } catch (e) { /* skip */ }   // what an older helper left in the page's storage
@@ -957,8 +958,13 @@
   async function typeInto(el, value) {
     const v = String(value);
     el.scrollIntoView({ block: 'center', behavior: PACE.char > 10 ? 'smooth' : 'auto' }); el.focus && el.focus();
-    if (PACE.char && v.length <= 24) for (let i = 1; i < v.length; i++) { setVal(el, v.slice(0, i)); await sleep(PACE.char); }
-    return setVal(el, v);
+    const amount = /^\d{4,}(\.\d+)?$/.test(v) && /amount|income|cost|contribution|price|\binr\b|rupee/.test(labelOf(el)), same = () => el.value.replace(/[^\d.]/g, '') === v;
+    if (PACE.char && v.length <= 24 && !amount) for (let i = 1; i < v.length; i++) { setVal(el, v.slice(0, i)); await sleep(PACE.char); }
+    const ok = setVal(el, v); if (!amount || same()) return ok;
+    await sleep(150); if (same()) return ok;
+    setVal(el, Number(v).toLocaleString('en-IN')); await sleep(150); if (same()) return true;   // as the box writes it: 2,25,000
+    el.focus(); el.select && el.select(); document.execCommand('insertText', false, v);   // as if typed in one go
+    return true;
   }
 
   // ---------- the fallback popup at the bottom ----------
@@ -1065,6 +1071,7 @@
         if (await running()) { sessionStorage.removeItem('solaraPress:fetch:' + location.href); if (openApplyCard('fetch')) { tip('Pressing <b>Fetch Details</b> again…', 'busy'); await sleep(1500); } }
       }
       const rep = await ask({ type: 'report', body: { customer_id: c.customer_id, event: 'detail', key: it.key, value: v } });
+      if (rep.ok && rep.data && rep.data.saved && c.values) c.values[it.key] = v;   // the next page of this visit has it too
       note(i, rep.ok ? 'Filled' + (rep.data && rep.data.saved ? ', and saved in Solara.' : '.') : 'Filled. Solara did not save it: ' + rep.error);
       setTimeout(() => showFallback(c), 900);
     });

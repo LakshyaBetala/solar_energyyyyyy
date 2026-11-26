@@ -139,6 +139,7 @@ def values(cid):
             "loan_amount": d.get("loan_amount") or None, "annual_income": d.get("annual_income") or None, "net_income": d.get("net_income") or None,   # Jan Samarth: asked of the customer, never guessed
             # the loan's Applicant Details and login, each typed once in Details
             **{k: d.get(k) or None for k in LOAN_TEXT + LOAN_YESNO}, "own_contribution": own,
+            "co_applicant": d.get("co_applicant") or "No",   # almost always none; the row itself is never filled
             "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
             "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or vendor()["name"],
             "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
@@ -153,6 +154,8 @@ def values(cid):
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
             "aadhaar_name": c["aadhaar_name"], "pan": d.get("pan") or None,
             **name_parts(c["aadhaar_name"] or name),   # a loan form's First / Middle / Last name boxes, as on the Aadhaar
+            **{k: d[k] for k in NAME_PARTS if d.get(k)},   # unless typed in Details
+            "loan_email": os.environ.get("SOLARA_LOAN_EMAIL") or None,   # the email every loan application gives (the vendor's), from settings
             "dob": read(extract.PRETTY["aadhaar_dob"]),   # as the Aadhaar gives it; the helper writes it the way each form wants
             # milestone 2 forms: site feasibility, installation, DCR, loan
             **{k: d[k] for k in FILED if d.get(k)},  # only what was recorded: roof area is measured on site, never guessed
@@ -163,7 +166,13 @@ def values(cid):
 
 # the loan pages (Jan Samarth, the bank's own login): typed once in Details
 LOAN_TEXT = ("jansamarth_id", "occupation", "house_ownership", "landmark", "village")
-LOAN_YESNO = ("collateral", "co_applicant", "address_same")
+LOAN_YESNO = ("loan_required", "collateral", "co_applicant", "address_same")
+NAME_PARTS = ("first_name", "middle_name", "last_name")
+# every Details box the helper's "needs your help" box may save to (what the owner types there is kept for next time)
+DETAIL_KEYS = {"name", "mobile", "email", "consumer_no", "district", "kw", "rts_cost", "place", "pan", "aadhaar", "gender", "location_type",
+               "residence_category", "ulb", "taluka", "panchayat", "lat", "lng", "roof_load_ok", "shadow_free", "site_visited", "roof_free_area",
+               "permissible_kw", "sfr_visitor", "sfr_visitor_phone", "loan_amount", "annual_income", "net_income", "own_contribution", "ifsc",
+               "account_type", "bank_account", *NAME_PARTS, *LOAN_TEXT, *LOAN_YESNO}
 
 
 # record fields the later portal forms ask for, filled as they are
@@ -307,6 +316,9 @@ def save_details(cid, body, user):
     for k in LOAN_YESNO:
         if k in body:
             rest[k] = valid.choice(body[k], ("Yes", "No"), k.replace("_", " "))
+    for k in NAME_PARTS:
+        if k in body:
+            rest[k] = valid.name(body[k], k.replace("_", " "), required=False) if valid.text(body[k], k).strip() else ""
     for k in LOAN_TEXT:
         if k in body:
             t = re.sub(r"\s+", " ", valid.text(body[k], k.replace("_", " "))).strip()[:80]
@@ -316,7 +328,8 @@ def save_details(cid, body, user):
     if "ifsc" in body:
         rest["ifsc"] = valid.ifsc(body["ifsc"]) if valid.text(body["ifsc"], "IFSC").strip() else ""
     if "account_type" in body:
-        rest["account_type"] = valid.choice(body["account_type"], ("Savings", "Current"), "account type")
+        t = valid.text(body["account_type"], "account type").strip()
+        rest["account_type"] = valid.choice({"saving": "Savings", "savings": "Savings", "current": "Current"}.get(t.lower(), t), ("Savings", "Current"), "account type")
     bank_sealed = None
     if "bank_account" in body and not re.search(r"[Xx*]", valid.text(body["bank_account"], "bank account")):   # the masked copy shown back: unchanged
         n = re.sub(r"[\s-]", "", body["bank_account"])

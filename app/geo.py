@@ -53,7 +53,7 @@ def locate(address, pin=""):
     parts = [p.strip() for p in re.split(r"[,\n]+", address or "") if p.strip()]
     tries = [", ".join(parts[i:] + ([pin] if pin else [])) for i in range(min(len(parts), 4))] if parts else []
     if parts:   # "Shiv Sai Nagar SNO 72/3B Dighi, Pune": the plot and house words drop off, the area name stays
-        words = [w for w in re.split(r"\s+", re.split(r"(?:nr|near)", parts[0], flags=re.I)[0]) if not re.search(r"\d|^(sno|s\.no|nr|near|plot|flat|gat|survey)$", w, re.I)]
+        words = [w for w in re.split(r"\s+", re.split(r"\b(?:nr|near)\b", parts[0], flags=re.I)[0]) if not re.search(r"\d|^(sno|s\.no|nr|near|plot|flat|gat|survey)$", w, re.I)]
         if len(words) > 1:
             tries.insert(1, ", ".join([" ".join(words[-1:])] + parts[1:] + ([pin] if pin else [])))
     if pin:

@@ -173,6 +173,12 @@ async def main():
         await dash.fill('[data-r="kw"]', "3")                                # from the customer's order
         await dash.select_option('[data-r="rts_cost"]', "200000")
         await dash.fill('[data-r="email"]', "priya.k@example.com")                # the portal verifies it by OTP
+        # the customer's signature is compulsory before Save: a photo of it, cropped in the browser
+        sig = Path(tempfile.gettempdir()) / "m1_customer_sign.png"
+        im = Image.new("RGB", (420, 140), "white"); ImageDraw.Draw(im).line([(20, 100), (120, 30), (230, 105), (400, 40)], fill="black", width=6); im.save(sig)
+        await dash.set_input_files("#signFile", str(sig))
+        await dash.click("#scUse")
+        await dash.wait_for_function("!document.querySelector('#regSave').disabled", timeout=20000)
         await dash.click("#regSave")
         await dash.wait_for_function("document.querySelector('#regNext').innerText.includes('Register')")
         check("after the check and the order details, the next step is registering", True)

@@ -61,7 +61,7 @@ For a PAN case the portal may have fetched income from the tax department alread
 | Box | Kind | Who |
 |---|---|---|
 | First Name *, Middle Name, Last Name * (letters only) | text | **Solara** (from the Aadhaar name; usually pre-filled) |
-| Email Id * | text | **Solara** |
+| Email Id * | text | **Solara**: always the vendor's loan email (setting `SOLARA_LOAN_EMAIL`), not the customer's |
 | Mobile No. * | text | **Solara** |
 | Occupation * | list | **Solara** (Details) |
 | Project Cost * | number | **Solara** (installation cost) |

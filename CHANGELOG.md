@@ -479,3 +479,10 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 ## Live fixes after the first client run
 - Start a new Application: the State box was "not found" on the live portal. The label reader is back to the one that worked (a box saying "SELECT STATE" is named by that, not by its neighbours), and the box's three dropdowns (State, District, Company) are taken by their fixed order when a label cannot be read.
 - The one-go flow (sign out of the consumer login right after Select Vendor) is now off by default: it ended the customer's OTP session by surprise. Turn it on in the helper's options if wanted.
+
+## Client feedback, 26 Nov
+- Details opens with "Bank loan needed?". Yes makes everything the loan pages ask compulsory (name in three parts, loan amount, incomes, occupation, own contribution, collateral, address same, house ownership, co-applicant, landmark, sub-district, village, bank account, IFSC, account type): Save waits until they are all there.
+- The name in three parts (first, middle, last) is in Details, filled from the Aadhaar name and correctable.
+- Amounts go into a box in one go: Jan Samarth's amount boxes reformat while typing (2,25,000) and kept only the "2".
+- Every loan application gives the vendor's own email (`SOLARA_LOAN_EMAIL`), not the customer's.
+- A co-applicant is "No" unless Details says otherwise.

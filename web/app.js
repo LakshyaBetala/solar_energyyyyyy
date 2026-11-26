@@ -177,6 +177,7 @@ function render() {
     if (S.view === 'calls') playTranscript(false);
     // what each Details box showed when drawn (the saved values): a box that differs from this is unsaved
     $$('[data-r]').forEach(i => { i.dataset.shown = i.value; });
+    if ($('#regSave')) regSyncButtons();   // Save waits for the compulsory boxes from the moment the screen is drawn
   }
   counters();
 }
@@ -682,6 +683,10 @@ async function loadReg(cid) {
 }
 
 const REG_REQ = ['name', 'mobile', 'consumer_no', 'kw'];
+// "Bank loan needed? Yes" makes everything the loan pages ask compulsory: Save waits until it is all there
+const REG_LOAN_REQ = ['first_name', 'last_name', 'loan_amount', 'annual_income', 'net_income', 'occupation', 'own_contribution', 'collateral', 'address_same',
+  'house_ownership', 'co_applicant', 'landmark', 'taluka', 'village', 'bank_account', 'ifsc', 'account_type'];
+const regReq = d => d.loan_required === 'Yes' ? [...REG_REQ, ...REG_LOAN_REQ] : REG_REQ;
 const REG_LATER = ['account_holder', 'account_no', 'ifsc', 'passbook_unread'];
 const regMin = s => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
@@ -718,7 +723,11 @@ const REG_RULES = {
   net_income: { hint: 'Jan Samarth: take-home income after all deductions, in rupees', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 350000' },
   annual_income: { hint: 'Jan Samarth: gross yearly income, before deductions, in rupees', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 400000' },
   jansamarth_id: { hint: 'Shown on Jan Samarth after applying; the bank login asks it', max: 40, check: v => !v || /^ANS-[A-Z]+-\d+-\d+$/i.test(v.trim()) ? '' : 'Looks like ANS-SOLAR-12345678-1234567' },
-  occupation: { hint: 'As the loan form lists it, e.g. Salaried', max: 60, check: () => '' },
+  occupation: { hint: 'As the loan form lists it: pick one or type it', max: 60, check: () => '' },
+  loan_required: { hint: 'Yes: everything the loan pages ask becomes compulsory here', max: 4, check: () => '' },
+  first_name: { hint: 'As on the Aadhaar', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  middle_name: { hint: 'Usually the father\'s or husband\'s name', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
+  last_name: { hint: 'The surname', max: 40, check: v => !v || !/[^\p{L}\p{M} .'-]/u.test(v) ? '' : 'Letters only' },
   own_contribution: { hint: 'Paid by the customer: the cost less the loan, unless typed', max: 12, mode: 'numeric', check: v => !v || /^\d+(\.\d{1,2})?$/.test(v.replace(/^\s*(rs\.?|inr|₹)\s*/i, '').replace(/,/g, '').trim()) ? '' : 'Rupees, e.g. 25000' },
   collateral: { hint: 'Would the customer give collateral if the bank asks', max: 4, check: () => '' },
   address_same: { hint: 'Lives at the Aadhaar address?', max: 4, check: () => '' },
@@ -754,7 +763,7 @@ const regFieldCheck = inp => {
 };
 const regFormOk = scope => $$(scope).map(regFieldCheck).every(Boolean);
 const regSyncButtons = () => {
-  const d = $('#regSave'); if (d && can('operator')) d.disabled = !regFormOk('#regDetails [data-r]');
+  const d = $('#regSave'); if (d && can('operator')) d.disabled = !regFormOk('#regDetails [data-r]') || $$('#regDetails .field.need [data-r]').some(i => !i.value.trim()) || !(S.regData || {}).customer_sign;   // the customer's signature too
   const c = $('#regCreate'); if (c) c.disabled = !($('#nName').value.trim().length >= 3 && regFormOk('#nName,#nMobile'));
 };
 
@@ -764,15 +773,32 @@ const REG_SHORT = { documents: 'Documents', details: 'Details', registered: 'Reg
 const REG_KIND = { missing: 'Missing', invalid: 'Invalid', uncertain: 'Not sure', mismatch: 'Differs' };
 const REG_MISS = [['consumer_no', 'Consumer number'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['kw', 'Capacity (kW)']];
 // in the order the portals ask; '#' starts a group. Nothing here is compulsory: what is empty is left for the owner on the page
-const REG_FIELDS = [['#', 'Customer'], ['name', 'Customer name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['aadhaar', 'Aadhaar'], ['pan', 'PAN'], ['gender', 'Gender'],
-  ['#', 'Address'], ['place', 'Place'], ['district', 'District'], ['taluka', 'Taluka / sub-district'], ['village', 'Village / area'], ['landmark', 'Landmark'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['ulb', 'Urban local body (if Urban)'], ['panchayat', 'Village panchayat (if Rural)'], ['lat', 'Latitude'], ['lng', 'Longitude'],
-  ['#', 'Solar system'], ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'],
-  ['#', 'Site feasibility'], ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
+// The question first, then one folding section per portal: the common details (from the Aadhaar, the bill and the PAN),
+// then what each portal asks on top. A section with something compulsory missing opens by itself.
+const REG_FIELDS = [['loan_required', 'Bank loan needed? (Jan Samarth / Maha Digital Loans)'],
+  ['#', 'Customer: from the Aadhaar, bill and PAN (every portal)'], ['name', 'Customer name (as on the bill)'], ['first_name', 'First name'], ['middle_name', 'Middle name'], ['last_name', 'Last name'], ['mobile', 'Mobile'], ['email', 'Email'], ['consumer_no', 'Consumer number'], ['aadhaar', 'Aadhaar'], ['pan', 'PAN'], ['gender', 'Gender'],
+  ['place', 'Place'], ['district', 'District'], ['taluka', 'Taluka / sub-district'], ['village', 'Village / area'], ['landmark', 'Landmark'],
+  ['#', 'PM Surya Ghar registration (KPI 1)'], ['kw', 'Capacity (kW)'], ['rts_cost', 'Installation cost (Rs)'], ['location_type', 'Type of location'], ['residence_category', 'Residence category'], ['ulb', 'Urban local body (if Urban)'], ['panchayat', 'Village panchayat (if Rural)'], ['lat', 'Latitude'], ['lng', 'Longitude'],
+  ['#', 'Site feasibility report (KPI 1, vendor login)'], ['roof_load_ok', 'Roof load capacity OK?'], ['shadow_free', 'Shadow-free roof available?'], ['roof_free_area', 'Shadow-free roof area (m²)'], ['permissible_kw', 'Permissible capacity (kW)'],
   ['site_visited', 'Vendor visited the site?'], ['sfr_visitor', 'Visited by (employee name)'], ['sfr_visitor_phone', 'Visitor contact number'],
-  ['#', 'Loan (Jan Samarth)'], ['jansamarth_id', 'Jan Samarth ID'], ['loan_amount', 'Loan amount (Rs)'], ['annual_income', 'Gross annual income (Rs)'], ['net_income', 'Net annual income (Rs)'],
+  ['#', 'Loan: Jan Samarth and Maha Digital Loans (KPI 2)'], ['jansamarth_id', 'Jan Samarth ID'], ['loan_amount', 'Loan amount (Rs)'], ['annual_income', 'Gross annual income (Rs)'], ['net_income', 'Net annual income (Rs)'],
   ['occupation', 'Occupation'], ['own_contribution', 'Own contribution (Rs)'], ['collateral', 'Collateral if the bank asks?'], ['address_same', 'Current address same as Aadhaar?'], ['house_ownership', 'House ownership'], ['co_applicant', 'Add a co-applicant?'],
-  ['#', "Customer's bank account"], ['bank_account', 'Bank account number'], ['ifsc', 'IFSC code'], ['account_type', 'Account type']];
-const REG_SEL = { collateral: ['Yes', 'No'], address_same: ['Yes', 'No'], co_applicant: ['Yes', 'No'], account_type: ['Savings', 'Current'], roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
+  ['#', "Customer's bank account (loan and subsidy)"], ['bank_account', 'Bank account number'], ['ifsc', 'IFSC code'], ['account_type', 'Account type']];
+// the Details rows in their sections: each a native folding box that says how many compulsory boxes are empty
+const regGroupsHtml = (det, req, row) => {
+  const groups = [['', []]];
+  det.forEach(r => r[0] === '#' ? groups.push([r[1], []]) : groups[groups.length - 1][1].push(r));
+  return groups.filter(([, rows]) => rows.length).map(([title, rows]) => {
+    const inner = `<div class="cofields">${rows.map(row).join('')}</div>`;
+    if (!title) return inner;
+    const miss = rows.filter(([k, , v]) => req.includes(k) && !v).length, needs = rows.some(([k]) => req.includes(k));
+    // open unless folded by the owner; the loan sections stay folded until "Bank loan needed?" is Yes
+    const open = (S.regOpen || {})[title] ?? (miss > 0 || !/loan|bank account/i.test(title) || req.length > REG_REQ.length);
+    return `<details class="rggroup" data-g="${esc(title)}" style="margin:10px 0;border:1px solid var(--line);border-radius:10px;padding:2px 12px 8px"${open ? ' open' : ''}>
+      <summary style="cursor:pointer;padding:9px 0;font-weight:600">${esc(title)}<span class="rgmeta" style="font-weight:400;margin-left:10px${miss ? ';color:#C47F00' : ''}">${miss ? miss + ' compulsory missing' : needs ? 'complete' : ''}</span></summary>${inner}</details>`;
+  }).join('');
+};
+const REG_SEL = { loan_required: ['Yes', 'No'], collateral: ['Yes', 'No'], address_same: ['Yes', 'No'], co_applicant: ['Yes', 'No'], account_type: ['Savings', 'Current'], roof_load_ok: ['Yes', 'No'], shadow_free: ['Yes', 'No'], site_visited: ['Yes', 'No'], ulb: ['Alandi', 'Baramati', 'Bhor', 'Chakan', 'Daund', 'Dehu', 'Dehurood', 'Indapur', 'Jejuri', 'Junnar', 'Khadki', 'Lonavala', 'Malegaon Budruk', 'Manchar', 'Pimpri Chinchwad', 'Pune', 'Rajgurunagar', 'Sasvad', 'Shirur', 'Talegaon Dabhade', 'Vadgaon Mawal', 'Wadgaon'], taluka: ['Ambegaon', 'Baramati', 'Bhor', 'Daund', 'Haveli', 'Indapur', 'Junnar', 'Khed', 'Maval', 'Mulshi', 'Purandar', 'Shirur', 'Velhe'], gender: ['Male', 'Female', 'Other'], location_type: ['Urban', 'Rural'], residence_category: ['Residential (usual method)', 'Residential Welfare Association'] };
 // Chrome's autofill fills every phone box on a page at once: picking a number for the visitor also overwrote the
 // customer's mobile, and auto-save kept it. Separate sections tell Chrome they are two people's numbers.
 const REG_AUTOFILL = { mobile: 'section-customer tel-national', email: 'section-customer email', sfr_visitor_phone: 'section-visitor tel-national', sfr_visitor: 'section-visitor name' };
@@ -823,6 +849,7 @@ async function regAutosave(el) {
     const g = await api('/registration/' + cid, { method: 'PUT', body: { [el.dataset.r]: el.value } });
     if (S.regCid !== cid) return;
     S.regData = g; el.dataset.shown = el.value;
+    if (el.dataset.r === 'loan_required') { render(); return; }
     const d = $('#regDrafts'); if (d) d.innerHTML = regDrafts(g);
     if (st) st.textContent = 'Saved ✓';
   } catch (err) { if (st) st.textContent = 'Not saved'; toast(err.message, true); }
@@ -938,21 +965,21 @@ VIEWS.reg = () => {
   const allSec = !g.fields.length ? '' : regFold('regAll', 'Everything Solara read', `${rest.length} values from the documents`,
     `<div class="rgflags">${rest.map(fieldRow).join('')}</div>`, false);
   const det = REG_FIELDS.map(([k, label]) => [k, label, { name: c.name, mobile: d.mobile, email: d.email, consumer_no: c.consumer_no, place: c.place, kw: c.kw,
-    rts_cost: d.rts_cost, district: d.district, pan: d.pan, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, loan_amount: d.loan_amount, annual_income: d.annual_income, net_income: d.net_income, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, jansamarth_id: d.jansamarth_id, occupation: d.occupation, own_contribution: d.own_contribution || v.own_contribution, collateral: d.collateral, address_same: d.address_same, house_ownership: d.house_ownership, co_applicant: d.co_applicant, landmark: d.landmark, village: d.village, ifsc: d.ifsc || v.ifsc, account_type: d.account_type || v.account_type, bank_account: d.bank_account_last4 ? 'XXXX' + d.bank_account_last4 : '', aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
-  const missing = det.filter(([k, , val]) => REG_REQ.includes(k) && !val).length;
+    rts_cost: d.rts_cost, district: d.district, pan: d.pan, gender: d.gender || v.gender, location_type: d.location_type, residence_category: d.residence_category || v.category, lat: d.lat, lng: d.lng, ulb: d.ulb, taluka: d.taluka, panchayat: d.panchayat, roof_load_ok: d.roof_load_ok, shadow_free: d.shadow_free, roof_free_area: d.roof_free_area, loan_amount: d.loan_amount, annual_income: d.annual_income, net_income: d.net_income, permissible_kw: d.permissible_kw || v.permissible_kw, site_visited: d.site_visited, sfr_visitor: d.sfr_visitor, sfr_visitor_phone: d.sfr_visitor_phone, loan_required: d.loan_required, first_name: d.first_name || v.first_name, middle_name: d.middle_name || v.middle_name, last_name: d.last_name || v.last_name, jansamarth_id: d.jansamarth_id, occupation: d.occupation, own_contribution: d.own_contribution || v.own_contribution, collateral: d.collateral, address_same: d.address_same, house_ownership: d.house_ownership, co_applicant: d.co_applicant || v.co_applicant, landmark: d.landmark, village: d.village, ifsc: d.ifsc || v.ifsc, account_type: d.account_type || v.account_type, bank_account: d.bank_account_last4 ? 'XXXX' + d.bank_account_last4 : '', aadhaar: d.aadhaar_full ? d.aadhaar_full.replace(/(\d{4})(?=\d)/g, '$1 ') : d.aadhaar_last4 ? `XXXX XXXX ${d.aadhaar_last4}` : '' }[k]]);
+  const req = regReq(d), missing = det.filter(([k, , val]) => req.includes(k) && !val).length + (g.customer_sign ? 0 : 1);
   const detSec = regFold('regDetails', 'Details for the portal', missing ? `${missing} missing` : 'complete',
     `<div class="field" style="margin-bottom:14px"><label>Company signature <span class="sub">(Second Party: uploaded once, on every customer's agreement)</span></label>
       <div class="row" style="gap:12px;align-items:center">${g.vendor_sign ? `<img src="${g.vendor_sign}" alt="The company signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet</span>'}
       ${can('supervisor') ? `<label class="btn sm">${g.vendor_sign ? 'Replace for all customers' : 'Upload a photo of the company signature'}<input type="file" id="vendorSignFile" accept="image/*" hidden></label>` : '<span class="fhint">A supervisor uploads it</span>'}</div></div>
-    <div class="cofields">${det.map(([k, label, val]) => k === '#' ? `<h4 class="cohead" style="grid-column:1/-1;margin:14px 0 2px">${esc(label)}</h4>` : `<div class="field${REG_REQ.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${REG_REQ.includes(k) ? ' <span class="req" title="needed to register">*</span>' : ''}</label>
+    ${regGroupsHtml(det, req, ([k, label, val]) => `<div class="field${req.includes(k) ? ' need' : ''}${req.includes(k) && !val ? ' miss' : ''}"><label for="r_${k}">${esc(label)}${req.includes(k) ? ` <span class="req" title="${REG_REQ.includes(k) ? 'needed to register' : 'needed for the loan'}">*</span>` : ''}</label>
       ${k === 'rts_cost' ? `<select id="r_rts_cost" data-r="rts_cost" aria-describedby="h_rts_cost"${op}><option value="">Pick the installation cost</option>${costOpts().map(x => `<option value="${x}"${+val === x ? ' selected' : ''}>Rs ${x.toLocaleString('en-IN')}</option>`).join('')}</select>`
       : REG_SEL[k] ? `<select id="r_${k}" data-r="${k}" aria-describedby="h_${k}"${op}><option value="">Not set</option>${(val && !REG_SEL[k].includes(val) ? [val, ...REG_SEL[k]] : REG_SEL[k]).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
       : k === 'district' && g.districts.length ? `<select id="r_district" data-r="district" aria-describedby="h_district"${op}><option value="">Pick the district</option>
         ${(val && !g.districts.includes(val) ? [val, ...g.districts] : g.districts).map(x => `<option${x === val ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>`
-      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="${REG_AUTOFILL[k] || 'off'}" aria-describedby="h_${k}"${op}>`}
-      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`).join('')}</div>
-    <div class="field" style="grid-column:1/-1"><label>Customer's signature <span class="sub">(goes on the agreement's Sign line)</span></label>
-      <div class="row" style="gap:12px;align-items:center">${g.customer_sign ? `<img src="${g.customer_sign}" alt="The customer's signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint">None yet: upload a photo of it</span>'}
+      : `<input type="text" id="r_${k}" data-r="${k}" value="${esc(val ?? '')}" maxlength="${REG_RULES[k].max}" inputmode="${REG_RULES[k].mode || 'text'}" autocomplete="${REG_AUTOFILL[k] || 'off'}" aria-describedby="h_${k}"${k === 'occupation' ? ' list="dl_occupation"' : ''}${op}>${k === 'occupation' ? `<datalist id="dl_occupation">${['Salaried', 'Self Employed', 'Business', 'Professional', 'Agriculture', 'Pensioner', 'Housewife', 'Student', 'Others'].map(x => `<option value="${x}">`).join('')}</datalist>` : ''}`}
+      ${k === 'kw' ? regKwChips(g, val, op) : ''}<div class="fhint" id="h_${k}">${k === 'district' && g.districts.length ? (val && !g.districts.includes(val) ? 'Not a district the portal lists: pick it from the list' : 'As the portal lists it; filled from the bill, else the Aadhaar') : esc(REG_RULES[k].hint)}</div>${k === 'kw' && g.suggest && !val ? `<div class="fhint">${esc(g.suggest.kw)} kW suggested: ${esc(g.suggest.why)}</div>` : ''}${k === 'rts_cost' && !val ? '<div class="fhint warn">From the vendor’s quote. Solara never guesses a price.</div>' : ''}<div class="ferr" role="alert"></div></div>`)}
+    <div class="field need${g.customer_sign ? '' : ' miss'}" style="grid-column:1/-1"><label>Customer's signature <span class="req" title="compulsory">*</span> <span class="sub">(goes on the agreement's Sign line)</span></label>
+      <div class="row" style="gap:12px;align-items:center">${g.customer_sign ? `<img src="${g.customer_sign}" alt="The customer's signature on file" style="max-height:60px;max-width:260px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:4px">` : '<span class="fhint warn">Compulsory: upload a photo of it. Save waits for it.</span>'}
       <label class="btn sm">${g.customer_sign ? 'Replace' : 'Upload a photo of the signature'}<input type="file" id="signFile" accept="image/*" hidden${op}></label></div></div>
     <div class="rgformbar"><div class="rgformbar-l"><button class="btn" id="regSave"${op}>Save details</button>
       <button class="btn" id="regLocate"${op} title="Looks the address up on OpenStreetMap; the address is sent to that service">Find latitude and longitude</button></div>
@@ -2117,6 +2144,7 @@ document.addEventListener('input', e => {
   if (t.id === 'scZoom' && S.crop) S.crop.zoom(+t.value);
 });
 document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.r) regAutosave(e.target); });
+document.addEventListener('toggle', e => { const x = e.target; if (x.classList && x.classList.contains('rggroup')) (S.regOpen = S.regOpen || {})[x.dataset.g] = x.open; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.r && e.target.tagName === 'INPUT') { e.preventDefault(); regAutosave(e.target); } });
 document.addEventListener('change', async e => {
   if (e.target.id === 'docCid') { S.docCid = e.target.value; S.extract = null; render(); loadExtract(S.docCid); }

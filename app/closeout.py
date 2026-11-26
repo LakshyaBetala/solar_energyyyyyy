@@ -45,6 +45,10 @@ FIELDS = [  # key, label, group
     ("loan_amount", "Loan amount asked for on Jan Samarth (Rs)", "Loan (Jan Samarth)"),
     ("annual_income", "Gross annual income (Rs), before deductions", "Loan (Jan Samarth)"),
     ("net_income", "Net annual income (Rs), take-home after deductions", "Loan (Jan Samarth)"),
+    ("loan_required", "Bank loan needed (Yes/No)", "Loan (Jan Samarth)"),
+    ("first_name", "First name", "Loan (Jan Samarth)"),
+    ("middle_name", "Middle name", "Loan (Jan Samarth)"),
+    ("last_name", "Last name", "Loan (Jan Samarth)"),
     ("jansamarth_id", "Jan Samarth ID (ANS-SOLAR-...)", "Loan (Jan Samarth)"),
     ("occupation", "Occupation", "Loan (Jan Samarth)"),
     ("own_contribution", "Own contribution (Rs)", "Loan (Jan Samarth)"),
@@ -101,7 +105,7 @@ FIELDS = [  # key, label, group
 ]
 CHOICES = {"phase": ("Single phase", "Three phase"), "location_type": ("Urban", "Rural"),
            **{k: ("Yes", "No") for k in ("lightning_arrester", "protection_checks", "roof_load_ok",
-                                         "shadow_free", "site_visited", "loan", "collateral", "address_same", "co_applicant")}}
+                                         "shadow_free", "site_visited", "loan", "loan_required", "collateral", "address_same", "co_applicant")}}
 LABEL = {k: lbl for k, lbl, _ in FIELDS}
 SYSTEM = ("lat", "lng", "photo_taken", "msedcl_uploaded", "msedcl_uploaded_at",
           # pre-installation milestones, stamped when each step is done

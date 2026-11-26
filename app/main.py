@@ -1545,8 +1545,10 @@ async def copilot_report(body: dict = Body(...), user=Depends(copilot_user)):
     uploaded = set(body.get("uploaded") or [])
     msedcl_keys = {s[0] for s in closeout.DOCS_SPEC if s[1]}
     if body.get("event") == "detail":   # a value the owner typed in the co-pilot because Solara had none
-        col = {"capacity": "kw", "rts_cost": "rts_cost", "mobile": "mobile", "email": "email",
-               "consumer_no": "consumer_no", "district": "district", "name": "name"}.get(valid.text(body.get("key"), "key"))
+        key = valid.text(body.get("key"), "key")
+        # the helper's name for a value -> the Details box it is kept in; the rest have the same name in both
+        col = {"capacity": "kw", "roof_area": "roof_free_area", "visitor_name": "sfr_visitor", "visitor_phone": "sfr_visitor_phone",
+               "category": "residence_category"}.get(key) or (key if key in registration.DETAIL_KEYS else None)
         if not col:
             return {"ok": True, "saved": False}   # filled on the page only (a state, a PIN... the record keeps its own)
         try:

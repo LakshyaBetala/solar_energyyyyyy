@@ -162,6 +162,19 @@ check("the bank account reaches the helper in full but is stored only encrypted 
       lv.get("bank_account") == "601234567890" and "601234567890" not in json.dumps(g) and g["data"].get("bank_account_last4") == "7890")
 check("a bad bank account or Jan Samarth ID is refused", put({"bank_account": "12ab"}).status_code == 400 and put({"jansamarth_id": "12345"}).status_code == 400)
 check("the masked copy sent back by Save keeps the number", put({"bank_account": "XXXX7890"}).status_code == 200 and lk().get("bank_account") == "601234567890")
+r = put({"loan_required": "Yes", "first_name": "Ramesh", "middle_name": "Sopan", "last_name": "Patil"})
+lv = lk()
+check("Bank loan needed and the name in three parts are kept; what is typed wins over the split of the Aadhaar name",
+      r.status_code == 200 and (lv.get("loan_required"), lv.get("first_name"), lv.get("middle_name"), lv.get("last_name")) == ("Yes", "Ramesh", "Sopan", "Patil"), r.text[:120])
+check("a co-applicant is No until said otherwise; a name part with digits is refused",
+      put({"co_applicant": ""}).status_code == 200 and lk().get("co_applicant") == "No" and put({"last_name": "Patil2"}).status_code == 400)
+# what the owner types in the helper's "needs your help" box is kept in Details for next time
+rep = lambda k, v: httpx.post(BASE + "/api/copilot/report", json={"customer_id": cid, "event": "detail", "key": k, "value": v}, headers={"X-Solara-Key": key}).json()
+saved = [rep("occupation", "Self Employed"), rep("ifsc", "sbin0001234"), rep("account_type", "Saving"), rep("visitor_name", "Amol Kadam")]
+lv = lk()
+check("a value typed in the helper's box is saved in Details (occupation, IFSC, the loan site's 'Saving', the visitor)",
+      all(s.get("saved") for s in saved) and (lv.get("occupation"), lv.get("ifsc"), lv.get("account_type"), lv.get("visitor_name"))
+      == ("Self Employed", "SBIN0001234", "Savings", "Amol Kadam"), str(saved))
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402
