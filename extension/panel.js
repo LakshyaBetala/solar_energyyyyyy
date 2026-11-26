@@ -1562,7 +1562,11 @@
     const dcrFetch = plan.some(p => p.key === 'dcr_cert_no') && [...root.querySelectorAll('button,a,input[type=button]')]
       .some(b => !panel.contains(b) && visible(b) && /^\s*(search|fetch|get details)\s*$/i.test(b.innerText || b.value || ''));
     if (dcrFetch) plan.forEach(p => { if (/^module_/.test(p.key || '')) p.key = null; });
-    const valueOf = key => key === 'only_option' ? '__only__' : c.values[key];
+    // the vendor's own phone on the loan sites and the site report; a login page, and Jan Samarth's step that checks the
+    // mobile registered on PM Surya Ghar, keep the customer's
+    const loginish = /captcha|log ?in|sign ?in/i.test(pageText()) || /\broof ?top application id\b/.test(norm(pageText()));
+    const vendorPhone = c.values.portal_phone && !loginish && (LOAN_SITE || step === 'sfr');
+    const valueOf = key => key === 'only_option' ? '__only__' : key === 'mobile' && vendorPhone ? c.values.portal_phone : c.values[key];
     const fillable = plan.filter(p => !p.extra && p.key && has(valueOf(p.key)));
     const hasSerialBox = plan.some(p => p.key === 'module_serials' && !p.extra);
     // fields the page asks for that Solara knows by name but has no data for: the owner types them here

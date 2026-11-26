@@ -178,6 +178,12 @@ check("a value typed in the helper's box is saved in Details (occupation, IFSC, 
 
 # ---- two PINs that disagree: the chosen one is what is kept
 from app import db, extract, registration  # noqa: E402
+# the name in three parts: the bill's name first, in the Aadhaar's order when it is the same words (bills print the surname first)
+sp = lambda bill, aad: tuple(registration.name_parts(registration.split_source(bill, aad)).values())
+check("the bill's name is split for First / Middle / Last; same words reordered follow the Aadhaar's order",
+      sp("Shri PATIL RAMESH SOPAN", "Ramesh Sopan Patil") == ("Ramesh", "Sopan", "Patil")
+      and sp("Ramesh S Patil", "Ramesh Sopan Patil") == ("Ramesh", "S", "Patil")
+      and sp(None, "Priya Sanjay Kulkarni") == ("Priya", "Sanjay", "Kulkarni"))
 rows = [("PIN code", "411001", "ok"), ("PIN on Aadhaar", "410503", "review")]
 for f, val, st in rows:
     db.ex("INSERT INTO extractions(customer_id,field,value,confidence,source,status,note,ts) VALUES(?,?,?,?,?,?,?,?)",

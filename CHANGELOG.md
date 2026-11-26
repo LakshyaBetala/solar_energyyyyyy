@@ -486,3 +486,6 @@ Run live in the built-in browser on the signed-in consumer login, "Start a new A
 - Amounts go into a box in one go: Jan Samarth's amount boxes reformat while typing (2,25,000) and kept only the "2".
 - Every loan application gives the vendor's own email (`SOLARA_LOAN_EMAIL`), not the customer's.
 - A co-applicant is "No" unless Details says otherwise.
+- The First / Middle / Last name boxes are split from the bill's name (the name filed); when the bill and the Aadhaar have the same words in another order (bills print the surname first), the Aadhaar's order is used.
+- The vendor's phone (`SOLARA_PORTAL_PHONE`) goes in every phone box on Jan Samarth, Maha Digital Loans and the Site Feasibility Report; login pages and Jan Samarth's step that checks the mobile registered on PM Surya Ghar keep the customer's.
+- The company's stamp and signature come with the install (`company_sign.png` beside the program, or `SOLARA_COMPANY_SIGN`): on every agreement until another is uploaded.

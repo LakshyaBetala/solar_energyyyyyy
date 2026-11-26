@@ -117,6 +117,16 @@ def name_parts(full):
     return {"first_name": words[0], "middle_name": " ".join(words[1:-1]) or None, "last_name": words[-1] if len(words) > 1 else None}
 
 
+def split_source(bill, aadhaar):
+    """Which spelling the First / Middle / Last boxes are split from: the bill's (it is the name filed), but in the
+    Aadhaar's order when it is the same name with the words moved (bills print the surname first)."""
+    words = lambda s: sorted(w for w in re.sub(r"[^A-Za-z ]+", " ", s or "").lower().split()
+                             if w.rstrip(".") not in ("shri", "shree", "smt", "mr", "mrs", "ms", "dr", "kumari", "km"))
+    if bill and aadhaar and words(bill) == words(aadhaar):
+        return aadhaar
+    return bill or aadhaar
+
+
 def values(cid):
     """Everything the portal forms ask for, in one place. The name filed is the bill's spelling,
     because the portal checks it against the distribution company's register."""
@@ -142,7 +152,8 @@ def values(cid):
             "co_applicant": d.get("co_applicant") or "No",   # almost always none; the row itself is never filled
             "permissible_kw": d.get("permissible_kw") or (f"{c['kw']:g}" if c["kw"] else None),
             "visitor_name": d.get("sfr_visitor") or os.environ.get("SOLARA_SITE_VISITOR_NAME") or vendor()["name"],
-            "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or None,   # the vendor's own contact, from .env
+            "visitor_phone": d.get("sfr_visitor_phone") or os.environ.get("SOLARA_SITE_VISITOR_PHONE") or os.environ.get("SOLARA_PORTAL_PHONE") or None,   # the vendor's own contact, from .env
+            "portal_phone": os.environ.get("SOLARA_PORTAL_PHONE") or None,   # the vendor's phone the loan sites and the site report give (not on login pages)
             "ifsc": ifsc or None, "bank_name": BANKS.get(ifsc[:4]), "account_holder": read(extract.PRETTY["account_holder"]),
             "account_type": d.get("account_type") or ("Savings" if ifsc else None),
             "email": d.get("email"), "name": name, "address": c["address"], "pin": c["pin"],
@@ -153,7 +164,7 @@ def values(cid):
             "rts_cost": d.get("rts_cost"), "vendor": vendor()["name"],
             "application_no": c["application_no"], "lat": d.get("lat"), "lng": d.get("lng"),
             "aadhaar_name": c["aadhaar_name"], "pan": d.get("pan") or None,
-            **name_parts(c["aadhaar_name"] or name),   # a loan form's First / Middle / Last name boxes, as on the Aadhaar
+            **name_parts(split_source(name, c["aadhaar_name"])),   # a loan form's First / Middle / Last name boxes: the bill's name first
             **{k: d[k] for k in NAME_PARTS if d.get(k)},   # unless typed in Details
             "loan_email": os.environ.get("SOLARA_LOAN_EMAIL") or None,   # the email every loan application gives (the vendor's), from settings
             "dob": read(extract.PRETTY["aadhaar_dob"]),   # as the Aadhaar gives it; the helper writes it the way each form wants

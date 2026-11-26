@@ -515,7 +515,18 @@ def doc_hash(key, cid):
 # ------------------------------- signatures -------------------------------
 def signature(role, cid=None):
     if role == "vendor":
-        return db.one("SELECT * FROM signatures WHERE role='vendor' ORDER BY id DESC")
+        got = db.one("SELECT * FROM signatures WHERE role='vendor' ORDER BY id DESC")
+        if got:
+            return got
+        # none uploaded yet: the company's stamp and signature that came with this install (beside the program), once
+        import os, sys
+        from pathlib import Path
+        here = Path(sys.executable).parent if getattr(sys, "frozen", False) else DATA
+        f = Path(os.environ.get("SOLARA_COMPANY_SIGN") or here / "company_sign.png")
+        if f.is_file():
+            save_signature("vendor", f.read_bytes(), vendor()["name"])
+            return db.one("SELECT * FROM signatures WHERE role='vendor' ORDER BY id DESC")
+        return None
     # "consumer": signed by the customer on their own phone; "consumer_upload": a photo of their signature
     return db.one("SELECT * FROM signatures WHERE role=? AND customer_id=? ORDER BY id DESC", (role, cid))
 
