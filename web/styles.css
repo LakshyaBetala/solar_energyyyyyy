@@ -3,10 +3,10 @@
 :root{
   --bg:#F7F7F5; --bg-deep:#FFFFFF; --panel:#FFFFFF; --panel-2:#FAFAF9; --panel-3:#F1F1EE;
   --line:#E5E4E0; --line-soft:#EEEDEA; --line-strong:#D4D3CE;
-  --fg:#18181B; --fg-dim:#57575F; --fg-faint:#9A9AA3;
+  --fg:#18181B; --fg-dim:#57575F; --fg-faint:#6B6B74;
   /* --amber is the action colour (kept under its old name: the screens' code refers to it) */
   --amber:#18181B; --amber-soft:#F1F1EE; --amber-line:#D4D3CE; --on-amber:#FFFFFF; --amber-hover:#3F3F46;
-  --sun:#E8620C; --sun-soft:#FFF3EA;
+  --sun:#E8620C; --sun-soft:#FFF3EA; --sun-text:#C2410C;  /* --sun for bars and dots, --sun-text for words (4.5:1) */
   --teal:#0F7A62; --teal-soft:#EEF7F3; --teal-line:#C4E4D8; --on-teal:#FFFFFF;
   --ok:#16794A; --ok-soft:#ECF6F0;
   --warn:#AD5A06; --warn-soft:#FDF4E6;
@@ -24,9 +24,9 @@
 :root[data-theme="dark"]{
   --bg:#0B0B0C; --bg-deep:#0F0F11; --panel:#141416; --panel-2:#18181B; --panel-3:#202024;
   --line:#2A2A2E; --line-soft:#1F1F23; --line-strong:#3A3A40;
-  --fg:#EDEDEF; --fg-dim:#A3A3AC; --fg-faint:#6C6C75;
+  --fg:#EDEDEF; --fg-dim:#A3A3AC; --fg-faint:#8B8B95;
   --amber:#EDEDEF; --amber-soft:#202024; --amber-line:#3A3A40; --on-amber:#0B0B0C; --amber-hover:#FFFFFF;
-  --sun:#FB8C3C; --sun-soft:rgba(251,140,60,.12);
+  --sun:#FB8C3C; --sun-soft:rgba(251,140,60,.12); --sun-text:#FB8C3C;
   --teal:#3FD1A6; --teal-soft:rgba(63,209,166,.09); --teal-line:rgba(63,209,166,.3); --on-teal:#0B0B0C;
   --ok:#4ADE80; --ok-soft:rgba(74,222,128,.1);
   --warn:#F5B544; --warn-soft:rgba(245,181,68,.1);
@@ -101,7 +101,7 @@ a{color:var(--fg)}
 .tag{font-size:11.5px;font-weight:500;padding:0 7px;border-radius:99px;line-height:19px;min-width:22px;text-align:center;
   background:var(--panel-3);color:var(--fg-dim);font-variant-numeric:tabular-nums}
 .navitem[aria-current="true"] .tag{background:var(--panel)}
-.tag.hot{background:var(--sun-soft);color:var(--sun)}
+.tag.hot{background:var(--sun-soft);color:var(--sun-text)}
 .tag.live{background:var(--teal-soft);color:var(--teal)}
 .railfoot{margin-top:auto;padding:14px 8px 0;border-top:1px solid var(--line-soft);display:grid;gap:8px}
 .tenant{padding:0}
@@ -121,7 +121,6 @@ a{color:var(--fg)}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:5px 10px;border-radius:99px;
   border:1px solid var(--line);background:var(--panel);color:var(--fg-dim);white-space:nowrap}
 .chip b{color:var(--fg);font-weight:600}
-#whoChip{border-color:transparent;background:none;padding:5px 4px}
 .dot{width:6px;height:6px;border-radius:99px;background:var(--fg-faint);flex:0 0 auto}
 .dot.on{background:var(--teal);box-shadow:0 0 0 3px var(--teal-soft);animation:pulse 2.4s infinite}
 .dot.bad{background:var(--bad);box-shadow:0 0 0 3px var(--bad-soft)}
@@ -451,7 +450,7 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1.5px dashed var(--lin
 .rgsteps .dot{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:600;
   background:var(--panel-3);color:var(--fg-dim);box-shadow:none;animation:none}
 .rgsteps li.done .dot{background:var(--teal);color:var(--on-teal)}
-.rgsteps li.cur .dot{background:var(--sun-soft);color:var(--sun);box-shadow:inset 0 0 0 1.5px var(--sun)}
+.rgsteps li.cur .dot{background:var(--sun-soft);color:var(--sun-text);box-shadow:inset 0 0 0 1.5px var(--sun)}
 
 /* next step: the only tinted block and the only filled button on the screen */
 .rgnext{margin:24px 0 10px;padding:18px 20px;border:1px solid var(--line);background:var(--panel-2);border-radius:var(--r);
@@ -459,7 +458,7 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1.5px dashed var(--lin
 .rgnext.idle{box-shadow:inset 3px 0 0 var(--ok)}
 .rgnext-main{display:flex;align-items:center;gap:12px 20px;flex-wrap:wrap}
 .rgnext-txt{flex:1 1 340px;min-width:0}
-.rgk{display:block;font-size:12.5px;font-weight:600;color:var(--sun)}
+.rgk{display:block;font-size:12.5px;font-weight:600;color:var(--sun-text)}
 .rgnext.idle .rgk{color:var(--ok)}
 .rgnext-txt p{margin:4px 0 0;max-width:68ch}
 .rgstatus{margin:0;font-size:15px;font-weight:600}
@@ -524,7 +523,11 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1.5px dashed var(--lin
 /* Details: the form's own buttons, then the two documents as tiles of one size */
 .rgformbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:16px;margin-top:8px;border-top:1px solid var(--line-soft)}
 .rgformbar-l{display:flex;gap:8px;flex-wrap:wrap}
-.rgsavestate{font-size:12.5px;color:var(--fg-faint);min-width:150px;text-align:right}
+.rgsavestate{display:inline-flex;align-items:center;justify-content:flex-end;gap:8px;font-size:12.5px;color:var(--fg-faint);min-width:150px;text-align:right}
+.rgsavestate.busy{color:var(--fg-dim)}
+.rgsavestate.ok{color:var(--ok)}
+.rgsavestate.ok::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.rgsavestate.bad{color:var(--bad);font-weight:550}
 .rgdocs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
 .rgdoc{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;background:var(--panel)}
 .rgdoc-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
@@ -563,6 +566,64 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1.5px dashed var(--lin
 @keyframes bsweep{from{background-position:-40% 0}to{background-position:140% 0}}
 @keyframes bspin{to{transform:rotate(360deg)}}
 
+/* ---------- account menu (top bar) ---------- */
+.acct{position:relative}
+.acctbtn{gap:8px;padding-left:5px}
+.avatar{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--sun-soft);color:var(--sun-text);font-size:11.5px;font-weight:650}
+.chev{width:12px;height:12px;color:var(--fg-faint)}
+.acctmenu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:260px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-lg);padding:6px;display:grid;gap:2px;animation:pop .14s ease-out}
+.acctwho{padding:8px 10px 10px;font-size:12.5px;color:var(--fg-faint);border-bottom:1px solid var(--line-soft);margin-bottom:4px}
+.acctwho b{display:block;color:var(--fg);font-size:13.5px;font-weight:600}
+.acctwho span{display:block;text-transform:capitalize}
+.acctrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;font-size:13.5px}
+.acctitem{text-align:left;padding:8px 10px;border-radius:var(--r-sm);font-size:13.5px}
+.acctitem:hover{background:var(--panel-3)}
+#signout{color:var(--bad)}
+
+/* ---------- customer list search ---------- */
+.lsearch{position:relative;padding:10px 12px;border-bottom:1px solid var(--line-soft)}
+.lsearch input{width:100%;padding:7px 30px 7px 11px;font-size:13.5px}
+.lsearch kbd{position:absolute;right:20px;top:17px;font:11px var(--font-mono);color:var(--fg-faint);border:1px solid var(--line);border-radius:4px;padding:0 5px;line-height:17px;pointer-events:none}
+.lsearch input:focus+kbd{display:none}
+.lnone{margin:8px 2px 0;font-size:13px;color:var(--fg-faint)}
+
+/* ---------- loading outline and empty states ---------- */
+.skel{display:grid;gap:14px;padding:26px 30px}
+.sk{height:12px;border-radius:6px;background:var(--panel-3);position:relative;overflow:hidden}
+.sk.tall{height:24px}.sk.block{height:96px;border-radius:var(--r)}
+.sk.w30{width:30%}.sk.w40{width:40%}.sk.w50{width:50%}.sk.w60{width:60%}.sk.w70{width:70%}
+.sk-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.sk::after{content:'';position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,var(--panel-2),transparent);animation:shimmer 1.3s infinite}
+@keyframes shimmer{to{transform:translateX(100%)}}
+.is-loading{opacity:.5;pointer-events:none;transition:opacity .15s ease-out}
+.empty{display:grid;justify-items:start;gap:4px;padding:22px 18px}
+.empty b{font-size:14px;font-weight:600}
+.empty span{font-size:13px;color:var(--fg-dim);max-width:36ch}
+.empty .btn{margin-top:8px}
+
+/* ---------- Registration: the next step stays in reach while scrolling ---------- */
+.rgstick{position:sticky;bottom:14px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px -8px 0;padding:10px 12px 10px 16px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg),inset 3px 0 0 var(--sun);animation:pop .18s ease-out}
+.rgstick>span{min-width:0;font-size:14px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rgstick .rgk{font-size:11.5px}
+
+/* ---------- phones: thumb-sized controls, the milestones as cards ---------- */
+@media (max-width:700px),(pointer:coarse){
+  .btn,.rgv .btn,.btn.sm,.rgv .btn.sm{min-height:44px}
+  .navitem,.acctitem,.seg button{min-height:40px}
+  .kwchips .chip{min-height:40px}
+}
+@media (max-width:700px){
+  #milestones thead{display:none}
+  #milestones tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"k n p" ". t t" ". v v";gap:3px 10px;padding:12px 14px;border-bottom:1px solid var(--line-soft)}
+  #milestones td{border:0;padding:0}
+  #milestones td:nth-child(1){grid-area:k}#milestones td:nth-child(2){grid-area:n;font-weight:550}#milestones td:nth-child(3){grid-area:t}
+  #milestones td:nth-child(4){grid-area:v}#milestones td:nth-child(5){grid-area:p}
+  .acctmenu{position:fixed;left:12px;right:12px;top:auto;width:auto}
+  .rgstick{margin:8px 0 0}
+}
+
 /* ---------- narrower screens ---------- */
 @media (max-width:1240px){
   .runwrap{grid-template-columns:minmax(0,1fr) minmax(0,300px)}
@@ -590,7 +651,6 @@ canvas.pad{width:100%;height:170px;background:#fff;border:1.5px dashed var(--lin
 }
 @media (max-width:700px){
   .topbar > div:first-child{flex:1 1 100%}
-  #whoChip{display:none}
   .rgpane{padding:18px 16px 8px}
   .rghead h2{font-size:22px}
   .rgsteps{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:12px}

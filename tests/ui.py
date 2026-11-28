@@ -32,6 +32,7 @@ def sup():
 async def sign_in(pg, who):
     if await pg.locator("#shell:not([hidden])").count():
         await pg.keyboard.press("Escape")
+        await pg.locator("#acctBtn").click()
         await pg.locator("#signout").click()
         await pg.wait_for_selector("#gate:not([hidden])")
     await pg.locator(f'[data-as="{who}"]').click()
@@ -65,7 +66,8 @@ async def main():
               not {"calls", "numbers", "run", "docs", "pipeline"} & set(menu))
         check("the day opens on Today", await pg.evaluate("S.view") == "today")
         chips = await pg.locator(".topbar .chip:visible").all_inner_texts()
-        check("the top bar shows who is signed in, nothing technical", len(chips) == 1 and "Signed in" in chips[0], " / ".join(chips))
+        who = await pg.inner_text("#acctName")
+        check("the top bar shows who is signed in, nothing technical", not chips and who.strip() != "Account", " / ".join(chips) or who)
 
         call = pg.locator(".tdrow", has_text="Call Vaishali")
         check("the OTP call to make is listed first", await call.count() == 1 and
@@ -149,6 +151,7 @@ async def main():
             body = await pg.locator("#otherview").inner_text()
             check(f"{view} view renders", needle in body, "" if needle in body else " ".join(body[:160].split()))
 
+        await pg.locator("#acctBtn").click()
         await pg.locator('[data-theme-set="light"]').click()
         await pg.wait_for_timeout(250)
         bg = await pg.evaluate("getComputedStyle(document.body).backgroundColor")

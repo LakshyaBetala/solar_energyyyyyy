@@ -96,6 +96,8 @@ async function login(username, password) {
 
 /* ------------------------------ boot ------------------------------ */
 async function boot() {
+  const startHash = location.hash;
+  S.routeReady = false; lastRoute = '';
   S.view = 'today';  // every sign-in starts the day on what to do now; a click while the data loads still wins
   if (!$('#runview')) { // before any request: a click while the data loads must find its containers
     $('#work').innerHTML = `<div id="runview" hidden></div><div id="otherview"></div>`;
@@ -112,6 +114,8 @@ async function boot() {
   S.inst = await api('/filing').catch(() => []);
   [S.today, S.board] = await Promise.all([api('/today').catch(() => null), api('/board').catch(() => null)]);
   $('#whoName').textContent = S.me.name;
+  $('#acctInit').textContent = (S.me.name || '?').trim()[0].toUpperCase();
+  $('#acctName').textContent = (S.me.name || '').trim().split(' ')[0];
   $('#whoRole').textContent = S.me.role;
   if (S.single) { $('#whoChip').hidden = true; $('#signout').hidden = true; }   // one owner on their own computer: nobody to sign in or out
   $('#llmChip').innerHTML = S.llm.enabled
@@ -128,6 +132,8 @@ async function boot() {
   if (S.activeRun) { attachRun(S.activeRun); S.view = 'run'; }
   render();
   loadToday();
+  openRoute(startHash);   // a reload or a shared link opens the screen and customer it points to
+  S.routeReady = true;
 }
 
 function counters() {
@@ -172,7 +178,11 @@ function render() {
   rv.hidden = S.view !== 'run'; ov.hidden = S.view === 'run';
   if (S.view === 'run') { runHead(); paintSteps(); paintShots(); paintRunState(); }
   else {
+    const ae = document.activeElement, caret = ae && ae.matches && ae.matches('[data-lsearch]') ? ae.selectionStart : null;
     ov.innerHTML = VIEWS[S.view]();
+    listFilter();
+    if (caret !== null) { const i = $('[data-lsearch]'); if (i) { i.focus(); i.setSelectionRange(caret, caret); } }
+    regStick();
     $$('#otherview [data-i],#otherview [data-r],#otherview [data-f]').forEach(el => { const v = drafts.get(draftKey(el)); if (v !== undefined) el.value = v; });
     if (S.view === 'calls') playTranscript(false);
     // what each Details box showed when drawn (the saved values): a box that differs from this is unsaved
@@ -180,7 +190,69 @@ function render() {
     if ($('#regSave')) regSyncButtons();   // Save waits for the compulsory boxes from the moment the screen is drawn
   }
   counters();
+  syncRoute();
 }
+
+/* The address follows the screen and the customer (#reg/SS-2051): refresh, Back and a shared link land on the same place. */
+const VIEW_LOAD = { reg: c => loadReg(c), inst: c => loadInst(c), closeout: c => loadCo(c), reports: () => loadReports(),
+  today: () => loadToday(), pipeline: () => loadToday(), docs: () => S.extract || loadExtract(S.docCid) };
+let lastRoute = '', routing = false;
+function syncRoute() {
+  if (routing || !S.routeReady) return;
+  const cid = ['reg', 'inst', 'closeout'].includes(S.view) ? curCid() : '';
+  const h = '#' + S.view + (cid ? '/' + cid : '');
+  if (location.hash === h) { lastRoute = h; return; }
+  // the first customer filling in on a screen just opened replaces the entry; a new screen or customer is a step Back undoes
+  const fill = lastRoute === '#' + S.view;
+  history[!lastRoute || fill ? 'replaceState' : 'pushState'](null, '', h);
+  lastRoute = h;
+}
+function openRoute(hash) {
+  const [v, cid] = decodeURIComponent((hash || '').replace(/^#/, '')).split('/');
+  const nav = v && $(`.navitem[data-view="${v}"]`);
+  if (!nav || nav.hidden || !TITLES[v] || v === 'run') return;
+  routing = true; S.view = v; render(); routing = false;
+  const ld = VIEW_LOAD[v]; if (ld) ld(cid || undefined);
+}
+window.addEventListener('popstate', () => { if (S.me) { lastRoute = location.hash; openRoute(location.hash); } });
+
+/* Search above each customer list: filters as you type, "/" jumps to it. */
+const LSEARCH = () => `<div class="lsearch"><input type="search" data-lsearch placeholder="Search name or ID" value="${esc(S.lq || '')}" aria-label="Search customers" autocomplete="off"><kbd aria-hidden="true">/</kbd>
+  <p class="lnone" hidden>No customer matches that.</p></div>`;
+function listFilter() {
+  const q = (S.lq || '').trim().toLowerCase(), rows = $$('#otherview .colist > button');
+  let shown = 0;
+  rows.forEach(b => { const hit = !q || b.textContent.toLowerCase().includes(q); b.hidden = !hit; shown += hit; });
+  const none = $('#otherview .lnone'); if (none) none.hidden = !q || shown > 0;
+}
+document.addEventListener('input', e => { if (e.target.matches && e.target.matches('[data-lsearch]')) { S.lq = e.target.value; listFilter(); } });
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || (e.target.closest && e.target.closest('input,textarea,select,[contenteditable]'))) return;
+  const i = $('[data-lsearch]'); if (i) { e.preventDefault(); i.focus(); i.select(); }
+});
+
+/* Registration: once the next-step block scrolls away, a slim bar keeps its button in reach. */
+let stickObs;
+function regStick() {
+  if (stickObs) { stickObs.disconnect(); stickObs = null; }
+  const bar = $('#rgStick'), nx = $('.rgnext');
+  if (!bar || !nx || !('IntersectionObserver' in window)) return;
+  stickObs = new IntersectionObserver(([en]) => { bar.hidden = en.isIntersecting || en.boundingClientRect.top > 0; }, { root: $('#work') });
+  stickObs.observe(nx);
+}
+
+/* A grey outline of the screen while a customer loads, so nothing flashes or jumps. */
+const SKEL = () => `<div class="card skel" aria-busy="true" aria-label="Loading"><div class="sk w30 tall"></div><div class="sk w50"></div>
+  <div class="sk-row"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
+  <div class="sk block"></div><div class="sk w70"></div><div class="sk w60"></div><div class="sk w40"></div></div>`;
+// switching customer: the list marks the new one at once and the open page dims (and takes no clicks) until the new one arrives
+function paneLoading(btn) {
+  if (btn.getAttribute('aria-current') === 'true') return;
+  $$('#otherview .colist > button[aria-current="true"]').forEach(b => b.setAttribute('aria-current', 'false'));
+  btn.setAttribute('aria-current', 'true');
+  const p = $('#otherview .cowrap > :last-child'); if (p) { p.classList.add('is-loading'); p.setAttribute('aria-busy', 'true'); }
+}
+const EMPTY = (title, text, btn) => `<div class="empty"><b>${title}</b><span>${text}</span>${btn || ''}</div>`;
 
 /* ------------------------------ pipeline ------------------------------ */
 VIEWS.pipeline = () => {
@@ -844,15 +916,21 @@ const regDrafts = g => {
 async function regAutosave(el) {
   if (!el || !S.regCid || el.value === el.dataset.shown || !regFieldCheck(el)) return;
   const st = $('#regSaveState'), cid = S.regCid;
-  if (st) st.textContent = 'Saving…';
+  const say = (cls, html) => { if (st && st.isConnected) { st.className = 'rgsavestate' + (cls ? ' ' + cls : ''); st.innerHTML = html; } };
+  say('busy', 'Saving…');
   try {
     const g = await api('/registration/' + cid, { method: 'PUT', body: { [el.dataset.r]: el.value } });
     if (S.regCid !== cid) return;
     S.regData = g; el.dataset.shown = el.value;
     if (el.dataset.r === 'loan_required') { render(); return; }
     const d = $('#regDrafts'); if (d) d.innerHTML = regDrafts(g);
-    if (st) st.textContent = 'Saved ✓';
-  } catch (err) { if (st) st.textContent = 'Not saved'; toast(err.message, true); }
+    say('ok', `Saved ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+  } catch (err) {
+    S.saveRetry = el;
+    const what = (($(`label[for="${el.id}"]`) || {}).textContent || 'this box').replace('*', '').trim();
+    say('bad', `Couldn’t save ${esc(what)} <button type="button" class="btn sm" id="regRetry">Retry</button>`);
+    toast(err.message, true);
+  }
 };
 const regDocRead = (g, k) => {
   const st = (g.doc_status || {})[k];
@@ -894,12 +972,13 @@ VIEWS.reg = () => {
   const n = k => list.filter(k).length, inProg = n(x => x.done < x.total), waiting = n(x => x.next.act === 'wait'), done = n(x => x.done === x.total);
   const left = `<aside class="card rglist"><div class="ch"><h3>Customers</h3><span class="spacer"></span>
     <button class="btn sm" id="regNew"${can('operator') ? '' : ' disabled'}>+ New customer</button></div>
+    ${list.length > 1 ? LSEARCH() : ''}
     ${list.length ? `<p class="rgcount">${inProg} in progress${waiting ? ` · ${waiting} waiting for e-sign` : ''}${done ? ` · ${done} done` : ''}</p>` : ''}
     <div class="colist">${list.length ? list.map(x => `<button data-reg="${x.id}" aria-current="${x.id === S.regCid}">
       <span class="row" style="justify-content:space-between;gap:8px"><b>${esc(x.name)}</b><span class="sub mono">${x.id}</span></span>
       <span class="row" style="justify-content:space-between;gap:8px"><span class="rgstate ${x.done === x.total ? 'ok' : x.next.act === 'wait' ? 'info' : x.next.act === 'register' ? 'live' : 'warn'}">${x.done === x.total ? 'Done' : esc(x.next.label)}</span>
-      <span class="sub">${x.done} of ${x.total}</span></span></button>`).join('') : '<p class="rgnote" style="padding:14px">No customers yet. Press New customer and type their name.</p>'}</div></aside>`;
-  if (!g) return `<div class="rgv"><div class="cowrap">${left}<div></div></div></div>`;
+      <span class="sub">${x.done} of ${x.total}</span></span></button>`).join('') : EMPTY('No customers yet', 'Press New customer and type their name. The documents fill in the rest.')}</div></aside>`;
+  if (!g) return `<div class="rgv"><div class="cowrap">${left}${list.length ? SKEL() : '<div></div>'}</div></div>`;
 
   const c = g.customer, d = g.data, v = g.values, op = can('operator') ? '' : ' disabled', act = g.next.act;
   const stepDone = k => g.steps.find(s => s.key === k).done, regd = stepDone('registered');
@@ -928,6 +1007,8 @@ VIEWS.reg = () => {
   const primary = !act ? `<p class="rgstatus" id="regNext">&#10003; ${esc(g.next.label)}</p>`
     : act === 'wait' ? `<p class="rgstatus" id="regNext">${esc(g.next.label)}</p><button class="btn" id="regSign"${op}>Send the link again</button>`
     : `<button class="btn ${act === 'check' ? '' : 'go '}lg" id="regNext" data-act="${act}"${act === 'vsig' || can('operator') ? '' : ' disabled'}>${esc(act === 'details' && !regd ? 'Add the missing details' : g.next.label)}</button>`;
+  const stick = !act || act === 'wait' ? '' : `<div class="rgstick" id="rgStick" hidden><span><span class="rgk">Next step</span>${esc(c.name)}</span>
+    <button class="btn go sm" data-stickact="1"${act === 'vsig' || can('operator') ? '' : ' disabled'}>${esc(act === 'details' && !regd ? 'Add the missing details' : g.next.label)}</button></div>`;
   // an issue already shown beside its value under "Check what was read" is not repeated here
   const open = g.validation.issues.filter(i => !flagged.some(f => f.note && f.note === i.message));
   const issues = !regd && open.length ? `<div class="rgissues" id="regIssues"><p>Also needed before registering:</p><ul>${open.map(i =>
@@ -1002,7 +1083,7 @@ VIEWS.reg = () => {
   <section class="rgpane" aria-labelledby="rgName">
     <header class="rghead"><h2 id="rgName">${esc(c.name)}</h2>
       <p class="rgfacts">${c.id} · consumer ${esc(c.consumer_no || 'not read yet')} · ${c.kw ? esc(c.kw) + ' kW' : 'capacity not set'}${c.application_no ? ' · ' + esc(c.application_no) : ''}</p></header>
-    ${steps}${next}${order.join('')}
+    ${steps}${next}${order.join('')}${stick}
     ${can('supervisor') ? `<div class="rgactions" style="justify-content:flex-end;padding:20px 0 6px"><button class="btn danger sm" id="regDelete">Delete this customer</button></div>` : ''}
   </section></div></div>`;
 };
@@ -1085,7 +1166,7 @@ function coNext(g) { // the one thing to do next for this customer
 
 VIEWS.closeout = () => {
   const g = S.coData, list = S.co;
-  if (!g) return '<div class="card"><div class="cb hint">Loading…</div></div>';
+  if (!g) return list && !list.length ? `<div class="card">${EMPTY('Nothing to close out yet', 'A customer comes here once the installation is done.', '<button class="btn sm" data-view="inst">Go to Installation</button>')}</div>` : SKEL();
   const c = g.customer, d = g.data, ms = g.docs.filter(x => x.slot);
   const has = k => g.docs.find(x => x.key === k).state !== 'missing';
   const next = coNext(g);
@@ -1112,6 +1193,7 @@ VIEWS.closeout = () => {
   <div class="cowrap">
     <div class="card"><div class="ch"><h3>Installed</h3><span class="spacer"></span>
       <button class="btn sm" id="coKey"${can('operator') ? '' : ' disabled'}>Connect co-pilot</button></div>
+      ${list.length > 1 ? LSEARCH() : ''}
       <div class="colist">${list.map(x => `<button data-co="${x.id}" aria-current="${x.id === S.coCid}">
         <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
         <div>${x.uploaded ? '<span class="pill ok">On MSEDCL</span>' : x.built === x.total ? '<span class="pill live">Ready to upload</span>'
@@ -1331,11 +1413,12 @@ VIEWS.inst = () => {
     <div class="kpi"><div class="k">Waiting for the dealer</div><div class="v num">${list.filter(x => x.next.act === 'dealer').length}</div><div class="d">DCR panels not transferred</div></div>
     <div class="kpi"><div class="k">Milestone 2 done</div><div class="v num">${list.filter(x => x.done === x.total).length}</div><div class="d">six documents on MSEDCL</div></div></div>`;
   const left = `<div class="card"><div class="ch"><h3>Customers</h3></div>
+    ${list.length > 1 ? LSEARCH() : ''}
     <div class="colist">${list.length ? list.map(x => `<button data-inst="${x.id}" aria-current="${x.id === S.instCid}">
       <div class="row" style="justify-content:space-between"><b>${esc(x.name)}</b><span class="mono sub">${x.id}</span></div>
       <div><span class="pill ${x.paused ? 'idle' : x.done === x.total ? 'ok' : ['dealer', 'wait_field', 'ask_accept'].includes(x.next.act) ? 'info' : 'warn'}">${x.paused ? 'Paused' : x.done === x.total ? 'Done' : esc(x.next.label)}</span>
-      <span class="sub">${x.done}/${x.total}</span></div></button>`).join('') : '<div class="cb hint">Customers appear here once registered.</div>'}</div></div>`;
-  if (!g) return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}<div></div></div></div>`;
+      <span class="sub">${x.done}/${x.total}</span></div></button>`).join('') : EMPTY('No installations yet', 'A customer comes here once their agreement is on PM Surya Ghar.', '<button class="btn sm" data-view="reg">Go to Registration</button>')}</div></div>`;
+  if (!g) return `<div class="grid" style="gap:14px">${top}<div class="cowrap">${left}${list.length ? SKEL() : '<div></div>'}</div></div>`;
   const c = g.customer, d = g.data, op = can('operator') ? '' : ' disabled', fs = g.field;
   const input = f => {
     const v = d[f.key] || '';
@@ -1585,7 +1668,7 @@ VIEWS.audit = () => `<div class="grid" style="gap:14px">
 const mins = s => s == null ? '—' : s < 60 ? `${s} s` : `${(s / 60).toFixed(1)} min`;
 VIEWS.reports = () => {
   const k = S.kpi, h = S.health, sup = can('supervisor') ? '' : ' disabled';
-  if (!k) return '<div class="card"><div class="cb hint">Loading…</div></div>';
+  if (!k) return SKEL();
   const ms = `<div class="card raise" id="milestones"><div class="ch"><h3>The six milestones, measured</h3><span class="spacer"></span>
     <span class="hint">worked out from what Solara records; no stopwatch sheet</span></div>
     <div class="tscroll"><table><thead><tr><th></th><th>Milestone</th><th>Target</th><th>Now</th><th></th></tr></thead>
@@ -1729,7 +1812,7 @@ document.addEventListener('click', async e => {
   if (t.id === 'monthXlsx' || t.id === 'monthPdf') { window.open(`/api/exports/month.${t.id === 'monthXlsx' ? 'xlsx' : 'pdf'}?month=${$('#month').value}`, '_blank'); return; }
 
   /* installation */
-  if (t.dataset.inst) { loadInst(t.dataset.inst); return; }
+  if (t.dataset.inst) { paneLoading(t); loadInst(t.dataset.inst); return; }
   if (t.id === 'instNext') { instAct(t.dataset.act); return; }
   if (t.hasAttribute('data-isave')) {
     // only what was changed here: the co-pilot or the field page may have saved other values meanwhile
@@ -1784,7 +1867,9 @@ document.addEventListener('click', async e => {
   if (t.id === 'instAccepted') { closeModal(); if (await instPost('/mark', { step: 'accepted' })) toast('Marked accepted'); return; }
 
   /* registration */
-  if (t.dataset.reg) { loadReg(t.dataset.reg); return; }
+  if (t.dataset.reg) { paneLoading(t); loadReg(t.dataset.reg); return; }
+  if (t.id === 'regRetry') { const el = S.saveRetry; S.saveRetry = null; (el && el.isConnected ? [el] : $$('[data-r]')).forEach(regAutosave); return; }
+  if (t.dataset.stickact) { $('#regNext')?.click(); return; }
   if (t.id === 'regNext') { regAct(t.dataset.act); return; }
   if (t.id === 'regNew') {
     modal('New customer', 'Just the name to start. Everything else comes from the documents.',
@@ -1884,7 +1969,7 @@ This cannot be undone.`)) return;
   if (t.id === 'regApproved') { if (await regPost('/mark', { step: 'customer_approved' })) toast('Approved by the customer. Milestone 1 done for this customer.'); return; }
 
   /* close-out */
-  if (t.dataset.co) { loadCo(t.dataset.co); return; }
+  if (t.dataset.co) { paneLoading(t); loadCo(t.dataset.co); return; }
   if (t.id === 'coNext') { coAct(t.dataset.act); return; }
   if (t.id === 'coSign') { coAct('sign'); return; }
   if (t.id === 'coSave') {
@@ -1954,7 +2039,7 @@ This cannot be undone.`)) return;
     try { localStorage.setItem('solara-theme', t.dataset.themeSet); } catch { }
     syncTheme(); return;
   }
-  if (t.id === 'signout') { await api('/logout', { method: 'POST' }); S.me = null; showGate(); return; }
+  if (t.id === 'signout') { await api('/logout', { method: 'POST' }); S.me = null; history.replaceState(null, '', location.pathname + location.search); showGate(); return; }   // the next sign-in starts on Today
   if (t.hasAttribute('data-close')) return closeModal();
   if (t.dataset.act === 'escalate' || t.dataset.act === 'reject' || t.dataset.act === 'resend') {
     if (S.hold) send(S.hold, t.dataset.act, {});
@@ -2232,7 +2317,17 @@ $('#setupForm').addEventListener('submit', async e => {
   } catch (err) { showGate(err.message); }
 });
 $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); acctMenu(false); } });
+/* the account menu: who is signed in, the theme, the Chrome extension, sign out */
+function acctMenu(open) {
+  const m = $('#acctMenu'), b = $('#acctBtn'); if (!m) return;
+  m.hidden = !open; b.setAttribute('aria-expanded', String(!!open));
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#acctBtn')) return acctMenu($('#acctMenu').hidden);
+  const inMenu = e.target.closest('#acctMenu');
+  if (!inMenu || e.target.closest('[data-connect],#signout')) acctMenu(false);
+});
 
 async function uploadBill(file) {
   const fd = new FormData(); fd.append('file', file);

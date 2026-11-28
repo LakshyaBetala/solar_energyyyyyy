@@ -90,13 +90,21 @@
       <div class="spacer"></div>
       <span class="chip" hidden id="workerChip" data-demo><span class="dot on"></span>Agent worker <b>online</b></span>
       <span class="chip" hidden id="llmChip" title="Model-assisted extraction"></span>
-      <span class="chip" id="whoChip">Signed in <b id="whoName"></b> &middot; <span id="whoRole"></span></span>
-      <div class="seg" role="group" aria-label="Theme">
-        <button data-theme-set="light" aria-pressed="false">Light</button>
-        <button data-theme-set="dark" aria-pressed="false">Dark</button>
+      <div class="acct">
+        <button class="btn sm acctbtn" id="acctBtn" aria-haspopup="true" aria-expanded="false" aria-controls="acctMenu">
+          <span class="avatar" id="acctInit" aria-hidden="true"></span><span id="acctName">Account</span>
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="acctmenu" id="acctMenu" hidden>
+          <div class="acctwho" id="whoChip">Signed in as <b id="whoName"></b><span id="whoRole"></span></div>
+          <div class="acctrow"><span>Theme</span>
+            <div class="seg" role="group" aria-label="Theme">
+              <button data-theme-set="light" aria-pressed="false">Light</button>
+              <button data-theme-set="dark" aria-pressed="false">Dark</button>
+            </div></div>
+          <button class="acctitem" data-connect>Connect the Chrome extension</button>
+          <button class="acctitem" id="signout">Sign out</button>
+        </div>
       </div>
-      <button class="btn sm" data-connect>Connect extension</button>
-      <button class="btn sm" id="signout">Sign out</button>
     </header>
     <main class="work" id="work"></main>
   </div>
